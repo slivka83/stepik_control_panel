@@ -95,6 +95,7 @@ async def exchange_code_for_token(code: str, client_id: str, client_secret: str)
                 "client_id": client_id,
                 "client_secret": client_secret,
                 "redirect_uri": "http://localhost:8000/api/auth/callback",
+                "scope": "read",
             },
             timeout=30.0,
         )

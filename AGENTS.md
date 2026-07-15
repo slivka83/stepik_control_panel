@@ -34,6 +34,19 @@ docker-compose up --build
 - Пакетная загрузка: `?ids[]=1&ids[]=2` (side-loading)
 - Используемые эндпоинты: `courses/{id}`, `sections?course=`, `units?section=`, `steps?lesson=`, `course-grades?course=`, `submissions?course=&status=wrong`
 
+## OAuth2 (только read)
+
+При обмене кода на токен **обязательно** передавать `scope=read`:
+
+```bash
+curl -X POST \
+  -d "grant_type=client_credentials&scope=read" \
+  -u "CLIENT_ID:CLIENT_SECRET" \
+  https://stepik.org/oauth2/token/
+```
+
+В коде это реализовано в `backend/app/services/stepik_api.py` → `exchange_code_for_token()`.
+
 ## Обработка Rate Limit
 
 - Redis Token Bucket для rate limiting
