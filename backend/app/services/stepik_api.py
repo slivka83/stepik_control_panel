@@ -49,8 +49,10 @@ async def get_course(course_id: int, token: str | None = None) -> dict:
     return data.get("courses", [{}])[0]
 
 
-async def get_courses_batch(course_ids: list[int], token: str | None = None) -> list[dict]:
-    params = {"ids[]": course_ids}
+async def get_courses(user_id: int | None = None, token: str | None = None) -> list[dict]:
+    params: dict[str, Any] = {}
+    if user_id:
+        params["teacher"] = user_id
     data = await _request("GET", "/courses", token, params)
     return data.get("courses", [])
 
@@ -79,10 +81,50 @@ async def get_course_grades(course_id: int, token: str | None = None) -> list[di
     return data.get("course-grades", [])
 
 
+async def get_courses_batch(ids: list[int], token: str | None = None) -> list[dict]:
+    params = {"ids[]": ids}
+    data = await _request("GET", "/courses", token, params)
+    return data.get("courses", [])
+
+
 async def get_wrong_submissions(course_id: int, token: str | None = None) -> list[dict]:
     params = {"course": course_id, "status": "wrong"}
     data = await _request("GET", "/submissions", token, params)
     return data.get("submissions", [])
+
+
+async def get_user_profile(token: str) -> dict:
+    data = await _request("GET", "/profiles", token)
+    profiles = data.get("profiles", [])
+    if profiles:
+        return profiles[0]
+    users_data = await _request("GET", "/users", token)
+    users = users_data.get("users", [])
+    return users[0] if users else {}
+
+
+async def get_user_courses(course_id: int, token: str) -> list[dict]:
+    params = {"course": course_id}
+    data = await _request("GET", "/user-courses", token, params)
+    return data.get("user-courses", [])
+
+
+async def refresh_access_token(refresh_token: str, client_id: str, client_secret: str) -> dict:
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://stepik.org/oauth2/token/",
+            data={
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "scope": "read",
+            },
+            timeout=30.0,
+        )
+        if response.status_code >= 400:
+            raise StepikAPIError(response.status_code, response.text)
+        return response.json()
 
 
 async def exchange_code_for_token(code: str, client_id: str, client_secret: str) -> dict:
@@ -94,7 +136,7 @@ async def exchange_code_for_token(code: str, client_id: str, client_secret: str)
                 "code": code,
                 "client_id": client_id,
                 "client_secret": client_secret,
-                "redirect_uri": "http://localhost:8000/api/auth/callback",
+                "redirect_uri": "http://localhost:3000/api/auth/callback",
                 "scope": "read",
             },
             timeout=30.0,

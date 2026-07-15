@@ -4,6 +4,7 @@ import httpx
 from app.services.stepik_api import (
     _request, get_course, get_courses_batch, get_sections,
     get_units, get_steps, get_course_grades, get_wrong_submissions,
+    get_user_profile, get_user_courses, refresh_access_token,
     exchange_code_for_token, StepikAPIError, STEPIK_API_BASE
 )
 
@@ -284,3 +285,77 @@ class TestExchangeCodeForToken:
 
             with pytest.raises(StepikAPIError):
                 await exchange_code_for_token("bad_code", "client_id", "client_secret")
+
+
+class TestGetUserProfile:
+    @pytest.mark.asyncio
+    async def test_returns_profile_from_profiles_endpoint(self):
+        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = {"profiles": [{"id": 123, "email": "test@test.com"}]}
+            result = await get_user_profile("my_token")
+            assert result == {"id": 123, "email": "test@test.com"}
+            mock_req.assert_called_once_with("GET", "/profiles", "my_token")
+
+    @pytest.mark.asyncio
+    async def test_falls_back_to_users_endpoint(self):
+        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
+            mock_req.side_effect = [
+                {"profiles": []},
+                {"users": [{"id": 456, "first_name": "John"}]},
+            ]
+            result = await get_user_profile("my_token")
+            assert result == {"id": 456, "first_name": "John"}
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_dict_when_no_data(self):
+        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
+            mock_req.side_effect = [{"profiles": []}, {"users": []}]
+            result = await get_user_profile("my_token")
+            assert result == {}
+
+
+class TestGetUserCourses:
+    @pytest.mark.asyncio
+    async def test_returns_user_courses(self):
+        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = {
+                "user-courses": [{"id": 1, "last_viewed_at": "2024-01-01"}]
+            }
+            result = await get_user_courses(100, "my_token")
+            assert len(result) == 1
+            mock_req.assert_called_once_with("GET", "/user-courses", "my_token", {"course": 100})
+
+
+class TestRefreshAccessToken:
+    @pytest.mark.asyncio
+    async def test_refresh_success(self):
+        with patch('httpx.AsyncClient') as mock_client:
+            mock_response = MagicMock()
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                "access_token": "new_access",
+                "refresh_token": "new_refresh",
+                "expires_in": 3600,
+            }
+            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client.post = AsyncMock(return_value=mock_response)
+
+            result = await refresh_access_token("old_refresh", "client_id", "client_secret")
+            assert result["access_token"] == "new_access"
+            call_kwargs = mock_client.post.call_args[1]
+            assert call_kwargs["data"]["grant_type"] == "refresh_token"
+            assert call_kwargs["data"]["scope"] == "read"
+
+    @pytest.mark.asyncio
+    async def test_refresh_failure(self):
+        with patch('httpx.AsyncClient') as mock_client:
+            mock_response = MagicMock()
+            mock_response.status_code = 400
+            mock_response.text = "Invalid refresh token"
+            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
+            mock_client.post = AsyncMock(return_value=mock_response)
+
+            with pytest.raises(StepikAPIError):
+                await refresh_access_token("bad_refresh", "client_id", "client_secret")

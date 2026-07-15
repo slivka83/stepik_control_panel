@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import api from '../api'
 
 export default function Courses() {
   const [courses, setCourses] = useState([])
@@ -8,7 +8,7 @@ export default function Courses() {
   useEffect(() => {
     const fetchCourses = async () => {
       try {
-        const res = await axios.get('/api/courses')
+        const res = await api.get('/api/courses')
         setCourses(res.data.courses || [])
       } catch (err) {
         console.error('Courses fetch error:', err)
@@ -63,6 +63,7 @@ export default function Courses() {
                 </span>
               </div>
               <div className="flex items-center gap-4 text-sm text-gray-400">
+                <span className="font-mono">{course.enrollment_count || 0} студентов</span>
                 <span className="font-mono">Score: {course.health_score}</span>
               </div>
               <div className="mt-4 flex gap-2">

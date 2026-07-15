@@ -8,7 +8,8 @@ class Settings(BaseSettings):
 
     stepik_client_id: str = ""
     stepik_client_secret: str = ""
-    stepik_redirect_uri: str = "http://localhost:8000/api/auth/callback"
+    stepik_redirect_uri: str = "http://localhost:3000/api/auth/callback"
+    stepik_user_id: int = 0
 
     encryption_key: str = ""
     secret_key: str = "dev-secret-key"

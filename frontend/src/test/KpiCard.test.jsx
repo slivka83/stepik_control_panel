@@ -1,19 +1,24 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import KpiCard from '../components/KpiCard'
 
 describe('KpiCard', () => {
-  it('renders title', () => {
-    render(<KpiCard title="Test Title" value={100} />)
-    expect(screen.getByText('Test Title')).toBeInTheDocument()
+  it('renders title text', () => {
+    render(<KpiCard title="Доход за месяц" value={50000} />)
+    expect(screen.getByText('Доход за месяц')).toBeInTheDocument()
   })
 
-  it('renders with prefix', () => {
+  it('renders numeric value with CountUp', () => {
+    render(<KpiCard title="Студенты" value={150} />)
+    expect(screen.getByText('Студенты')).toBeInTheDocument()
+  })
+
+  it('renders prefix', () => {
     render(<KpiCard title="Revenue" value={5000} prefix="$" />)
     expect(screen.getByText('$')).toBeInTheDocument()
   })
 
-  it('renders with suffix', () => {
+  it('renders suffix', () => {
     render(<KpiCard title="Revenue" value={5000} suffix=" ₽" />)
     expect(screen.getByText('₽')).toBeInTheDocument()
   })
@@ -23,13 +28,28 @@ describe('KpiCard', () => {
     expect(container.firstChild).toHaveClass('glass-panel')
   })
 
-  it('renders trend up', () => {
+  it('renders trend up indicator', () => {
     const { container } = render(<KpiCard title="Growth" value={100} trend={12} />)
     expect(container.textContent).toContain('12%')
   })
 
-  it('renders trend down', () => {
+  it('renders trend down indicator', () => {
     const { container } = render(<KpiCard title="Decline" value={100} trend={-5} />)
     expect(container.textContent).toContain('5%')
+  })
+
+  it('renders zero value', () => {
+    render(<KpiCard title="Empty" value={0} />)
+    expect(screen.getByText('Empty')).toBeInTheDocument()
+  })
+
+  it('renders large numbers', () => {
+    render(<KpiCard title="Big" value={1000000} />)
+    expect(screen.getByText('Big')).toBeInTheDocument()
+  })
+
+  it('does not render trend when trend prop is absent', () => {
+    const { container } = render(<KpiCard title="No trend" value={100} />)
+    expect(container.textContent).not.toContain('%')
   })
 })

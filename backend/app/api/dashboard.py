@@ -10,6 +10,51 @@ from app.api.auth import get_user
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
+@router.get("/alerts")
+async def get_alerts(user=Depends(get_user), db: AsyncSession = Depends(get_db)):
+    courses_result = await db.execute(
+        select(Course).where(Course.user_id == user.id)
+    )
+    courses = courses_result.scalars().all()
+    alerts = []
+
+    for course in courses:
+        certs_count_result = await db.execute(
+            select(func.count(StudentEnrollment.id))
+            .where(
+                StudentEnrollment.course_id == course.id,
+                StudentEnrollment.points_earned >= 100,
+                StudentEnrollment.certificate_issued == False,
+            )
+        )
+        certs_pending = certs_count_result.scalar() or 0
+        if certs_pending > 0:
+            alerts.append({
+                "type": "warning",
+                "message": f"{certs_pending} студентов набрали проходной балл, но не получили сертификат",
+                "link": f"https://stepik.org/course/{course.stepik_course_id}/certificates",
+                "link_text": "Открыть на Stepik →",
+            })
+
+        low_score_result = await db.execute(
+            select(func.count(StudentEnrollment.id))
+            .where(
+                StudentEnrollment.course_id == course.id,
+                StudentEnrollment.points_earned == 0,
+            )
+        )
+        low_score = low_score_result.scalar() or 0
+        if low_score > 0 and low_score > 10:
+            alerts.append({
+                "type": "error",
+                "message": f"{low_score} студентов на курсе «{course.title}» не набрали ни одного балла",
+                "link": f"https://stepik.org/course/{course.stepik_course_id}/students",
+                "link_text": "Посмотреть на Stepik →",
+            })
+
+    return {"alerts": alerts}
+
+
 @router.get("/kpi")
 async def get_kpi(user=Depends(get_user), db: AsyncSession = Depends(get_db)):
     courses_result = await db.execute(
@@ -38,7 +83,7 @@ async def get_kpi(user=Depends(get_user), db: AsyncSession = Depends(get_db)):
         .where(
             FinancialTransaction.course_id.in_(course_ids),
             FinancialTransaction.is_refund == False,
-            FinancialTransaction.transaction_date >= datetime.now(timezone.utc).replace(day=1),
+            FinancialTransaction.transaction_date >= datetime.now(timezone.utc).replace(day=1, tzinfo=None),
         )
     )
     total_revenue = float(revenue_result.scalar() or 0)
@@ -72,7 +117,7 @@ async def get_cohorts(user=Depends(get_user), db: AsyncSession = Depends(get_db)
     if not course_ids:
         return {"active": 0, "passive": 0, "fading": 0, "sleeping": 0}
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     cohorts = {"active": 0, "passive": 0, "fading": 0, "sleeping": 0}
 
     for status, days_min, days_max in [
@@ -105,23 +150,28 @@ async def get_revenue(user=Depends(get_user), db: AsyncSession = Depends(get_db)
     if not course_ids:
         return {"months": []}
 
+    month_col = func.date_trunc("month", FinancialTransaction.transaction_date)
+
     result = await db.execute(
         select(
-            func.date_trunc("month", FinancialTransaction.transaction_date).label("month"),
+            month_col.label("month"),
             func.sum(FinancialTransaction.amount).label("revenue"),
         )
         .where(
             FinancialTransaction.course_id.in_(course_ids),
             FinancialTransaction.is_refund == False,
         )
-        .group_by(func.date_trunc("month", FinancialTransaction.transaction_date))
-        .order_by(func.date_trunc("month", FinancialTransaction.transaction_date))
+        .group_by(month_col)
+        .order_by(month_col)
     )
     rows = result.all()
 
+    if not rows:
+        return {"months": []}
+
     return {
         "months": [
-            {"month": row.month.isoformat(), "revenue": float(row.revenue)}
+            {"month": row.month.isoformat(), "revenue": float(row.revenue or 0)}
             for row in rows
         ]
     }

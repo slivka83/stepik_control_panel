@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 
 const navItems = [
   { to: '/', label: 'Дашборд', icon: '◈' },
@@ -8,6 +9,8 @@ const navItems = [
 ]
 
 export default function Layout({ children }) {
+  const { user, loading, login, logout } = useAuth()
+
   return (
     <div className="flex min-h-screen bg-space-black">
       <aside className="w-16 lg:w-56 bg-space-gray border-r border-cyber-blue/10 flex flex-col items-center lg:items-start py-6">
@@ -50,10 +53,30 @@ export default function Layout({ children }) {
         <header className="h-14 bg-space-gray/50 border-b border-cyber-blue/10 flex items-center px-6 backdrop-blur-sm">
           <h2 className="text-white font-medium">Stepik Control Panel</h2>
           <div className="ml-auto flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-neon-green animate-pulse"></div>
-              <span className="text-xs text-gray-400 font-mono">SYNCED</span>
-            </div>
+            {loading ? (
+              <span className="text-xs text-gray-500 font-mono animate-pulse">...</span>
+            ) : user ? (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-neon-green animate-pulse"></div>
+                  <span className="text-xs text-gray-400 font-mono">SYNCED</span>
+                </div>
+                <span className="text-xs text-gray-500 font-mono">ID: {user.stepik_id}</span>
+                <button
+                  onClick={logout}
+                  className="px-3 py-1 text-xs text-crimson-alert border border-crimson-alert/30 rounded-lg hover:bg-crimson-alert/10 transition-colors"
+                >
+                  Выйти
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={login}
+                className="px-4 py-1.5 text-xs text-cyber-blue border border-cyber-blue/30 rounded-lg hover:bg-cyber-blue/10 transition-colors font-medium"
+              >
+                Войти через Stepik
+              </button>
+            )}
           </div>
         </header>
 

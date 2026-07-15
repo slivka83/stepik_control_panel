@@ -1,4 +1,5 @@
 import { MemoryRouter } from 'react-router-dom'
+import { AuthProvider } from '../contexts/AuthContext'
 
 const ROUTER_FUTURE = {
   v7_startTransition: true,
@@ -8,7 +9,9 @@ const ROUTER_FUTURE = {
 export default function TestRouter({ children, initialEntries = ['/'] }) {
   return (
     <MemoryRouter future={ROUTER_FUTURE} initialEntries={initialEntries}>
-      {children}
+      <AuthProvider>
+        {children}
+      </AuthProvider>
     </MemoryRouter>
   )
 }

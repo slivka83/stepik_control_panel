@@ -51,6 +51,53 @@ class TestAuthToken:
         assert response.status_code == 401
 
 
+class TestAuthMe:
+    def test_me_no_session_returns_401(self):
+        response = client.get("/api/auth/me")
+        assert response.status_code == 401
+
+    def test_me_invalid_session_returns_401(self):
+        response = client.get("/api/auth/me", cookies={"stepik_session": "invalid.token"})
+        assert response.status_code == 401
+
+
+class TestAuthLogout:
+    def test_logout_clears_session(self):
+        response = client.get("/api/auth/logout")
+        assert response.status_code == 200
+        assert response.json() == {"ok": True}
+
+
+class TestSessionSigning:
+    def test_create_and_verify_session_token(self):
+        from app.api.auth import create_session_token, verify_session_token
+        token = create_session_token("user-123")
+        result = verify_session_token(token)
+        assert result == "user-123"
+
+    def test_verify_invalid_token_returns_none(self):
+        from app.api.auth import verify_session_token
+        result = verify_session_token("invalid.token")
+        assert result is None
+
+    def test_verify_tampered_token_returns_none(self):
+        from app.api.auth import create_session_token, verify_session_token
+        token = create_session_token("user-123")
+        tampered = token[:-5] + "XXXXX"
+        result = verify_session_token(tampered)
+        assert result is None
+
+    def test_verify_empty_string_returns_none(self):
+        from app.api.auth import verify_session_token
+        result = verify_session_token("")
+        assert result is None
+
+    def test_verify_no_dot_returns_none(self):
+        from app.api.auth import verify_session_token
+        result = verify_session_token("nodothere")
+        assert result is None
+
+
 class TestCoursesEndpoint:
     def test_list_courses_no_auth(self):
         response = client.get("/api/courses")

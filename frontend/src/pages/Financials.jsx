@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import axios from 'axios'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
+import api from '../api'
+import RevenueChart from '../components/RevenueChart'
 
 export default function Financials() {
   const [revenue, setRevenue] = useState({ months: [] })
@@ -9,7 +9,7 @@ export default function Financials() {
   useEffect(() => {
     const fetchRevenue = async () => {
       try {
-        const res = await axios.get('/api/dashboard/revenue')
+        const res = await api.get('/api/dashboard/revenue')
         setRevenue(res.data)
       } catch (err) {
         console.error('Revenue fetch error:', err)
@@ -34,43 +34,7 @@ export default function Financials() {
         <h1 className="text-2xl font-bold text-white">Финансовая аналитика</h1>
       </div>
 
-      <div className="glass-panel p-6">
-        <h3 className="text-white font-medium mb-4">Доход по месяцам</h3>
-        <div className="h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={revenue.months} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-              <XAxis
-                dataKey="month"
-                stroke="#64748b"
-                fontSize={12}
-                fontFamily="JetBrains Mono"
-                tickFormatter={(value) => {
-                  const date = new Date(value)
-                  return date.toLocaleDateString('ru-RU', { month: 'short', year: '2-digit' })
-                }}
-              />
-              <YAxis
-                stroke="#64748b"
-                fontSize={12}
-                fontFamily="JetBrains Mono"
-                tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: '#162032',
-                  border: '1px solid rgba(56, 189, 248, 0.3)',
-                  borderRadius: '8px',
-                  fontFamily: 'JetBrains Mono',
-                }}
-                formatter={(value) => [`${value.toLocaleString('ru-RU')} ₽`, 'Доход']}
-              />
-              <Legend />
-              <Bar dataKey="revenue" name="Доход" fill="#38bdf8" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      <RevenueChart data={revenue.months} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="glass-panel p-6">

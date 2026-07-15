@@ -9,6 +9,16 @@ export default defineConfig({
       '/api': {
         target: 'http://backend:8000',
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes, req, res) => {
+            const setCookie = proxyRes.headers['set-cookie']
+            if (setCookie) {
+              proxyRes.headers['set-cookie'] = setCookie.map(c =>
+                c.replace(/; Secure/g, '').replace(/; SameSite=\w+/g, '; SameSite=Lax')
+              )
+            }
+          })
+        },
       },
     },
   },

@@ -1,5 +1,26 @@
 import { useState, useEffect } from 'react'
-import axios from 'axios'
+import api from '../api'
+
+const COHORT_COLORS = {
+  active: { text: 'text-neon-green', bg: 'bg-neon-green' },
+  passive: { text: 'text-cyber-blue', bg: 'bg-cyber-blue' },
+  fading: { text: 'text-amber-alert', bg: 'bg-amber-alert' },
+  sleeping: { text: 'text-crimson-alert', bg: 'bg-crimson-alert' },
+}
+
+const COHORT_LABELS = {
+  active: 'Активные',
+  passive: 'Пассивные',
+  fading: 'Затухающие',
+  sleeping: 'Спящие',
+}
+
+const COHORT_DAYS = {
+  active: '≤ 7 дней',
+  passive: '8–30 дней',
+  fading: '30–90 дней',
+  sleeping: '> 90 дней',
+}
 
 export default function Cohorts() {
   const [cohorts, setCohorts] = useState({})
@@ -8,7 +29,7 @@ export default function Cohorts() {
   useEffect(() => {
     const fetchCohorts = async () => {
       try {
-        const res = await axios.get('/api/dashboard/cohorts')
+        const res = await api.get('/api/dashboard/cohorts')
         setCohorts(res.data)
       } catch (err) {
         console.error('Cohorts fetch error:', err)
@@ -29,13 +50,6 @@ export default function Cohorts() {
 
   const total = Object.values(cohorts).reduce((sum, val) => sum + val, 0)
 
-  const cohortConfig = [
-    { key: 'active', label: 'Активные', color: 'neon-green', days: '≤ 7 дней', icon: '●' },
-    { key: 'passive', label: 'Пассивные', color: 'cyber-blue', days: '8–30 дней', icon: '●' },
-    { key: 'fading', label: 'Затухающие', color: 'amber-alert', days: '30–90 дней', icon: '●' },
-    { key: 'sleeping', label: 'Спящие', color: 'crimson-alert', days: '> 90 дней', icon: '●' },
-  ]
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -44,24 +58,25 @@ export default function Cohorts() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {cohortConfig.map(({ key, label, color, days, icon }) => {
+        {Object.keys(COHORT_LABELS).map((key) => {
           const value = cohorts[key] || 0
           const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : 0
+          const colors = COHORT_COLORS[key]
           return (
             <div key={key} className="glass-panel glass-panel-hover p-5 transition-all duration-300">
               <div className="flex items-center gap-2 mb-3">
-                <span className={`text-${color}`}>{icon}</span>
-                <span className="text-gray-400 text-sm">{label}</span>
+                <span className={colors.text}>●</span>
+                <span className="text-gray-400 text-sm">{COHORT_LABELS[key]}</span>
               </div>
-              <div className={`font-mono text-3xl font-bold text-${color}`}>
+              <div className={`font-mono text-3xl font-bold ${colors.text}`}>
                 {value}
               </div>
               <div className="mt-2 text-xs text-gray-500 font-mono">
-                {days} · {percentage}%
+                {COHORT_DAYS[key]} · {percentage}%
               </div>
               <div className="mt-3 w-full bg-gray-700 rounded-full h-2">
                 <div
-                  className={`h-2 rounded-full bg-${color}`}
+                  className={`h-2 rounded-full ${colors.bg}`}
                   style={{ width: `${percentage}%` }}
                 ></div>
               </div>
