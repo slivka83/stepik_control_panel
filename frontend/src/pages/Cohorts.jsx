@@ -78,7 +78,7 @@ export default function Cohorts() {
             <li><span className="text-neon-green font-mono">Active</span> — последняя активность ≤ 7 дней назад</li>
             <li><span className="text-cyber-blue font-mono">Passive</span> — последняя активность 8–30 дней назад</li>
             <li><span className="text-amber-alert font-mono">Fading</span> — последняя активность 30–90 дней назад</li>
-            <li><span className="text-crimson-alert font-mono">Sleeping</span> — последняя активность > 90 дней назад</li>
+            <li><span className="text-crimson-alert font-mono">Sleeping</span> — последняя активность {'>'} 90 дней назад</li>
           </ul>
         </div>
       </div>

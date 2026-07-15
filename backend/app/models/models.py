@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import String, Integer, DateTime, Boolean, Float, Numeric, ForeignKey, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -20,7 +20,7 @@ class User(Base):
     financial_inn: Mapped[str | None] = mapped_column(String)
     financial_bik: Mapped[str | None] = mapped_column(String)
     taxation_system: Mapped[str | None] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     courses: Mapped[list["Course"]] = relationship(back_populates="user")
 
@@ -36,7 +36,7 @@ class Course(Base):
     unit_schedule: Mapped[dict | None] = mapped_column(JSONB, default={})
     content_cache: Mapped[dict | None] = mapped_column(JSONB, default={})
     health_score: Mapped[float] = mapped_column(Float, default=100.0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     user: Mapped["User"] = relationship(back_populates="courses")
     enrollments: Mapped[list["StudentEnrollment"]] = relationship(back_populates="course")
@@ -55,7 +55,7 @@ class StudentEnrollment(Base):
     is_in_wishlist: Mapped[bool] = mapped_column(Boolean, default=False)
     points_earned: Mapped[int] = mapped_column(Integer, default=0)
     certificate_issued: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     course: Mapped["Course"] = relationship(back_populates="enrollments")
 
@@ -70,7 +70,7 @@ class FinancialTransaction(Base):
     transaction_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     is_b2b: Mapped[bool] = mapped_column(Boolean, default=False)
     ltv_cohort: Mapped[str | None] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))
 
     course: Mapped["Course"] = relationship(back_populates="transactions")
 
@@ -86,4 +86,4 @@ class CompetitorCourse(Base):
     price: Mapped[float | None] = mapped_column(Numeric(10, 2))
     students_count: Mapped[int | None] = mapped_column(Integer)
     snapshot_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc))

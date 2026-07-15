@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -50,7 +50,7 @@ async def callback(code: str, db: AsyncSession = Depends(get_db)):
 
     encrypted_access = encrypt_token(access_token)
     encrypted_refresh = encrypt_token(refresh_token)
-    expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
 
     result = await db.execute(select(User).limit(1))
     user = result.scalar_one_or_none()

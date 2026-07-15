@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.database import get_db
 from app.models.models import Course, StudentEnrollment, FinancialTransaction
@@ -38,7 +38,7 @@ async def get_kpi(user=Depends(get_user), db: AsyncSession = Depends(get_db)):
         .where(
             FinancialTransaction.course_id.in_(course_ids),
             FinancialTransaction.is_refund == False,
-            FinancialTransaction.transaction_date >= datetime.utcnow().replace(day=1),
+            FinancialTransaction.transaction_date >= datetime.now(timezone.utc).replace(day=1),
         )
     )
     total_revenue = float(revenue_result.scalar() or 0)
@@ -72,7 +72,7 @@ async def get_cohorts(user=Depends(get_user), db: AsyncSession = Depends(get_db)
     if not course_ids:
         return {"active": 0, "passive": 0, "fading": 0, "sleeping": 0}
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     cohorts = {"active": 0, "passive": 0, "fading": 0, "sleeping": 0}
 
     for status, days_min, days_max in [
