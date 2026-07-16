@@ -5,16 +5,13 @@ from datetime import datetime, timedelta, timezone
 
 from app.database import get_db
 from app.models.models import Course, StudentEnrollment, FinancialSnapshot
-from app.api.auth import get_user
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 @router.get("/alerts")
-async def get_alerts(user=Depends(get_user), db: AsyncSession = Depends(get_db)):
-    courses_result = await db.execute(
-        select(Course).where(Course.user_id == user.id)
-    )
+async def get_alerts(db: AsyncSession = Depends(get_db)):
+    courses_result = await db.execute(select(Course))
     courses = courses_result.scalars().all()
     alerts = []
 
@@ -49,17 +46,15 @@ async def get_alerts(user=Depends(get_user), db: AsyncSession = Depends(get_db))
                 "type": "error",
                 "message": f"{low_score} студентов на курсе «{course.title}» не набрали ни одного балла",
                 "link": f"https://stepik.org/course/{course.stepik_course_id}/students",
-                "link_text": "Посмотреть на Stepik",
+                "link_text": "Посмотреть на Stepik →",
             })
 
     return {"alerts": alerts}
 
 
 @router.get("/kpi")
-async def get_kpi(user=Depends(get_user), db: AsyncSession = Depends(get_db)):
-    courses_result = await db.execute(
-        select(Course).where(Course.user_id == user.id)
-    )
+async def get_kpi(db: AsyncSession = Depends(get_db)):
+    courses_result = await db.execute(select(Course))
     courses = courses_result.scalars().all()
     course_ids = [c.id for c in courses]
 
@@ -78,7 +73,6 @@ async def get_kpi(user=Depends(get_user), db: AsyncSession = Depends(get_db)):
     )
     certificates_issued = certs_result.scalar() or 0
 
-    # Read financials from snapshot
     snapshot_result = await db.execute(select(FinancialSnapshot).limit(1))
     snapshot = snapshot_result.scalar_one_or_none()
     summary = snapshot.data.get("summary", {}) if snapshot else {}
@@ -98,10 +92,8 @@ async def get_kpi(user=Depends(get_user), db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/cohorts")
-async def get_cohorts(user=Depends(get_user), db: AsyncSession = Depends(get_db)):
-    courses_result = await db.execute(
-        select(Course).where(Course.user_id == user.id)
-    )
+async def get_cohorts(db: AsyncSession = Depends(get_db)):
+    courses_result = await db.execute(select(Course))
     courses = courses_result.scalars().all()
     course_ids = [c.id for c in courses]
 

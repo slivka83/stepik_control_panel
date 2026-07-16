@@ -99,27 +99,33 @@ class TestSessionSigning:
 
 
 class TestCoursesEndpoint:
-    def test_list_courses_no_auth(self):
+    def test_list_courses(self):
         response = client.get("/api/courses")
-        assert response.status_code == 401
+        assert response.status_code == 200
+        assert "courses" in response.json()
 
 
 class TestDashboardKPI:
-    def test_kpi_no_auth(self):
+    def test_kpi(self):
         response = client.get("/api/dashboard/kpi")
-        assert response.status_code == 401
+        assert response.status_code == 200
+        data = response.json()
+        assert "total_students" in data
 
 
 class TestDashboardCohorts:
-    def test_cohorts_no_auth(self):
+    def test_cohorts(self):
         response = client.get("/api/dashboard/cohorts")
-        assert response.status_code == 401
+        assert response.status_code == 200
+        data = response.json()
+        assert "active" in data
 
 
 class TestDashboardRevenue:
-    def test_revenue_no_auth(self):
+    def test_revenue(self):
         response = client.get("/api/dashboard/revenue")
-        assert response.status_code == 401
+        assert response.status_code == 200
+        assert "months" in response.json()
 
 
 class TestCORSMiddleware:
