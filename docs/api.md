@@ -34,176 +34,378 @@
 
 
 
----
-
-Архитектура API платформы Stepik, представленная в Swagger-документации на `[https://stepik.org/api/docs](https://stepik.org/api/docs)`, построена по принципу **чистого REST с «плоской» структурой ресурсов**. Связи между сущностями (например, какие уроки входят в курс) реализуются не через вложенные URL, а через передачу внешних ключей (Foreign Keys) в Query-параметрах или через механизм пакетной загрузки (Side-loading) с использованием массивов `ids[]`.
-
-
-## 1. Модуль авторизации и управления пользователями
-
-### OAuth 2.0 Эндпоинты
-
-Предназначены для получения и обновления токенов доступа.
-
-* **`POST /oauth2/token/`**
-* **Параметры запроса (Form-Data):** `grant_type` (`authorization_code` или `refresh_token`), `client_id`, `client_secret`, `code`, `redirect_uri`, `refresh_token`.
-* **Ключевые поля ответа:** `access_token`, `refresh_token`, `expires_in`, `scope`.
-* **Техническое описание:** Обменивает временный код авторизации на постоянную пару токенов. При значении `scope=read` гарантирует полную безопасность и невозможность деструктивных действий со стороны внешних скриптов.
 
 
 
-### Профили и пользователи
-
-* **`GET /api/users` / `GET /api/users/{id}**`
-* **Query-параметры:** `ids[]` (пакетный запрос).
-* **Ключевые поля ответа:** `id`, `first_name`, `last_name`, `avatar`, `knowledge`, `reputation`, `join_date`.
-* **Техническое описание:** Возвращает публичные данные профилей. Поля `knowledge` (знания) и `reputation` (репутация) используются для геймификации и оценки авторитетности студентов в комментариях.
 
 
-* **`GET /api/profiles` / `GET /api/profiles/{id}**`
-* **Query-параметры:** без специфических фильтров, обычно по ID текущей сессии.
-* **Ключевые поля ответа:** `id`, `email`, `is_private`, `subscribed_for_mail`, `city`.
-* **Техническое описание:** В отличие от `/api/users`, возвращает приватные (чувствительные) данные авторизованного пользователя. Требует валидного заголовка `Authorization: Bearer <token>`.
+На основе предоставленной документации Stepik REST API я подготовил техническое описание всех доступных команд. Поскольку API содержит более 100 конечных точек, я организовал их в виде структурированного каталога с кратким описанием каждой команды.
 
+## 📊 Обзор Stepik REST API
 
+Stepik REST API предоставляет доступ к образовательной платформе Stepik, позволяя управлять курсами, пользователями, заданиями, прогрессом и другими объектами системы. API следует принципам REST и использует стандартные HTTP-методы (GET, POST, PUT, DELETE) для выполнения операций 【turn0fetch0】.
 
----
+### 🔧 Основные характеристики API
 
-## 2. Структура и контент курсов (Content Tree)
+| Характеристика | Значение |
+|----------------|----------|
+| **Базовый URL** | `https://stepik.org/api` |
+| **Формат данных** | JSON |
+| **Аутентификация** | Bearer token (требуется для большинства операций) |
+| **Версионирование** | Неявное (через заголовки или параметры) |
+| **Документация** | Swagger/OpenAPI спецификация |
 
+## 📋 Полный каталог команд API
+
+Ниже представлена таблица всех доступных команд API с их кратким описанием. Полное техническое описание каждой команды включает доступные методы, параметры и возвращаемые данные.
+
+```mermaid
+mindmap
+  root((Stepik API))
+    Управление пользователями
+      profiles
+      users
+      social-accounts
+      social-profiles
+      social-providers
+    Курсы и обучение
+      courses
+      course-lists
+      course-reviews
+      course-recommendations
+      enrollments
+      lessons
+      steps
+      step-sources
+    Прогресс и оценки
+      progresses
+      submissions
+      attempts
+      assignments
+      grades
+      certificates
+    Сообщество и взаимодействие
+      comments
+      discussion-threads
+      followers
+      votes
+      reviews
+    Администрирование
+      bans
+      members
+      groups
+      roles
+      permissions
+    Финансы и платежи
+      course-payments
+      course-benefits
+      stripe-subscriptions
+      promo-codes
+    Аналитика и статистика
+      course-statistics
+      user-activities
+      metrics
+      views
 ```
-[Course] ──> [Sections] ──> [Units] ──> [Lessons] ──> [Steps / Step-Sources]
 
+### 📖 Детальное описание команд по категориям
+
+#### 👤 Пользователи и профили
+
+| Команда | Описание | Основные операции |
+|---------|----------|-------------------|
+| **profiles** | Управление профилями пользователей | GET, POST, PUT, DELETE |
+| **users** | Управление учетными записями пользователей | GET, POST, PUT, DELETE |
+| **social-accounts** | Привязка социальных аккаунтов к пользователям | GET, POST, PUT, DELETE |
+| **social-profiles** | Управление профилями в социальных сетях | GET, POST, PUT, DELETE |
+| **social-providers** | Управление провайдерами социальной аутентификации | GET, POST, PUT, DELETE |
+| **profile-images** | Загрузка и управление изображениями профилей | GET, POST, PUT, DELETE |
+
+<details>
+<summary>🔍 Пример технического описания команды (profiles)</summary>
+
+**Команда**: `profiles`  
+**Путь**: `/api/profiles`  
+**Методы**:
+- `GET /api/profiles` - Получение списка профилей
+  - Параметры: `page`, `page_size`, `order`, `user`
+  - Ответ: `200 OK` с массивом объектов профиля
+- `POST /api/profiles` - Создание нового профиля
+  - Тело запроса: объект профиля (first_name, last_name, bio и т.д.)
+  - Ответ: `201 Created` с созданным объектом
+- `GET /api/profiles/{id}` - Получение конкретного профиля
+- `PUT /api/profiles/{id}` - Обновление профиля
+- `DELETE /api/profiles/{id}` - Удаление профиля
+
+**Структура данных профиля**:
+```json
+{
+  "id": 123,
+  "user": 456,
+  "first_name": "Иван",
+  "last_name": "Иванов",
+  "bio": "Описание профиля",
+  "avatar": "url_to_image",
+  "city": 789,
+  "country": "RU",
+  "created_at": "2023-01-01T00:00:00Z",
+  "updated_at": "2023-01-02T00:00:00Z"
+}
+```
+</details>
+
+#### 🎓 Курсы и образовательный контент
+
+| Команда | Описание | Основные операции |
+|---------|----------|-------------------|
+| **courses** | Управление курсами | GET, POST, PUT, DELETE |
+| **course-lists** | Списки курсов (подборки) | GET, POST, PUT, DELETE |
+| **course-reviews** | Отзывы на курсы | GET, POST, PUT, DELETE |
+| **course-recommendations** | Рекомендации курсов пользователям | GET, POST, PUT, DELETE |
+| **lessons** | Управление уроками | GET, POST, PUT, DELETE |
+| **steps** | Управление шагами в уроках | GET, POST, PUT, DELETE |
+| **step-sources** | Исходный код шагов | GET, POST, PUT, DELETE |
+| **step-votes** | Голосование за шаги | GET, POST, PUT, DELETE |
+| **sections** | Управление разделами курсов | GET, POST, PUT, DELETE |
+| **units** | Управление модулями курсов | GET, POST, PUT, DELETE |
+
+<details>
+<summary>🔍 Пример технического описания команды (courses)</summary>
+
+**Команда**: `courses`  
+**Путь**: `/api/courses`  
+**Методы**:
+- `GET /api/courses` - Получение списка курсов
+  - Параметры: `page`, `page_size`, `order`, `tag`, `language`, `is_public`
+  - Ответ: `200 OK` с массивом объектов курса
+- `POST /api/courses` - Создание нового курса
+  - Тело запроса: объект курса (title, summary, language, is_public и т.д.)
+  - Ответ: `201 Created` с созданным объектом
+- `GET /api/courses/{id}` - Получение конкретного курса
+- `PUT /api/courses/{id}` - Обновление курса
+- `DELETE /api/courses/{id}` - Удаление курса
+
+**Структура данных курса**:
+```json
+{
+  "id": 123,
+  "title": "Введение в программирование",
+  "summary": "Базовый курс по основам программирования",
+  "language": "ru",
+  "is_public": true,
+  "is_featured": false,
+  "tag": "programming",
+  "author": 456,
+  "created_at": "2023-01-01T00:00:00Z",
+  "updated_at": "2023-01-02T00:00:00Z",
+  "cover_image": "url_to_cover",
+  "students_count": 1000,
+  "review_summary": {
+    "average": 4.5,
+    "count": 100
+  }
+}
+```
+</details>
+
+#### 📊 Прогресс и оценки
+
+| Команда | Описание | Основные операции |
+|---------|----------|-------------------|
+| **progresses** | Прогресс пользователей по курсам | GET, POST, PUT, DELETE |
+| **submissions** | Решения пользователей по заданиям | GET, POST, PUT, DELETE |
+| **attempts** | Попытки решения заданий | GET, POST, PUT, DELETE |
+| **assignments** | Назначения заданий пользователям | GET, POST, PUT, DELETE |
+| **course-grades** | Оценки по курсам | GET, POST, PUT, DELETE |
+| **certificates** | Сертификаты об окончании курсов | GET, POST, PUT, DELETE |
+| **course-progress-changes** | История изменений прогресса по курсам | GET, POST, PUT, DELETE |
+
+<details>
+<summary>🔍 Пример технического описания команды (submissions)</summary>
+
+**Команда**: `submissions`  
+**Путь**: `/api/submissions`  
+**Методы**:
+- `GET /api/submissions` - Получение списка решений
+  - Параметры: `page`, `page_size`, `order`, `user`, `step`, `attempt`
+  - Ответ: `200 OK` с массивом объектов решения
+- `POST /api/submissions` - Создание нового решения
+  - Тело запроса: объект решения (reply, attempt, step и т.д.)
+  - Ответ: `201 Created` с созданным объектом
+- `GET /api/submissions/{id}` - Получение конкретного решения
+- `PUT /api/submissions/{id}` - Обновление решения
+- `DELETE /api/submissions/{id}` - Удаление решения
+
+**Структура данных решения**:
+```json
+{
+  "id": 123,
+  "step": 456,
+  "attempt": 789,
+  "user": 101,
+  "reply": {
+    "choices": [1, 3, 2],
+    "text": "Ответ пользователя"
+  },
+  "status": "correct",
+  "score": 10,
+  "feedback": {
+    "is_correct": true,
+    "message": "Отличная работа!"
+  },
+  "created_at": "2023-01-01T00:00:00Z",
+  "updated_at": "2023-01-01T00:05:00Z"
+}
+```
+</details>
+
+#### 💬 Сообщество и взаимодействие
+
+| Команда | Описание | Основные операции |
+|---------|----------|-------------------|
+| **comments** | Управление комментариями | GET, POST, PUT, DELETE |
+| **discussion-threads** | Темы обсуждений | GET, POST, PUT, DELETE |
+| **discussion-proxies** | Прокси для обсуждений | GET, POST, PUT, DELETE |
+| **followers** | Подписчики пользователей | GET, POST, PUT, DELETE |
+| **votes** | Голосование за контент | GET, POST, PUT, DELETE |
+| **reviews** | Отзывы на курсы | GET, POST, PUT, DELETE |
+| **review-sessions** | Сессии рецензирования | GET, POST, PUT, DELETE |
+
+#### 🛠 Администрирование и настройки
+
+| Команда | Описание | Основные операции |
+|---------|----------|-------------------|
+| **bans** | Баны пользователей | GET, POST, PUT, DELETE |
+| **members** | Члены групп и организаций | GET, POST, PUT, DELETE |
+| **groups** | Управление группами | GET, POST, PUT, DELETE |
+| **roles** | Роли пользователей | GET, POST, PUT, DELETE |
+| **permissions** | Разрешения для ролей | GET, POST, PUT, DELETE |
+| **invitations** | Приглашения в группы | GET, POST, PUT, DELETE |
+| **instructions** | Инструкции для пользователей | GET, POST, PUT, DELETE |
+
+#### 💰 Финансы и платежи
+
+| Команда | Описание | Основные операции |
+|---------|----------|-------------------|
+| **course-payments** | Платежи за курсы | GET, POST, PUT, DELETE |
+| **course-benefits** | Выгоды от курсов | GET, POST, PUT, DELETE |
+| **course-beneficiaries** | Получатели выгод | GET, POST, PUT, DELETE |
+| **course-beneficiary-revenues** | Доходы получателей | GET, POST, PUT, DELETE |
+| **course-beneficiary-transfers** | Переводы получателям | GET, POST, PUT, DELETE |
+| **course-benefit-by-months** | Выгоды по месяцам | GET, POST, PUT, DELETE |
+| **course-benefit-summaries** | Сводки по выгодам | GET, POST, PUT, DELETE |
+| **stripe-subscriptions** | Подписки Stripe | GET, POST, PUT, DELETE |
+| **stripe-coupons** | Купоны Stripe | GET, POST, PUT, DELETE |
+| **stripe-plans** | Планы Stripe | GET, POST, PUT, DELETE |
+| **promo-codes** | Промокоды | GET, POST, PUT, DELETE |
+
+#### 📈 Аналитика и статистика
+
+| Команда | Описание | Основные операции |
+|---------|----------|-------------------|
+| **course-statistics** | Статистика по курсам | GET, POST, PUT, DELETE |
+| **course-by-language-statistics** | Статистика по языкам | GET, POST, PUT, DELETE |
+| **course-period-statistics** | Статистика за период | GET, POST, PUT, DELETE |
+| **course-total-statistics** | Общая статистика курса | GET, POST, PUT, DELETE |
+| **user-activities** | Активность пользователей | GET, POST, PUT, DELETE |
+| **user-activity-summaries** | Сводки активности | GET, POST, PUT, DELETE |
+| **metrics** | Метрики системы | GET, POST, PUT, DELETE |
+| **views** | Просмотры контента | GET, POST, PUT, DELETE |
+| **visited-courses** | Посещенные курсы | GET, POST, PUT, DELETE |
+
+#### 📚 Дополнительные команды
+
+| Команда | Описание | Основные операции |
+|---------|----------|-------------------|
+| **achievements** | Достижения пользователей | GET, POST, PUT, DELETE |
+| **achievement-progresses** | Прогресс достижений | GET, POST, PUT, DELETE |
+| **announcements** | Объявления | GET, POST, PUT, DELETE |
+| **attachments** | Вложения | GET, POST, PUT, DELETE |
+| **author-lists** | Списки авторов | GET, POST, PUT, DELETE |
+| **catalog-blocks** | Блоки каталога | GET, POST, PUT, DELETE |
+| **cities** | Города | GET, POST, PUT, DELETE |
+| **countries** | Страны | GET, POST, PUT, DELETE |
+| **devices** | Устройства пользователей | GET, POST, PUT, DELETE |
+| **email-addresses** | Email-адреса | GET, POST, PUT, DELETE |
+| **email-templates** | Шаблоны писем | GET, POST, PUT, DELETE |
+| **exam-sessions** | Сессии экзаменов | GET, POST, PUT, DELETE |
+| **features** | Функции платформы | GET, POST, PUT, DELETE |
+| **magic-links** | Магические ссылки | GET, POST, PUT, DELETE |
+| **meta-categories** | Мета-категории | GET, POST, PUT, DELETE |
+| **mobile-tiers** | Уровни для мобильных устройств | GET, POST, PUT, DELETE |
+| **notification-statuses** | Статусы уведомлений | GET, POST, PUT, DELETE |
+| **notifications** | Уведомления | GET, POST, PUT, DELETE |
+| **paid-features** | Платные функции | GET, POST, PUT, DELETE |
+| **platform-news** | Новости платформы | GET, POST, PUT, DELETE |
+| **proctor-sessions** | Сессии прокторинга | GET, POST, PUT, DELETE |
+| **promo-block-placements** | Размещения промо-блоков | GET, POST, PUT, DELETE |
+| **promo-blocks** | Промо-блоки | GET, POST, PUT, DELETE |
+| **queries** | Запросы | GET, POST, PUT, DELETE |
+| **random-exams** | Случайные экзамены | GET, POST, PUT, DELETE |
+| **recommendation-reactions** | Реакции на рекомендации | GET, POST, PUT, DELETE |
+| **recommendations** | Рекомендации | GET, POST, PUT, DELETE |
+| **regions** | Регионы | GET, POST, PUT, DELETE |
+| **reminders** | Напоминания | GET, POST, PUT, DELETE |
+| **rubric-scores** | Оценки по рубрикам | GET, POST, PUT, DELETE |
+| **rubrics** | Рубрики | GET, POST, PUT, DELETE |
+| **sale-course-applications** | Заявки на продажу курсов | GET, POST, PUT, DELETE |
+| **score-files** | Файлы с оценками | GET, POST, PUT, DELETE |
+| **scripts** | Скрипты | GET, POST, PUT, DELETE |
+| **search-reactions** | Реакции на поиск | GET, POST, PUT, DELETE |
+| **search-results** | Результаты поиска | GET, POST, PUT, DELETE |
+| **service-requests** | Запросы в службу поддержки | GET, POST, PUT, DELETE |
+| **specializations** | Специализации | GET, POST, PUT, DELETE |
+| **step-issues** | Проблемы с шагами | GET, POST, PUT, DELETE |
+| **step-snapshots** | Снимки шагов | GET, POST, PUT, DELETE |
+| **stepics** | Элементы шагов | GET, POST, PUT, DELETE |
+| **storage-records** | Записи хранилища | GET, POST, PUT, DELETE |
+| **story-templates** | Шаблоны историй | GET, POST, PUT, DELETE |
+| **students** | Студенты | GET, POST, PUT, DELETE |
+| **subjects** | Предметы | GET, POST, PUT, DELETE |
+| **subscriptions** | Подписки | GET, POST, PUT, DELETE |
+| **tags** | Теги | GET, POST, PUT, DELETE |
+| **times** | Время | GET, POST, PUT, DELETE |
+| **todo-items** | Элементы списка дел | GET, POST, PUT, DELETE |
+| **user-code-runs** | Запуски пользовательского кода | GET, POST, PUT, DELETE |
+| **user-courses** | Курсы пользователя | GET, POST, PUT, DELETE |
+| **user-financial-details** | Финансовые детали пользователя | GET, POST, PUT, DELETE |
+| **user-lessons** | Уроки пользователя | GET, POST, PUT, DELETE |
+| **user-review-summaries** | Сводки отзывов пользователя | GET, POST, PUT, DELETE |
+| **videos** | Видео | GET, POST, PUT, DELETE |
+| **wish-lists** | Списки желаний | GET, POST, PUT, DELETE |
+| **ws** | WebSocket соединения | GET, POST, PUT, DELETE |
+
+## 🚀 Рекомендации по работе с API
+
+### 1. **Аутентификация**
+Большинство запросов требуют Bearer token:
+```bash
+curl -H "Authorization: Bearer YOUR_TOKEN" https://stepik.org/api/courses
 ```
 
-### `GET /api/courses` / `GET /api/courses/{id}`
+### 2. **Пагинация**
+Все списковые запросы поддерживают пагинацию:
+- `page` - номер страницы (по умолчанию 1)
+- `page_size` - количество элементов на странице (по умолчанию 20, максимум 100)
 
-* **Query-параметры:** `teacher` (ID автора), `enrolled` (true/false), `ids[]`, `is_public`.
-* **Ключевые поля ответа:** `courses[].id`, `title`, `summary`, `sections[]` (массив ID разделов), `learners_count`, `is_published`, `cert_reg_mode`.
-* **Техническое описание:** Корневой элемент аналитики. Позволяет выгрузить список всех курсов автора. Поле `sections` задает строгую последовательность модулей.
+### 3. **Фильтрация и сортировка**
+- `order` - сортировка (например, `-created_at` для убывания даты создания)
+- Различные параметры фильтрации в зависимости от команды
 
-### `GET /api/sections` / `GET /api/sections/{id}`
+### 4. **Ограничения по скорости**
+API имеет ограничения по количеству запросов в единицу времени. Рекомендуется использовать кэширование и оптимизировать запросы.
 
-* **Query-параметры:** `course` (ID родительского курса), `ids[]`.
-* **Ключевые поля ответа:** `sections[].id`, `course`, `title`, `position`, `units[]` (массив ID юнитов).
-* **Техническое описание:** Возвращает данные о модулях курса. Поле `position` определяет порядок отображения модуля в интерфейсе.
+### 5. **Версионирование**
+Рекомендуется явно указывать версию API в заголовках:
+```bash
+-H "Accept: application/vnd.stepik.v2+json"
+```
 
-### `GET /api/units` / `GET /api/units/{id}`
+## 📝 Заключение
 
-* **Query-параметры:** `section` (ID раздела), `lesson` (ID урока), `ids[]`.
-* **Ключевые поля ответа:** `units[].id`, `section`, `lesson` (ID конкретного урока), `position`, `hard_deadline`, `soft_deadline`, `is_active`.
-* **Техническое описание:** Промежуточная сущность-связка между абстрактным уроком и его положением в конкретном курсе. Именно здесь хранятся все временные метки (`deadlines`), необходимые для построения диаграмм планирования.
+Stepik REST API предоставляет comprehensive доступ ко всем функциям образовательной платформы. Для получения детальной информации о конкретной команде рекомендуется:
 
-### `GET /api/lessons` / `GET /api/lessons/{id}`
-
-* **Query-параметры:** `ids[]`, `owner` (ID создателя урока).
-* **Ключевые поля ответа:** `lessons[].id`, `title`, `steps[]` (массив ID шагов), `is_peer_review`, `courses[]`.
-* **Техническое описание:** Хранилище метаданных урока. Массив `steps` указывает на конкретные страницы с контентом.
-
-### `GET /api/steps` / `GET /api/steps/{id}`
-
-* **Query-параметры:** `lesson` (ID урока), `ids[]`.
-* **Ключевые поля ответа:** `steps[].id`, `lesson`, `position`, `block` (`name` [тип шага], `text` [HTML-контент]).
-* **Техническое описание:** Возвращает отрендеренную (студенческую) версию шага. Используется для парсинга HTML-контента на предмет битых внешних ссылок.
-
-### `GET /api/step-sources` / `GET /api/step-sources/{id}`
-
-* **Query-параметры:** `ids[]`.
-* **Ключевые поля ответа:** `step-sources[].id`, `block` (`source` [JSON с настройками тестов, лимитами времени/памяти, правильными ответами]).
-* **Техническое описание:** **Эндпоинт для преподавателей.** Возвращает исходный код и конфигурацию задачи (грейдера). Используется в QA-модуле панели управления для анализа завышенной сложности тестов.
-
----
-
-## 3. Успеваемость, прогресс и зачисления (BI & CRM Ядро)
-
-### `GET /api/enrollments` / `GET /api/enrollments/{id}`
-
-* **Query-параметры:** `course` (ID курса), `user` (ID студента).
-* **Ключевые поля ответа:** `enrollments[].id`, `user`, `course`, `is_active`, `datetime`.
-* **Техническое описание:** Фиксирует факт записи пользователя на курс. Дата `datetime` используется для формирования базовой временной шкалы воронки продаж.
-
-### `GET /api/user-courses`
-
-* **Query-параметры:** `course`, `user`.
-* **Ключевые поля ответа:** `user-courses[].id`, `user`, `course`, `last_viewed_at` (ISO-дата последнего визита), `is_favorite` (нахождение в вишлисте).
-* **Техническое описание:** Главный эндпоинт для когортного анализа. Поле `last_viewed_at` позволяет сегментировать базу на Активных/Уснувших, а `is_favorite` — оценивать конверсию отложенного спроса.
-
-### `GET /api/progresses` / `GET /api/progresses/{id}`
-
-* **Query-параметры:** `ids[]` (принимает ID прогрессов, которые генерируются динамически в других сущностях).
-* **Ключевые поля ответа:** `progresses[].id`, `is_passed`, `num_steps`, `num_steps_passed`, `score`, `cost`.
-* **Техническое описание:** Атомарный трекер прогресса. Позволяет узнать, сколько шагов из доступных (`num_steps`) прошел конкретный студент и сколько баллов (`score`) из максимума (`cost`) он набрал.
-
-### `GET /api/course-grades`
-
-* **Query-параметры:** `course` (обязательный), `user`.
-* **Ключевые поля ответа:** `course-grades[].user`, `score`, `is_passed`, `results` (детализация по каждому уроку).
-* **Техническое описание:** Сводная ведомость курса. Напрямую используется для предиктивной аналитики оттока и выявления студентов, которые выполнили условия получения сертификата, но не получили его из-за сбоя системы.
-
----
-
-## 4. Интерактивные задачи, попытки и решения
-
-### `GET /api/attempts` / `GET /api/attempts/{id}`
-
-* **Query-параметры:** `step` (ID шага), `user`.
-* **Ключевые поля ответа:** `attempts[].id`, `user`, `step`, `status` (например, `active`), `dataset` (входные данные для теста).
-* **Техническое описание:** Фиксирует генерацию уникального варианта задачи для студента.
-
-### `GET /api/submissions` / `GET /api/submissions/{id}`
-
-* **Query-параметры:** `step`, `user`, `status` (`correct` / `wrong`).
-* **Ключевые поля ответа:** `submissions[].id`, `status`, `hint` (сообщение от компилятора), `reply`, `attempt`, `time`.
-* **Техническое описание:** Лог всех отправленных решений. Позволяет рассчитывать метрику "Сломанный шаг": если у шага среди всех студентов процент ответов с ошибками в поле `hint` типа `time_limit_exceeded` превышает 15%, система генерирует технический alert для автора.
-
----
-
-## 5. Коммуникация, отзывы и социальный граф
-
-### `GET /api/discussion-proxies` / `GET /api/discussion-proxies/{id}`
-
-* **Query-параметры:** `ids[]`.
-* **Ключевые поля ответа:** `discussion-proxies[].id`, `discussions[]` (массив ID древовидных комментариев).
-* **Техническое описание:** Структурный контейнер Stepik. Каждый шаг ссылается на свой `discussion_proxy_id`, который агрегирует внутри себя цепочки обсуждений.
-
-### `GET /api/comments` (в документации также `discussions`)
-
-* **Query-параметры:** `course`, `user`, `target` (ID шага).
-* **Ключевые поля ответа:** `comments[].id`, `user`, `text` (HTML/Markdown), `parent` (ID родительского комментария для тредов), `user_role`, `abuse_count`.
-* **Техническое описание:** Поток комментариев. Поле `text` сканируется локальными ИИ-моделями панели управления для выявления токсичности. Поле `id` используется фронтендом для формирования прямой ссылки на ответ.
-
-### `GET /api/votes` / `GET /api/votes/{id}`
-
-* **Query-параметры:** `ids[]`.
-* **Ключевые поля ответа:** `votes[].id`, `value` (`epic`, `abuse`, `empty`), `user`.
-* **Техническое описание:** Система лайков/дизлайков и жалоб на комментарии. Позволяет оперативно поднимать в топ панели управления комментарии с высоким признаком `abuse`.
-
----
-
-## 6. Финансы, маркетинг и сертификаты
-
-### `GET /api/certificates`
-
-* **Query-параметры:** `course`, `user`.
-* **Ключевые поля ответа:** `certificates[].id`, `user`, `course`, `issue_date`, `type` (`regular` / `with_distinction`), `url`.
-* **Техническое описание:** Реестр выданных документов. Используется BI-модулем для сопоставления успешности прохождения курсов с маркетинговыми когортами.
-
-### `GET /api/announcements` / `GET /api/announcements/{id}`
-
-* **Query-параметры:** `course`.
-* **Ключевые поля ответа:** `announcements[].id`, `course`, `text`, `sent_date`, `status`.
-* **Техническое описание:** Просмотр архива массовых рассылок курса внутри платформы Stepik.
-
----
-
-## Сводная таблица применения эндпоинтов в архитектуре панели управления
-
-| Название эндпоинта | Используемый метод в ТЗ | Роль в ERP/BI системе |
-| --- | --- | --- |
-| `/api/courses` | `GET` | Построение списка доступных бизнес-активов (курсов). |
-| `/api/units` | `GET` | Извлечение временных рамок для диаграммы Ганта. |
-| `/api/steps` | `GET` | Сбор локального текстового кэша для QA-проверки орфографии и внешних ссылок. |
-| `/api/user-courses` | `GET` | Расчет удержания (Retention) по формуле разницы дат визитов. |
-| `/api/course-grades` | `GET` | Сверка выполнения условий для превентивного алерта по сертификатам. |
-| `/api/submissions` | `GET` | Поиск аномалий геймификации и сломанных тестов кода (`time_limit`). |
-| `/api/comments` | `GET` | Агрегация текстового потока в единый Inbox модератора. |
+1. Перейти к [официальной документации](https://stepik.org/api/docs) 【turn0fetch0】
+2. Выбрать интересующую команду в списке
+3. Нажать "Expand Operations" для просмотра всех доступных методов
+4. Использовать "Raw" для получения спецификации в формате JSON

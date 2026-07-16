@@ -1,5 +1,8 @@
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useSync } from '../contexts/SyncContext'
+import api from '../api'
 
 const navItems = [
   { to: '/', label: 'Дашборд', icon: '◈' },
@@ -10,6 +13,19 @@ const navItems = [
 
 export default function Layout({ children }) {
   const { user, loading, login, logout } = useAuth()
+  const { syncStatus } = useSync()
+  const [syncing, setSyncing] = useState(false)
+
+  const handleSync = async () => {
+    setSyncing(true)
+    try {
+      await api.post('/api/sync')
+    } catch (err) {
+      console.error('Sync error:', err)
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   return (
     <div className="flex min-h-screen bg-space-black">
@@ -57,6 +73,19 @@ export default function Layout({ children }) {
               <span className="text-xs text-gray-500 font-mono animate-pulse">...</span>
             ) : user ? (
               <div className="flex items-center gap-3">
+                {syncStatus.in_progress || syncing ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-amber-alert animate-pulse"></div>
+                    <span className="text-xs text-amber-alert font-mono">Синхронизация...</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleSync}
+                    className="px-3 py-1 text-xs text-cyber-blue border border-cyber-blue/30 rounded-lg hover:bg-cyber-blue/10 transition-colors font-medium"
+                  >
+                    Обновить данные
+                  </button>
+                )}
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-neon-green animate-pulse"></div>
                   <span className="text-xs text-gray-400 font-mono">SYNCED</span>

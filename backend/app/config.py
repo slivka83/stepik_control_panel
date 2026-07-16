@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     stepik_redirect_uri: str = "http://localhost:3000/api/auth/callback"
     stepik_user_id: int = 0
 
+    stepik_finance_client_id: str = ""
+    stepik_finance_client_secret: str = ""
+
     encryption_key: str = ""
     secret_key: str = "dev-secret-key"
 

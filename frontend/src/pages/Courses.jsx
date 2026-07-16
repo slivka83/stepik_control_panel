@@ -1,25 +1,28 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import api from '../api'
+import { useSync } from '../contexts/SyncContext'
+import { getCached, setCached } from '../cache'
 
 export default function Courses() {
-  const [courses, setCourses] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [courses, setCourses] = useState(getCached('courses') || [])
+  const loaded = useRef(!!getCached('courses'))
+  const { refreshKey } = useSync()
 
   useEffect(() => {
     const fetchCourses = async () => {
       try {
         const res = await api.get('/api/courses')
         setCourses(res.data.courses || [])
+        setCached('courses', res.data.courses || [])
       } catch (err) {
         console.error('Courses fetch error:', err)
-      } finally {
-        setLoading(false)
       }
+      loaded.current = true
     }
     fetchCourses()
-  }, [])
+  }, [refreshKey])
 
-  if (loading) {
+  if (!loaded.current) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-cyber-blue font-mono animate-pulse">Загрузка курсов...</div>

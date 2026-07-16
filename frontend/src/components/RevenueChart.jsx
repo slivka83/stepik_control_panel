@@ -34,8 +34,10 @@ export default function RevenueChart({ data = [] }) {
               fontSize={12}
               fontFamily="JetBrains Mono"
               tickFormatter={(value) => {
-                const date = new Date(value)
-                return date.toLocaleDateString('ru-RU', { month: 'short' })
+                if (!value) return ''
+                const parts = value.split(' ')
+                const month = parts[0] || ''
+                return month.length > 3 ? month.substring(0, 3) + '.' : month
               }}
             />
             <YAxis
@@ -53,11 +55,11 @@ export default function RevenueChart({ data = [] }) {
               }}
               formatter={(value) => [`${value.toLocaleString('ru-RU')} ₽`, 'Доход']}
             />
-            <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
+            <Bar dataKey="income" radius={[4, 4, 0, 0]}>
               {data.map((entry, index) => (
                 <Cell
                   key={`cell-${index}`}
-                  fill={entry.month.startsWith(currentMonth) ? COLORS.current : COLORS.past}
+                  fill={entry.month?.startsWith(currentMonth) ? COLORS.current : COLORS.past}
                 />
               ))}
             </Bar>

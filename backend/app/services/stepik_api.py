@@ -1,5 +1,6 @@
 import httpx
 from typing import Any
+import time
 
 from app.services.rate_limiter import acquire_token, handle_rate_limit
 
@@ -144,3 +145,32 @@ async def exchange_code_for_token(code: str, client_id: str, client_secret: str)
         if response.status_code >= 400:
             raise StepikAPIError(response.status_code, response.text)
         return response.json()
+
+
+_finance_token_cache: dict[str, Any] = {"token": None, "expires_at": 0}
+
+
+async def get_finance_token(client_id: str, client_secret: str) -> str:
+    now = time.time()
+    if _finance_token_cache["token"] and _finance_token_cache["expires_at"] > now + 60:
+        return _finance_token_cache["token"]
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://stepik.org/oauth2/token/",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "scope": "read",
+            },
+            timeout=30.0,
+        )
+        if response.status_code >= 400:
+            raise StepikAPIError(response.status_code, response.text)
+        data = response.json()
+        token = data.get("access_token", "")
+        expires_in = data.get("expires_in", 36000)
+        _finance_token_cache["token"] = token
+        _finance_token_cache["expires_at"] = now + expires_in
+        return token

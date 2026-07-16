@@ -86,7 +86,7 @@ async def sync_courses():
 
                 # Fetch all course-grades
                 try:
-                    grades = await _paginated_get("/course-grades", token, {"course": sid}, "course-grades")
+                    grades = await _paginated_get("/course-grades", token, {"course": sid, "is_assistant": "true"}, "course-grades")
                 except Exception as e:
                     print(f" grades_err={e}")
                     grades = []
@@ -107,6 +107,17 @@ async def sync_courses():
                     score = grade.get("score", 0) or 0
                     is_passed = student_id in cert_users
 
+                    # Use real last_viewed from Stepik API (ISO string or unix timestamp)
+                    last_viewed_ts = grade.get("last_viewed")
+                    if last_viewed_ts:
+                        if isinstance(last_viewed_ts, (int, float)):
+                            last_viewed = datetime.fromtimestamp(int(last_viewed_ts), tz=timezone.utc).replace(tzinfo=None)
+                        else:
+                            # ISO string like "2026-06-30T15:16:08.906Z"
+                            last_viewed = datetime.fromisoformat(last_viewed_ts.replace("Z", "+00:00")).replace(tzinfo=None)
+                    else:
+                        last_viewed = datetime.utcnow()
+
                     enrollment = StudentEnrollment(
                         id=uuid.uuid4(),
                         course_id=local_course.id,
@@ -114,7 +125,7 @@ async def sync_courses():
                         cohort_status="Active" if score > 0 else "Passive",
                         points_earned=int(score),
                         certificate_issued=is_passed,
-                        last_viewed_at=datetime.utcnow(),
+                        last_viewed_at=last_viewed,
                     )
                     session.add(enrollment)
                     total_enrollments += 1

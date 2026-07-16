@@ -1,5 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import api from '../api'
+import { useSync } from '../contexts/SyncContext'
+import { getCached, setCached } from '../cache'
 
 const COHORT_COLORS = {
   active: { text: 'text-neon-green', bg: 'bg-neon-green' },
@@ -23,24 +25,25 @@ const COHORT_DAYS = {
 }
 
 export default function Cohorts() {
-  const [cohorts, setCohorts] = useState({})
-  const [loading, setLoading] = useState(true)
+  const [cohorts, setCohorts] = useState(getCached('cohorts') || {})
+  const loaded = useRef(!!getCached('cohorts'))
+  const { refreshKey } = useSync()
 
   useEffect(() => {
     const fetchCohorts = async () => {
       try {
         const res = await api.get('/api/dashboard/cohorts')
         setCohorts(res.data)
+        setCached('cohorts', res.data)
       } catch (err) {
         console.error('Cohorts fetch error:', err)
-      } finally {
-        setLoading(false)
       }
+      loaded.current = true
     }
     fetchCohorts()
-  }, [])
+  }, [refreshKey])
 
-  if (loading) {
+  if (!loaded.current) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-cyber-blue font-mono animate-pulse">Загрузка данных...</div>

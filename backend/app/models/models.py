@@ -75,6 +75,14 @@ class FinancialTransaction(Base):
     course: Mapped["Course"] = relationship(back_populates="transactions")
 
 
+class FinancialSnapshot(Base):
+    __tablename__ = "financial_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    data: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
+
+
 class CompetitorCourse(Base):
     __tablename__ = "competitor_courses"
 

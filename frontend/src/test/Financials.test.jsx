@@ -9,6 +9,23 @@ vi.mock('../api', () => ({
 
 import Financials from '../pages/Financials'
 
+const mockFinancials = {
+  summary: {
+    total_turnover: 200000,
+    total_income: 150000,
+    total_refunds: 5000,
+    total_payments: 42,
+    net_income: 145000,
+  },
+  months: [
+    { month: 'Январь 2026', year: 2026, month_num: 1, turnover: 70000, income: 50000, refunds: 0, payments_count: 15, refunds_count: 0 },
+  ],
+  courses: [
+    { course_id: 68260, title: 'Тестовый курс', turnover: 70000, income: 50000, refunds: 0, payments: 15 },
+  ],
+  recent_payments: [],
+}
+
 describe('Financials', () => {
   beforeEach(() => {
     mockGet.mockReset()
@@ -20,72 +37,42 @@ describe('Financials', () => {
     expect(screen.getByText('Загрузка данных...')).toBeInTheDocument()
   })
 
-  it('renders page title', async () => {
-    mockGet.mockResolvedValue({ data: { months: [] } })
+  it('renders page with data', async () => {
+    mockGet.mockResolvedValueOnce({ data: mockFinancials })
     render(<TestRouter><Financials /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Финансовая аналитика')).toBeInTheDocument()
     })
+    expect(screen.getByText(/Январь 2026/)).toBeInTheDocument()
   })
 
-  it('renders revenue chart section', async () => {
-    mockGet.mockResolvedValue({ data: { months: [] } })
+  it('renders empty state', async () => {
+    mockGet.mockResolvedValueOnce({ data: { ...mockFinancials, summary: { ...mockFinancials.summary, total_payments: 0 }, months: [], courses: [], recent_payments: [] } })
     render(<TestRouter><Financials /></TestRouter>)
     await waitFor(() => {
-      expect(screen.getByText('Доход по месяцам')).toBeInTheDocument()
+      expect(screen.getByText(/Финансовые данные пока недоступны/)).toBeInTheDocument()
     })
   })
 
-  it('renders tax dashboard section', async () => {
-    mockGet.mockResolvedValue({ data: { months: [] } })
+  it('renders tab buttons when has data', async () => {
+    mockGet.mockResolvedValueOnce({ data: mockFinancials })
     render(<TestRouter><Financials /></TestRouter>)
     await waitFor(() => {
-      expect(screen.getByText('Налоговый дашборд')).toBeInTheDocument()
+      expect(screen.getByText('По месяцам')).toBeInTheDocument()
     })
+    expect(screen.getByText('По курсам')).toBeInTheDocument()
+    expect(screen.getByText('Последние операции')).toBeInTheDocument()
   })
 
-  it('renders B2B manager section', async () => {
-    mockGet.mockResolvedValue({ data: { months: [] } })
+  it('renders 5 KPI cards', async () => {
+    mockGet.mockResolvedValueOnce({ data: mockFinancials })
     render(<TestRouter><Financials /></TestRouter>)
     await waitFor(() => {
-      expect(screen.getByText('B2B-Менеджер')).toBeInTheDocument()
-    })
-  })
-
-  it('renders tax placeholders', async () => {
-    mockGet.mockResolvedValue({ data: { months: [] } })
-    render(<TestRouter><Financials /></TestRouter>)
-    await waitFor(() => {
-      expect(screen.getByText('ИНН')).toBeInTheDocument()
-      expect(screen.getByText('БИК')).toBeInTheDocument()
-      expect(screen.getByText('Система налогообложения')).toBeInTheDocument()
-      expect(screen.getAllByText('Не указан').length).toBeGreaterThanOrEqual(2)
-      expect(screen.getByText('Не указана')).toBeInTheDocument()
-    })
-  })
-
-  it('renders tax warning', async () => {
-    mockGet.mockResolvedValue({ data: { months: [] } })
-    render(<TestRouter><Financials /></TestRouter>)
-    await waitFor(() => {
-      expect(screen.getByText(/Заполните реквизиты/)).toBeInTheDocument()
-    })
-  })
-
-  it('renders CSV upload section', async () => {
-    mockGet.mockResolvedValue({ data: { months: [] } })
-    render(<TestRouter><Financials /></TestRouter>)
-    await waitFor(() => {
-      expect(screen.getByText('Импортируйте CSV-файл с email-адресами корпоративных клиентов')).toBeInTheDocument()
-      expect(screen.getByText('Выбрать файл')).toBeInTheDocument()
-    })
-  })
-
-  it('renders CSV format hint', async () => {
-    mockGet.mockResolvedValue({ data: { months: [] } })
-    render(<TestRouter><Financials /></TestRouter>)
-    await waitFor(() => {
-      expect(screen.getByText(/Формат: CSV с колонкой/)).toBeInTheDocument()
+      expect(screen.getAllByText('Оборот').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('Доход').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getAllByText('Возвраты').length).toBeGreaterThanOrEqual(1)
+      expect(screen.getByText('Чистый доход')).toBeInTheDocument()
+      expect(screen.getAllByText('Покупок').length).toBeGreaterThanOrEqual(1)
     })
   })
 })

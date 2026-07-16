@@ -15,8 +15,8 @@ describe('RevenueChart', () => {
 
   it('renders chart with data', () => {
     const data = [
-      { month: '2026-01-01T00:00:00', revenue: 12000 },
-      { month: '2026-02-01T00:00:00', revenue: 18000 },
+      { month: 'Январь 2026', income: 12000 },
+      { month: 'Февраль 2026', income: 18000 },
     ]
     render(<RevenueChart data={data} />)
     expect(screen.getByText('Доход по месяцам')).toBeInTheDocument()
@@ -28,9 +28,9 @@ describe('RevenueChart', () => {
     expect(container.querySelector('.glass-panel')).toBeInTheDocument()
   })
 
-  it('renders with empty revenue values', () => {
+  it('renders with zero income values', () => {
     const data = [
-      { month: '2026-01-01T00:00:00', revenue: 0 },
+      { month: 'Март 2026', income: 0 },
     ]
     render(<RevenueChart data={data} />)
     expect(screen.getByText('Доход по месяцам')).toBeInTheDocument()

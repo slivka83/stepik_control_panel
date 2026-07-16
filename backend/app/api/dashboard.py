@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, timezone
 
 from app.database import get_db
-from app.models.models import Course, StudentEnrollment, FinancialTransaction
+from app.models.models import Course, StudentEnrollment, FinancialSnapshot
 from app.api.auth import get_user
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -33,7 +33,7 @@ async def get_alerts(user=Depends(get_user), db: AsyncSession = Depends(get_db))
                 "type": "warning",
                 "message": f"{certs_pending} студентов набрали проходной балл, но не получили сертификат",
                 "link": f"https://stepik.org/course/{course.stepik_course_id}/certificates",
-                "link_text": "Открыть на Stepik →",
+                "link_text": "Открыть на Stepik",
             })
 
         low_score_result = await db.execute(
@@ -49,7 +49,7 @@ async def get_alerts(user=Depends(get_user), db: AsyncSession = Depends(get_db))
                 "type": "error",
                 "message": f"{low_score} студентов на курсе «{course.title}» не набрали ни одного балла",
                 "link": f"https://stepik.org/course/{course.stepik_course_id}/students",
-                "link_text": "Посмотреть на Stepik →",
+                "link_text": "Посмотреть на Stepik",
             })
 
     return {"alerts": alerts}
@@ -63,30 +63,11 @@ async def get_kpi(user=Depends(get_user), db: AsyncSession = Depends(get_db)):
     courses = courses_result.scalars().all()
     course_ids = [c.id for c in courses]
 
-    if not course_ids:
-        return {
-            "total_revenue": 0,
-            "total_students": 0,
-            "certificates_issued": 0,
-            "total_steps": 0,
-            "courses_count": 0,
-        }
-
     students_result = await db.execute(
         select(func.count(StudentEnrollment.id))
         .where(StudentEnrollment.course_id.in_(course_ids))
     )
     total_students = students_result.scalar() or 0
-
-    revenue_result = await db.execute(
-        select(func.sum(FinancialTransaction.amount))
-        .where(
-            FinancialTransaction.course_id.in_(course_ids),
-            FinancialTransaction.is_refund == False,
-            FinancialTransaction.transaction_date >= datetime.now(timezone.utc).replace(day=1, tzinfo=None),
-        )
-    )
-    total_revenue = float(revenue_result.scalar() or 0)
 
     certs_result = await db.execute(
         select(func.count(StudentEnrollment.id))
@@ -97,12 +78,22 @@ async def get_kpi(user=Depends(get_user), db: AsyncSession = Depends(get_db)):
     )
     certificates_issued = certs_result.scalar() or 0
 
+    # Read financials from snapshot
+    snapshot_result = await db.execute(select(FinancialSnapshot).limit(1))
+    snapshot = snapshot_result.scalar_one_or_none()
+    summary = snapshot.data.get("summary", {}) if snapshot else {}
+
     return {
-        "total_revenue": total_revenue,
+        "total_revenue": summary.get("current_month_turnover", 0),
         "total_students": total_students,
         "certificates_issued": certificates_issued,
         "total_steps": 0,
         "courses_count": len(courses),
+        "total_income": summary.get("total_income", 0),
+        "net_income": summary.get("net_income", 0),
+        "total_turnover": summary.get("total_turnover", 0),
+        "total_refunds": summary.get("total_refunds", 0),
+        "total_payments": summary.get("total_payments", 0),
     }
 
 
@@ -140,38 +131,8 @@ async def get_cohorts(user=Depends(get_user), db: AsyncSession = Depends(get_db)
 
 
 @router.get("/revenue")
-async def get_revenue(user=Depends(get_user), db: AsyncSession = Depends(get_db)):
-    courses_result = await db.execute(
-        select(Course).where(Course.user_id == user.id)
-    )
-    courses = courses_result.scalars().all()
-    course_ids = [c.id for c in courses]
-
-    if not course_ids:
-        return {"months": []}
-
-    month_col = func.date_trunc("month", FinancialTransaction.transaction_date)
-
-    result = await db.execute(
-        select(
-            month_col.label("month"),
-            func.sum(FinancialTransaction.amount).label("revenue"),
-        )
-        .where(
-            FinancialTransaction.course_id.in_(course_ids),
-            FinancialTransaction.is_refund == False,
-        )
-        .group_by(month_col)
-        .order_by(month_col)
-    )
-    rows = result.all()
-
-    if not rows:
-        return {"months": []}
-
-    return {
-        "months": [
-            {"month": row.month.isoformat(), "revenue": float(row.revenue or 0)}
-            for row in rows
-        ]
-    }
+async def get_revenue(db: AsyncSession = Depends(get_db)):
+    snapshot_result = await db.execute(select(FinancialSnapshot).limit(1))
+    snapshot = snapshot_result.scalar_one_or_none()
+    months = snapshot.data.get("months", []) if snapshot else []
+    return {"months": months}
