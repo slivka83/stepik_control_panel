@@ -7,13 +7,11 @@ os.environ["STEPIK_CLIENT_SECRET"] = "test_client_secret"
 os.environ["STEPIK_REDIRECT_URI"] = "http://localhost:8000/api/auth/callback"
 
 import pytest
-import asyncio
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from app.database import Base
 
 
 @pytest.fixture(scope="session")
 def event_loop():
+    import asyncio
     loop = asyncio.new_event_loop()
     yield loop
     loop.close()
@@ -21,6 +19,8 @@ def event_loop():
 
 @pytest.fixture(scope="function")
 async def setup_db():
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from app.database import Base
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
