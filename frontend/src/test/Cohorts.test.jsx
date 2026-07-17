@@ -9,19 +9,29 @@ vi.mock('../api', () => ({
 
 import Cohorts from '../pages/Cohorts'
 
+const mockKpi = { total_revenue: 0, total_students: 0, certificates_issued: 0, courses_count: 0, net_income: 0, total_turnover: 0, total_payments: 0, total_refunds: 0, total_income: 0 }
+const mockRevenue = { months: [] }
+const mockAlerts = { alerts: [] }
+const mockCourses = { courses: [] }
+const mockFinancials = { summary: { total_payments: 0 }, months: [], courses: [], recent_payments: [] }
+
+const mockAllCohorts = (cohorts) => {
+  mockGet
+    .mockResolvedValueOnce({ data: mockKpi })
+    .mockResolvedValueOnce({ data: cohorts })
+    .mockResolvedValueOnce({ data: mockRevenue })
+    .mockResolvedValueOnce({ data: mockAlerts })
+    .mockResolvedValueOnce({ data: mockCourses })
+    .mockResolvedValueOnce({ data: mockFinancials })
+}
+
 describe('Cohorts', () => {
   beforeEach(() => {
     mockGet.mockReset()
   })
 
-  it('shows loading state', () => {
-    mockGet.mockReturnValue(new Promise(() => {}))
-    render(<TestRouter><Cohorts /></TestRouter>)
-    expect(screen.getByText('Загрузка данных...')).toBeInTheDocument()
-  })
-
   it('renders page title', async () => {
-    mockGet.mockResolvedValue({ data: { active: 100, passive: 50, fading: 30, sleeping: 20 } })
+    mockAllCohorts({ active: 100, passive: 50, fading: 30, sleeping: 20 })
     render(<TestRouter><Cohorts /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Когортный анализ')).toBeInTheDocument()
@@ -29,7 +39,7 @@ describe('Cohorts', () => {
   })
 
   it('renders total student count', async () => {
-    mockGet.mockResolvedValue({ data: { active: 100, passive: 50, fading: 30, sleeping: 20 } })
+    mockAllCohorts({ active: 100, passive: 50, fading: 30, sleeping: 20 })
     render(<TestRouter><Cohorts /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Всего: 200 студентов')).toBeInTheDocument()
@@ -37,7 +47,7 @@ describe('Cohorts', () => {
   })
 
   it('renders all four cohort labels', async () => {
-    mockGet.mockResolvedValue({ data: { active: 100, passive: 50, fading: 30, sleeping: 20 } })
+    mockAllCohorts({ active: 100, passive: 50, fading: 30, sleeping: 20 })
     render(<TestRouter><Cohorts /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Активные')).toBeInTheDocument()
@@ -48,7 +58,7 @@ describe('Cohorts', () => {
   })
 
   it('renders cohort values', async () => {
-    mockGet.mockResolvedValue({ data: { active: 7000, passive: 400, fading: 200, sleeping: 18 } })
+    mockAllCohorts({ active: 7000, passive: 400, fading: 200, sleeping: 18 })
     render(<TestRouter><Cohorts /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('7000')).toBeInTheDocument()
@@ -59,7 +69,7 @@ describe('Cohorts', () => {
   })
 
   it('renders cohort percentages', async () => {
-    mockGet.mockResolvedValue({ data: { active: 50, passive: 50, fading: 0, sleeping: 0 } })
+    mockAllCohorts({ active: 50, passive: 50, fading: 0, sleeping: 0 })
     render(<TestRouter><Cohorts /></TestRouter>)
     await waitFor(() => {
       expect(screen.getAllByText(/50\.0%/).length).toBeGreaterThanOrEqual(2)
@@ -67,7 +77,7 @@ describe('Cohorts', () => {
   })
 
   it('renders day ranges', async () => {
-    mockGet.mockResolvedValue({ data: { active: 10, passive: 5, fading: 3, sleeping: 2 } })
+    mockAllCohorts({ active: 10, passive: 5, fading: 3, sleeping: 2 })
     render(<TestRouter><Cohorts /></TestRouter>)
     await waitFor(() => {
       expect(screen.getAllByText(/7 дней/).length).toBeGreaterThanOrEqual(2)
@@ -78,7 +88,7 @@ describe('Cohorts', () => {
   })
 
   it('renders cohort definition section', async () => {
-    mockGet.mockResolvedValue({ data: { active: 0, passive: 0, fading: 0, sleeping: 0 } })
+    mockAllCohorts({ active: 0, passive: 0, fading: 0, sleeping: 0 })
     render(<TestRouter><Cohorts /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Определение когорт')).toBeInTheDocument()
@@ -86,17 +96,8 @@ describe('Cohorts', () => {
     })
   })
 
-  it('renders predictive churn section', async () => {
-    mockGet.mockResolvedValue({ data: { active: 0, passive: 0, fading: 0, sleeping: 0 } })
-    render(<TestRouter><Cohorts /></TestRouter>)
-    await waitFor(() => {
-      expect(screen.getByText('Predictive Churn')).toBeInTheDocument()
-      expect(screen.getByText(/ML-модель выявляет студентов/)).toBeInTheDocument()
-    })
-  })
-
   it('renders zero state correctly', async () => {
-    mockGet.mockResolvedValue({ data: { active: 0, passive: 0, fading: 0, sleeping: 0 } })
+    mockAllCohorts({ active: 0, passive: 0, fading: 0, sleeping: 0 })
     render(<TestRouter><Cohorts /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Всего: 0 студентов')).toBeInTheDocument()

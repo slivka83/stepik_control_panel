@@ -62,7 +62,7 @@ class TestAuthMe:
 
 
 class TestAuthLogout:
-    def test_logout_clears_session(self):
+    def test_logout_returns_ok(self):
         response = client.get("/api/auth/logout")
         assert response.status_code == 200
         assert response.json() == {"ok": True}
@@ -99,7 +99,7 @@ class TestSessionSigning:
 
 
 class TestCORSMiddleware:
-    def test_cors_allows_localhost_3000(self):
+    def test_cors_allows_frontend_origin(self):
         response = client.options(
             "/api/health",
             headers={

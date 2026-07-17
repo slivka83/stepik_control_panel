@@ -1,57 +1,28 @@
-import { useState, useEffect, useRef } from 'react'
-import api from '../api'
 import { useSync } from '../contexts/SyncContext'
-import { getCached, setCached } from '../cache'
-
-const COHORT_COLORS = {
-  active: { text: 'text-neon-green', bg: 'bg-neon-green' },
-  passive: { text: 'text-cyber-blue', bg: 'bg-cyber-blue' },
-  fading: { text: 'text-amber-alert', bg: 'bg-amber-alert' },
-  sleeping: { text: 'text-crimson-alert', bg: 'bg-crimson-alert' },
-}
-
-const COHORT_LABELS = {
-  active: 'Активные',
-  passive: 'Пассивные',
-  fading: 'Затухающие',
-  sleeping: 'Спящие',
-}
-
-const COHORT_DAYS = {
-  active: '≤ 7 дней',
-  passive: '8–30 дней',
-  fading: '30–90 дней',
-  sleeping: '> 90 дней',
-}
+import { COHORT_COLORS, COHORT_LABELS, COHORT_DAYS } from '../constants'
 
 export default function Cohorts() {
-  const [cohorts, setCohorts] = useState(getCached('cohorts') || {})
-  const loaded = useRef(!!getCached('cohorts'))
-  const { refreshKey } = useSync()
+  const { data, loading } = useSync()
+  const cohorts = data.cohorts
 
-  useEffect(() => {
-    const fetchCohorts = async () => {
-      try {
-        const res = await api.get('/api/dashboard/cohorts')
-        setCohorts(res.data)
-        setCached('cohorts', res.data)
-      } catch (err) {
-        console.error('Cohorts fetch error:', err)
-      }
-      loaded.current = true
-    }
-    fetchCohorts()
-  }, [refreshKey])
+  const total = Object.values(cohorts).reduce((sum, val) => sum + val, 0)
 
-  if (!loaded.current) {
+  if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-cyber-blue font-mono animate-pulse">Загрузка данных...</div>
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-white">Когортный анализ</h1>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="glass-panel p-5 animate-pulse">
+              <div className="h-4 bg-gray-700 rounded w-20 mb-3"></div>
+              <div className="h-8 bg-gray-700 rounded w-16 mb-2"></div>
+              <div className="h-3 bg-gray-700 rounded w-24"></div>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
-
-  const total = Object.values(cohorts).reduce((sum, val) => sum + val, 0)
 
   return (
     <div className="space-y-6">
@@ -98,25 +69,6 @@ export default function Cohorts() {
             <li><span className="text-amber-alert font-mono">Fading</span> — последняя активность 30–90 дней назад</li>
             <li><span className="text-crimson-alert font-mono">Sleeping</span> — последняя активность {'>'} 90 дней назад</li>
           </ul>
-        </div>
-      </div>
-
-      <div className="glass-panel p-6">
-        <h3 className="text-white font-medium mb-4">Predictive Churn</h3>
-        <div className="p-4 bg-amber-alert/10 border border-amber-alert/20 rounded-lg">
-          <div className="flex items-start gap-3">
-            <span className="text-amber-alert text-lg">⚠</span>
-            <div>
-              <p className="text-sm text-gray-300 mb-2">
-                ML-модель выявляет студентов с высоким риском оттока на основе:
-              </p>
-              <ul className="text-xs text-gray-400 space-y-1 ml-4 list-disc list-inside">
-                <li>Увеличение пауз между уроками в 2+ раза</li>
-                <li>Доля ошибок time_limit_exceeded {'>'} 15% за последние 5 попыток</li>
-                <li>Статус когорты "Active" при указанных паттернах</li>
-              </ul>
-            </div>
-          </div>
         </div>
       </div>
     </div>

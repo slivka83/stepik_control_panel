@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.models import FinancialSnapshot
+from app.api.auth import get_user
 import app.services.sync as sync_mod
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
@@ -30,6 +31,6 @@ async def sync_status(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("")
-async def trigger_sync(force: bool = False):
+async def trigger_sync(force: bool = False, user=Depends(get_user)):
     result = await sync_mod.sync_all(force=force)
     return result

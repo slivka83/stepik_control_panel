@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     secret_key: str = "dev-secret-key"
 
     app_env: str = "development"
+    frontend_url: str = "http://localhost:3000"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 

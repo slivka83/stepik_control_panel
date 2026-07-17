@@ -128,7 +128,7 @@ async def refresh_access_token(refresh_token: str, client_id: str, client_secret
         return response.json()
 
 
-async def exchange_code_for_token(code: str, client_id: str, client_secret: str) -> dict:
+async def exchange_code_for_token(code: str, client_id: str, client_secret: str, redirect_uri: str) -> dict:
     async with httpx.AsyncClient() as client:
         response = await client.post(
             "https://stepik.org/oauth2/token/",
@@ -137,7 +137,7 @@ async def exchange_code_for_token(code: str, client_id: str, client_secret: str)
                 "code": code,
                 "client_id": client_id,
                 "client_secret": client_secret,
-                "redirect_uri": "http://localhost:3000/api/auth/callback",
+                "redirect_uri": redirect_uri,
                 "scope": "read",
             },
             timeout=30.0,

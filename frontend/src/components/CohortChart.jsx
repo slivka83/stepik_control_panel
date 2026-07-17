@@ -1,24 +1,11 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
-
-const COHORT_COLORS = {
-  active: '#4ade80',
-  passive: '#38bdf8',
-  fading: '#f59e0b',
-  sleeping: '#f43f5e',
-}
-
-const COHORT_LABELS = {
-  active: 'Активные',
-  passive: 'Пассивные',
-  fading: 'Затухающие',
-  sleeping: 'Спящие',
-}
+import { COHORT_COLORS, COHORT_LABELS } from '../constants'
 
 export default function CohortChart({ data = {} }) {
   const chartData = Object.entries(data).map(([key, value]) => ({
     name: COHORT_LABELS[key] || key,
     value,
-    color: COHORT_COLORS[key],
+    color: COHORT_COLORS[key]?.hex,
   }))
 
   const total = chartData.reduce((sum, item) => sum + item.value, 0)

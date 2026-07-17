@@ -266,12 +266,15 @@ class TestExchangeCodeForToken:
             mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
             mock_client.post = AsyncMock(return_value=mock_response)
 
-            result = await exchange_code_for_token("code123", "client_id", "client_secret")
+            result = await exchange_code_for_token(
+                "code123", "client_id", "client_secret", "http://localhost:3000/api/auth/callback"
+            )
 
             assert result["access_token"] == "test_access"
             call_kwargs = mock_client.post.call_args[1]
             assert call_kwargs["data"]["scope"] == "read"
             assert call_kwargs["data"]["grant_type"] == "authorization_code"
+            assert call_kwargs["data"]["redirect_uri"] == "http://localhost:3000/api/auth/callback"
 
     @pytest.mark.asyncio
     async def test_exchange_failure(self):
@@ -284,7 +287,9 @@ class TestExchangeCodeForToken:
             mock_client.post = AsyncMock(return_value=mock_response)
 
             with pytest.raises(StepikAPIError):
-                await exchange_code_for_token("bad_code", "client_id", "client_secret")
+                await exchange_code_for_token(
+                    "bad_code", "client_id", "client_secret", "http://localhost:3000/api/auth/callback"
+                )
 
 
 class TestGetUserProfile:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,5 +39,13 @@ async def get_course(course_id: str, db: AsyncSession = Depends(get_db)):
     )
     course = result.scalar_one_or_none()
     if not course:
-        return {"error": "Course not found"}, 404
-    return {"course": course}
+        raise HTTPException(status_code=404, detail="Course not found")
+    return {
+        "course": {
+            "id": str(course.id),
+            "stepik_course_id": course.stepik_course_id,
+            "title": course.title,
+            "status": course.status,
+            "health_score": course.health_score,
+        }
+    }

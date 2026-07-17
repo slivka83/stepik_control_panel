@@ -65,3 +65,15 @@ class TestCrossCuttingConcerns:
         import inspect
         source = inspect.getsource(_request)
         assert "GET" in source
+
+    def test_redirect_uri_parameterized(self):
+        from app.services.stepik_api import exchange_code_for_token
+        import inspect
+        source = inspect.getsource(exchange_code_for_token)
+        assert "redirect_uri" in source
+
+    def test_token_refresh_checks_expiry(self):
+        from app.services.token_refresh import refresh_user_tokens
+        import inspect
+        source = inspect.getsource(refresh_user_tokens)
+        assert "token_expires_at" in source

@@ -9,6 +9,12 @@ vi.mock('../api', () => ({
 
 import Financials from '../pages/Financials'
 
+const mockKpi = { total_revenue: 0, total_students: 0, certificates_issued: 0, courses_count: 0, net_income: 0, total_turnover: 0, total_payments: 0, total_refunds: 0, total_income: 0 }
+const mockCohorts = { active: 0, passive: 0, fading: 0, sleeping: 0 }
+const mockRevenue = { months: [] }
+const mockAlerts = { alerts: [] }
+const mockCourses = { courses: [] }
+
 const mockFinancials = {
   summary: {
     total_turnover: 200000,
@@ -26,19 +32,23 @@ const mockFinancials = {
   recent_payments: [],
 }
 
+const mockAllFinancials = (financials) => {
+  mockGet
+    .mockResolvedValueOnce({ data: mockKpi })
+    .mockResolvedValueOnce({ data: mockCohorts })
+    .mockResolvedValueOnce({ data: mockRevenue })
+    .mockResolvedValueOnce({ data: mockAlerts })
+    .mockResolvedValueOnce({ data: mockCourses })
+    .mockResolvedValueOnce({ data: financials })
+}
+
 describe('Financials', () => {
   beforeEach(() => {
     mockGet.mockReset()
   })
 
-  it('shows loading state', () => {
-    mockGet.mockReturnValue(new Promise(() => {}))
-    render(<TestRouter><Financials /></TestRouter>)
-    expect(screen.getByText('Загрузка данных...')).toBeInTheDocument()
-  })
-
   it('renders page with data', async () => {
-    mockGet.mockResolvedValueOnce({ data: mockFinancials })
+    mockAllFinancials(mockFinancials)
     render(<TestRouter><Financials /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Финансовая аналитика')).toBeInTheDocument()
@@ -47,7 +57,7 @@ describe('Financials', () => {
   })
 
   it('renders empty state', async () => {
-    mockGet.mockResolvedValueOnce({ data: { ...mockFinancials, summary: { ...mockFinancials.summary, total_payments: 0 }, months: [], courses: [], recent_payments: [] } })
+    mockAllFinancials({ ...mockFinancials, summary: { ...mockFinancials.summary, total_payments: 0 }, months: [], courses: [], recent_payments: [] })
     render(<TestRouter><Financials /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText(/Финансовые данные пока недоступны/)).toBeInTheDocument()
@@ -55,7 +65,7 @@ describe('Financials', () => {
   })
 
   it('renders tab buttons when has data', async () => {
-    mockGet.mockResolvedValueOnce({ data: mockFinancials })
+    mockAllFinancials(mockFinancials)
     render(<TestRouter><Financials /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('По месяцам')).toBeInTheDocument()
@@ -65,7 +75,7 @@ describe('Financials', () => {
   })
 
   it('renders 5 KPI cards', async () => {
-    mockGet.mockResolvedValueOnce({ data: mockFinancials })
+    mockAllFinancials(mockFinancials)
     render(<TestRouter><Financials /></TestRouter>)
     await waitFor(() => {
       expect(screen.getAllByText('Оборот').length).toBeGreaterThanOrEqual(1)

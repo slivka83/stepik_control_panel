@@ -11,16 +11,24 @@ from app.services.stepik_api import refresh_access_token
 
 logger = logging.getLogger(__name__)
 
+TOKEN_EXPIRY_BUFFER_SECONDS = 900  # 15 minutes before expiry
+
 
 async def refresh_user_tokens():
-    """Refresh all user access tokens that expire within 15 minutes."""
+    """Refresh user access tokens that expire within 15 minutes."""
     settings = get_settings()
     try:
         async with async_session() as session:
             result = await session.execute(select(User))
             users = result.scalars().all()
 
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            refreshed = 0
+
             for user in users:
+                if user.token_expires_at and user.token_expires_at > now + timedelta(seconds=TOKEN_EXPIRY_BUFFER_SECONDS):
+                    continue
+
                 try:
                     refresh_token = decrypt_token(user.refresh_token)
                     token_data = await refresh_access_token(
@@ -38,10 +46,12 @@ async def refresh_user_tokens():
                     user.token_expires_at = (
                         datetime.now(timezone.utc) + timedelta(seconds=expires_in)
                     ).replace(tzinfo=None)
+                    refreshed += 1
                     logger.info("Token refreshed for user %s", user.stepik_id)
                 except Exception as e:
                     logger.warning("Failed to refresh token for user %s: %s", user.stepik_id, e)
 
             await session.commit()
+            logger.info("Token refresh complete: %d/%d refreshed", refreshed, len(users))
     except Exception as e:
         logger.error("Token refresh task failed: %s", e)

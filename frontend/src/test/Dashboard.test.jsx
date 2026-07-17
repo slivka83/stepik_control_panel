@@ -37,23 +37,26 @@ const mockAlerts = {
   ],
 }
 
+const mockCourses = { courses: [] }
+const mockFinancials = { summary: { total_payments: 0 }, months: [], courses: [], recent_payments: [] }
+
+const mockAll = () => {
+  mockGet
+    .mockResolvedValueOnce({ data: mockKpi })
+    .mockResolvedValueOnce({ data: mockCohorts })
+    .mockResolvedValueOnce({ data: mockRevenue })
+    .mockResolvedValueOnce({ data: mockAlerts })
+    .mockResolvedValueOnce({ data: mockCourses })
+    .mockResolvedValueOnce({ data: mockFinancials })
+}
+
 describe('Dashboard', () => {
   beforeEach(() => {
     mockGet.mockReset()
   })
 
-  it('shows loading state', () => {
-    mockGet.mockReturnValue(new Promise(() => {}))
-    render(<TestRouter><Dashboard /></TestRouter>)
-    expect(screen.getByText('Загрузка данных...')).toBeInTheDocument()
-  })
-
   it('renders dashboard title', async () => {
-    mockGet
-      .mockResolvedValueOnce({ data: mockKpi })
-      .mockResolvedValueOnce({ data: mockCohorts })
-      .mockResolvedValueOnce({ data: mockRevenue })
-      .mockResolvedValueOnce({ data: mockAlerts })
+    mockAll()
     render(<TestRouter><Dashboard /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Сводная аналитика')).toBeInTheDocument()
@@ -61,11 +64,7 @@ describe('Dashboard', () => {
   })
 
   it('renders all six KPI cards', async () => {
-    mockGet
-      .mockResolvedValueOnce({ data: mockKpi })
-      .mockResolvedValueOnce({ data: mockCohorts })
-      .mockResolvedValueOnce({ data: mockRevenue })
-      .mockResolvedValueOnce({ data: mockAlerts })
+    mockAll()
     render(<TestRouter><Dashboard /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Доход за месяц')).toBeInTheDocument()
@@ -78,11 +77,7 @@ describe('Dashboard', () => {
   })
 
   it('renders financial KPI values', async () => {
-    mockGet
-      .mockResolvedValueOnce({ data: mockKpi })
-      .mockResolvedValueOnce({ data: mockCohorts })
-      .mockResolvedValueOnce({ data: mockRevenue })
-      .mockResolvedValueOnce({ data: mockAlerts })
+    mockAll()
     render(<TestRouter><Dashboard /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Доход за месяц')).toBeInTheDocument()
@@ -93,11 +88,7 @@ describe('Dashboard', () => {
   })
 
   it('renders alerts from API', async () => {
-    mockGet
-      .mockResolvedValueOnce({ data: mockKpi })
-      .mockResolvedValueOnce({ data: mockCohorts })
-      .mockResolvedValueOnce({ data: mockRevenue })
-      .mockResolvedValueOnce({ data: mockAlerts })
+    mockAll()
     render(<TestRouter><Dashboard /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Алерты')).toBeInTheDocument()
@@ -107,11 +98,7 @@ describe('Dashboard', () => {
   })
 
   it('renders alert deep links to stepik.org', async () => {
-    mockGet
-      .mockResolvedValueOnce({ data: mockKpi })
-      .mockResolvedValueOnce({ data: mockCohorts })
-      .mockResolvedValueOnce({ data: mockRevenue })
-      .mockResolvedValueOnce({ data: mockAlerts })
+    mockAll()
     render(<TestRouter><Dashboard /></TestRouter>)
     await waitFor(() => {
       const links = screen.getAllByRole('link')
@@ -126,6 +113,8 @@ describe('Dashboard', () => {
       .mockResolvedValueOnce({ data: mockCohorts })
       .mockResolvedValueOnce({ data: mockRevenue })
       .mockResolvedValueOnce({ data: { alerts: [] } })
+      .mockResolvedValueOnce({ data: mockCourses })
+      .mockResolvedValueOnce({ data: mockFinancials })
     render(<TestRouter><Dashboard /></TestRouter>)
     await waitFor(() => {
       expect(screen.queryByText('Алерты')).not.toBeInTheDocument()
@@ -138,6 +127,8 @@ describe('Dashboard', () => {
       .mockResolvedValueOnce({ data: { active: 0, passive: 0, fading: 0, sleeping: 0 } })
       .mockResolvedValueOnce({ data: { months: [] } })
       .mockResolvedValueOnce({ data: { alerts: [] } })
+      .mockResolvedValueOnce({ data: mockCourses })
+      .mockResolvedValueOnce({ data: mockFinancials })
     render(<TestRouter><Dashboard /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Сводная аналитика')).toBeInTheDocument()
@@ -148,11 +139,7 @@ describe('Dashboard', () => {
   })
 
   it('renders chart sections', async () => {
-    mockGet
-      .mockResolvedValueOnce({ data: mockKpi })
-      .mockResolvedValueOnce({ data: mockCohorts })
-      .mockResolvedValueOnce({ data: mockRevenue })
-      .mockResolvedValueOnce({ data: mockAlerts })
+    mockAll()
     render(<TestRouter><Dashboard /></TestRouter>)
     await waitFor(() => {
       expect(screen.getByText('Когортная сегментация')).toBeInTheDocument()

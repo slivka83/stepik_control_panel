@@ -1,31 +1,22 @@
-import { useState, useEffect, useRef } from 'react'
-import api from '../api'
 import { useSync } from '../contexts/SyncContext'
-import { getCached, setCached } from '../cache'
 
 export default function Courses() {
-  const [courses, setCourses] = useState(getCached('courses') || [])
-  const loaded = useRef(!!getCached('courses'))
-  const { refreshKey } = useSync()
+  const { data, loading } = useSync()
+  const courses = data.courses
 
-  useEffect(() => {
-    const fetchCourses = async () => {
-      try {
-        const res = await api.get('/api/courses')
-        setCourses(res.data.courses || [])
-        setCached('courses', res.data.courses || [])
-      } catch (err) {
-        console.error('Courses fetch error:', err)
-      }
-      loaded.current = true
-    }
-    fetchCourses()
-  }, [refreshKey])
-
-  if (!loaded.current) {
+  if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-cyber-blue font-mono animate-pulse">Загрузка курсов...</div>
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-white">Курсы</h1>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="glass-panel p-5 animate-pulse">
+              <div className="h-5 bg-gray-700 rounded w-3/4 mb-3"></div>
+              <div className="h-4 bg-gray-700 rounded w-1/2 mb-4"></div>
+              <div className="h-8 bg-gray-700 rounded"></div>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }

@@ -40,7 +40,6 @@ class Course(Base):
 
     user: Mapped["User"] = relationship(back_populates="courses")
     enrollments: Mapped[list["StudentEnrollment"]] = relationship(back_populates="course")
-    transactions: Mapped[list["FinancialTransaction"]] = relationship(back_populates="course")
 
 
 class StudentEnrollment(Base):
@@ -60,38 +59,9 @@ class StudentEnrollment(Base):
     course: Mapped["Course"] = relationship(back_populates="enrollments")
 
 
-class FinancialTransaction(Base):
-    __tablename__ = "financial_transactions"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    course_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False)
-    amount: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
-    is_refund: Mapped[bool] = mapped_column(Boolean, default=False)
-    transaction_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    is_b2b: Mapped[bool] = mapped_column(Boolean, default=False)
-    ltv_cohort: Mapped[str | None] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
-
-    course: Mapped["Course"] = relationship(back_populates="transactions")
-
-
 class FinancialSnapshot(Base):
     __tablename__ = "financial_snapshots"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     data: Mapped[dict] = mapped_column(JSONB, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))
-
-
-class CompetitorCourse(Base):
-    __tablename__ = "competitor_courses"
-
-    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    competitor_course_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    title: Mapped[str | None] = mapped_column(String)
-    rating: Mapped[float | None] = mapped_column(Float)
-    price: Mapped[float | None] = mapped_column(Numeric(10, 2))
-    students_count: Mapped[int | None] = mapped_column(Integer)
-    snapshot_date: Mapped[datetime] = mapped_column(DateTime, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(timezone.utc).replace(tzinfo=None))

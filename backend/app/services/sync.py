@@ -1,10 +1,9 @@
 import logging
 import uuid
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.database import async_session
@@ -52,20 +51,6 @@ def can_sync() -> bool:
     return (time.time() - _last_sync_completed_at) >= SYNC_COOLDOWN_SECONDS
 
 
-def get_sync_status() -> dict:
-    async def _get_last_sync_time():
-        async with async_session() as session:
-            result = await session.execute(select(FinancialSnapshot).limit(1))
-            snap = result.scalar_one_or_none()
-            return snap.updated_at.isoformat() if snap else None
-
-    return {
-        "in_progress": _sync_in_progress,
-        "last_sync": None,  # filled by endpoint
-        "cooldown_seconds": SYNC_COOLDOWN_SECONDS,
-    }
-
-
 async def sync_courses_and_enrollments():
     """Fetch from API first, then atomically replace DB data."""
     async with async_session() as session:
@@ -88,7 +73,6 @@ async def sync_courses_and_enrollments():
     courses_data = await _paginated_get("/courses", token, {"teacher": stepik_user_id}, "courses")
     logger.info("Found %d courses", len(courses_data))
 
-    # Phase 1: Fetch ALL data from API into memory
     all_grades: dict[int, list] = {}
     all_certs: dict[int, set] = {}
 
@@ -112,7 +96,6 @@ async def sync_courses_and_enrollments():
         except Exception:
             all_certs[sid] = set()
 
-    # Phase 2: Atomically replace DB data (fast)
     async with async_session() as session:
         async with session.begin():
             await session.execute(text("DELETE FROM student_enrollments"))
@@ -134,6 +117,8 @@ async def sync_courses_and_enrollments():
 
             total_enrollments = 0
             total_certs = 0
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+
             for sid, grades in all_grades.items():
                 local_course = course_map.get(sid)
                 if not local_course:
@@ -157,7 +142,7 @@ async def sync_courses_and_enrollments():
                                 str(last_viewed_ts).replace("Z", "+00:00")
                             ).replace(tzinfo=None)
                     else:
-                        last_viewed = datetime.now(timezone.utc).replace(tzinfo=None)
+                        last_viewed = now
 
                     enrollment = StudentEnrollment(
                         id=uuid.uuid4(),
@@ -205,7 +190,7 @@ async def sync_financials():
     total_refunds = sum(float(m.get("total_refunds", 0) or 0) for m in by_months)
     total_payments = sum(int(m.get("count_payments", 0) or 0) for m in by_months)
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     current_month_turnover = 0.0
     current_month_income = 0.0
     for m in by_months:

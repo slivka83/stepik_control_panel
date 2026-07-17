@@ -12,7 +12,7 @@ from app.config import get_settings
 from app.database import engine, Base, async_session
 from app.api import auth, courses, dashboard, financials, sync
 from app.services.token_refresh import refresh_user_tokens
-from app.services.sync import sync_all, _last_sync_completed_at
+from app.services.sync import sync_all
 from app.models.models import FinancialSnapshot
 
 settings = get_settings()
@@ -25,18 +25,15 @@ async def lifespan(app):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Auto-refresh Stepik tokens every 50 minutes
     scheduler.add_job(refresh_user_tokens, "interval", minutes=50, id="token_refresh")
     scheduler.start()
     logger.info("Token auto-refresh started (every 50 min)")
 
-    # Run once on startup in case tokens are already expired
     try:
         await refresh_user_tokens()
     except Exception as e:
         logger.warning("Initial token refresh failed: %s", e)
 
-    # Check if we have recent data and skip sync if <1 hour old
     import app.services.sync as sync_mod
     async with async_session() as session:
         result = await session.execute(select(FinancialSnapshot).limit(1))
@@ -69,13 +66,13 @@ async def _startup_sync():
 app = FastAPI(
     title="Stepik Control Panel",
     description="CRM/BI-панель для авторов курсов на Stepik",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[settings.frontend_url],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

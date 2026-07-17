@@ -1,52 +1,35 @@
-import { useState, useEffect, useRef } from 'react'
-import api from '../api'
+import { useState } from 'react'
 import { useSync } from '../contexts/SyncContext'
-import { getCached, setCached } from '../cache'
-
-const STATUS_LABELS = {
-  debited: 'Зачислен',
-  refunded: 'Возврат',
-  pending: 'Ожидание',
-}
-
-const STATUS_COLORS = {
-  debited: 'text-neon-green',
-  refunded: 'text-crimson-alert',
-  pending: 'text-amber-alert',
-}
+import { STATUS_LABELS, STATUS_COLORS } from '../constants'
 
 export default function Financials() {
-  const [financials, setFinancials] = useState(getCached('financials'))
+  const { data, loading } = useSync()
+  const financials = data.financials
   const [activeTab, setActiveTab] = useState('months')
-  const loaded = useRef(!!getCached('financials'))
-  const { refreshKey } = useSync()
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const res = await api.get('/api/financials')
-        setFinancials(res.data)
-        setCached('financials', res.data)
-      } catch (err) {
-        console.error('Financials fetch error:', err)
-      }
-      loaded.current = true
-    }
-    fetchData()
-  }, [refreshKey])
-
-  if (!loaded.current) {
+  if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-cyber-blue font-mono animate-pulse">Загрузка данных...</div>
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-white">Финансовая аналитика</h1>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="glass-panel p-5 animate-pulse">
+              <div className="h-3 bg-gray-700 rounded w-16 mb-2"></div>
+              <div className="h-6 bg-gray-700 rounded w-24"></div>
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
 
   if (!financials) {
     return (
-      <div className="text-center text-gray-400 py-20">
-        Ошибка загрузки финансовых данных
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-white">Финансовая аналитика</h1>
+        <div className="glass-panel p-12 text-center">
+          <p className="text-gray-400">Финансовые данные пока недоступны</p>
+        </div>
       </div>
     )
   }

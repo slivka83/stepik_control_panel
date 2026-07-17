@@ -3,7 +3,7 @@ from urllib.parse import urlencode
 import hashlib
 import hmac
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models.models import User
 from app.services.crypto import encrypt_token, decrypt_token
-from app.services.stepik_api import exchange_code_for_token, get_user_profile, refresh_access_token
+from app.services.stepik_api import exchange_code_for_token, get_user_profile
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -95,6 +95,7 @@ async def callback(code: str, db: AsyncSession = Depends(get_db)):
         code=code,
         client_id=settings.stepik_client_id,
         client_secret=settings.stepik_client_secret,
+        redirect_uri=settings.stepik_redirect_uri,
     )
 
     access_token = token_data.get("access_token", "")
@@ -116,27 +117,19 @@ async def callback(code: str, db: AsyncSession = Depends(get_db)):
         user.refresh_token = encrypted_refresh
         user.token_expires_at = expires_at
     else:
-        result_all = await db.execute(select(User).limit(1))
-        user = result_all.scalar_one_or_none()
-        if user:
-            user.stepik_id = stepik_id
-            user.access_token = encrypted_access
-            user.refresh_token = encrypted_refresh
-            user.token_expires_at = expires_at
-        else:
-            user = User(
-                stepik_id=stepik_id,
-                access_token=encrypted_access,
-                refresh_token=encrypted_refresh,
-                token_expires_at=expires_at,
-            )
-            db.add(user)
+        user = User(
+            stepik_id=stepik_id,
+            access_token=encrypted_access,
+            refresh_token=encrypted_refresh,
+            token_expires_at=expires_at,
+        )
+        db.add(user)
 
     await db.commit()
     await db.refresh(user)
 
     session_token = create_session_token(str(user.id))
-    return RedirectResponse(f"http://localhost:3000?session_token={session_token}")
+    return RedirectResponse(f"{settings.frontend_url}?session_token={session_token}")
 
 
 @router.get("/me")

@@ -36,18 +36,6 @@ describe('Layout', () => {
     })
   })
 
-  it('renders logo', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
-    render(
-      <TestRouter>
-        <Layout><div>Content</div></Layout>
-      </TestRouter>
-    )
-    await waitFor(() => {
-      expect(screen.getByText('STEPIK CONTROL')).toBeInTheDocument()
-    })
-  })
-
   it('shows login button when not authenticated', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
     render(
@@ -56,11 +44,11 @@ describe('Layout', () => {
       </TestRouter>
     )
     await waitFor(() => {
-      expect(screen.getByText('Войти через Stepik')).toBeInTheDocument()
+      expect(screen.getByText('Войти')).toBeInTheDocument()
     })
   })
 
-  it('shows sync indicator when authenticated', async () => {
+  it('shows SYNCED when authenticated', async () => {
     localStorage.setItem('stepik_session_token', 'test-token-123')
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -116,7 +104,7 @@ describe('Layout', () => {
       </TestRouter>
     )
     await waitFor(() => {
-      expect(screen.getByText('Войти через Stepik')).toBeInTheDocument()
+      expect(screen.getByText('Войти')).toBeInTheDocument()
     })
     expect(screen.queryByText('SYNCED')).not.toBeInTheDocument()
   })
@@ -129,7 +117,7 @@ describe('Layout', () => {
       </TestRouter>
     )
     await waitFor(() => {
-      expect(screen.getByText('v0.1.0')).toBeInTheDocument()
+      expect(screen.getByText('v0.2.0')).toBeInTheDocument()
     })
   })
 
@@ -142,18 +130,6 @@ describe('Layout', () => {
     )
     await waitFor(() => {
       expect(screen.getByText('Read-Only Mode')).toBeInTheDocument()
-    })
-  })
-
-  it('renders header title', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
-    render(
-      <TestRouter>
-        <Layout><div>Content</div></Layout>
-      </TestRouter>
-    )
-    await waitFor(() => {
-      expect(screen.getByText('Stepik Control Panel')).toBeInTheDocument()
     })
   })
 

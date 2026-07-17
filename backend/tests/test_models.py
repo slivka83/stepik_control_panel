@@ -74,36 +74,12 @@ class TestStudentEnrollmentModel:
         assert enrollment.certificate_issued is False
 
 
-class TestFinancialTransactionModel:
-    def test_transaction_fields(self):
-        transaction = MagicMock()
-        transaction.id = uuid.uuid4()
-        transaction.course_id = uuid.uuid4()
-        transaction.amount = 1500.50
-        transaction.is_refund = False
-        transaction.transaction_date = datetime.now(timezone.utc)
-        transaction.is_b2b = False
-        transaction.ltv_cohort = None
-        transaction.created_at = datetime.now(timezone.utc)
+class TestFinancialSnapshotModel:
+    def test_snapshot_fields(self):
+        snapshot = MagicMock()
+        snapshot.id = uuid.uuid4()
+        snapshot.data = {"summary": {}, "months": [], "courses": [], "recent_payments": []}
+        snapshot.updated_at = datetime.now(timezone.utc)
 
-        assert transaction.amount == 1500.50
-        assert transaction.is_refund is False
-        assert transaction.is_b2b is False
-
-
-class TestCompetitorCourseModel:
-    def test_competitor_fields(self):
-        competitor = MagicMock()
-        competitor.id = uuid.uuid4()
-        competitor.user_id = uuid.uuid4()
-        competitor.competitor_course_id = 3000
-        competitor.title = "Competitor Course"
-        competitor.rating = 4.5
-        competitor.price = 2999.99
-        competitor.students_count = 5000
-        competitor.snapshot_date = datetime.now(timezone.utc)
-        competitor.created_at = datetime.now(timezone.utc)
-
-        assert competitor.title == "Competitor Course"
-        assert competitor.rating == 4.5
-        assert competitor.students_count == 5000
+        assert "summary" in snapshot.data
+        assert snapshot.data["months"] == []

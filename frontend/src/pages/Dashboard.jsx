@@ -1,52 +1,34 @@
-import { useState, useEffect, useRef } from 'react'
-import api from '../api'
 import { useSync } from '../contexts/SyncContext'
-import { getCached, setCached } from '../cache'
 import KpiCard from '../components/KpiCard'
 import RevenueChart from '../components/RevenueChart'
 import CohortChart from '../components/CohortChart'
 
 export default function Dashboard() {
-  const [kpi, setKpi] = useState(getCached('dash_kpi'))
-  const [cohorts, setCohorts] = useState(getCached('dash_cohorts') || {})
-  const [revenue, setRevenue] = useState(getCached('dash_revenue') || { months: [] })
-  const [alerts, setAlerts] = useState(getCached('dash_alerts') || [])
-  const loaded = useRef(!!getCached('dash_kpi'))
-  const { refreshKey } = useSync()
+  const { data, loading } = useSync()
+  const { kpi, cohorts, revenue, alerts } = data
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const [kpiRes, cohortsRes, revenueRes, alertsRes] = await Promise.allSettled([
-        api.get('/api/dashboard/kpi'),
-        api.get('/api/dashboard/cohorts'),
-        api.get('/api/dashboard/revenue'),
-        api.get('/api/dashboard/alerts'),
-      ])
-      if (kpiRes.status === 'fulfilled') {
-        setKpi(kpiRes.value.data)
-        setCached('dash_kpi', kpiRes.value.data)
-      }
-      if (cohortsRes.status === 'fulfilled') {
-        setCohorts(cohortsRes.value.data)
-        setCached('dash_cohorts', cohortsRes.value.data)
-      }
-      if (revenueRes.status === 'fulfilled') {
-        setRevenue(revenueRes.value.data)
-        setCached('dash_revenue', revenueRes.value.data)
-      }
-      if (alertsRes.status === 'fulfilled') {
-        setAlerts(alertsRes.value.data.alerts || [])
-        setCached('dash_alerts', alertsRes.value.data.alerts || [])
-      }
-      loaded.current = true
-    }
-    fetchData()
-  }, [refreshKey])
-
-  if (!loaded.current) {
+  if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-cyber-blue font-mono animate-pulse">Загрузка данных...</div>
+      <div className="space-y-6">
+        <h1 className="text-2xl font-bold text-white">Сводная аналитика</h1>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="glass-panel p-5 animate-pulse">
+              <div className="h-4 bg-gray-700 rounded w-20 mb-3"></div>
+              <div className="h-8 bg-gray-700 rounded w-24"></div>
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="glass-panel p-6 animate-pulse">
+            <div className="h-4 bg-gray-700 rounded w-32 mb-4"></div>
+            <div className="h-64 bg-gray-700 rounded"></div>
+          </div>
+          <div className="glass-panel p-6 animate-pulse">
+            <div className="h-4 bg-gray-700 rounded w-32 mb-4"></div>
+            <div className="h-64 bg-gray-700 rounded"></div>
+          </div>
+        </div>
       </div>
     )
   }
