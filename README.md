@@ -1,28 +1,15 @@
-# Stepik Control Panel (ERP & BI Edition)
+# Stepik Control Panel
 
-CRM/BI-панель управления для авторов и менеджеров образовательных курсов на платформе [Stepik](https://stepik.org). Интерфейс в стиле «Приборная панель космического корабля» — аналитика, финансы, удержание студентов, маркетинг и модерация в одном окне.
+CRM/BI-панель для авторов курсов на платформе [Stepik](https://stepik.org). Аналитика, финансы, удержание студентов в одном окне.
 
-> **Важно:** Приложение работает **исключительно в режиме чтения**. Все данные берутся из Stepik API, прямая модификация данных на платформе исключена. Интерактивные действия (баны, ответы, редактирование) реализуются через Deep Links на оригинальный интерфейс Stepik.
-
-## Модули
-
-| Модуль | Описание |
-|---|---|
-| Навигация | Мультиаккаунтность, OAuth2, переключение аккаунтов |
-| Аналитика | KPI-дашборд, AI-дайджест, индикатор здоровья курсов |
-| Финансы | Доходы, возвраты, B2B-продажи, налоговый дашборд |
-| Удержание | Когортная сегментация, воронка, predictive churn |
-| Маркетинг | Промокоды, триггерные рассылки, RFM-сегментация |
-| QA | Глобальный поиск, проверка битых ссылок, контент |
-| Модерация | Единый inbox, анализ токсичности комментариев |
-| Конкуренты | Трекинг курсов конкурентов, бенчмаркинг |
+> **Режим чтения:** Все данные берутся из Stepik API. Прямая модификация данных на платформе исключена. Интерактивные действия реализуются через Deep Links на оригинальный интерфейс Stepik.
 
 ## Технологии
 
 - **Backend:** Python 3.12+, FastAPI, SQLAlchemy 2.0 (async), Alembic, APScheduler
-- **Frontend:** React 18+, Vite, Tailwind CSS v3, Recharts/Nivo, Framer Motion
+- **Frontend:** React 18+, Vite, Tailwind CSS v3, Recharts
 - **База данных:** PostgreSQL 16, Redis 7
-- **Инфраструктура:** Docker Compose, Windows 11 + WSL2
+- **Шрифты:** Inter (текст), JetBrains Mono (числовые показателя, ID, финансы)
 
 ## Быстрый старт
 
@@ -35,17 +22,114 @@ cd stepik_control_panel
 cp .env.example .env
 # Заполните OAuth2 Client ID/Secret, ENCRYPTION_KEY и данные БД
 
-# 3. Запустите контейнеры
-docker-compose up --build
+# 3. Запустите
+./start.sh        # Linux/Mac
+start.bat          # Windows
+```
 
-# 4. Откройте интерфейс
-# http://localhost:3000
+Порты настраиваются в `.env` (корень проекта):
+```
+BACKEND_PORT=8000
+FRONTEND_PORT=3000
+```
+
+Откройте http://localhost:3000
+
+**Примечание:** Файл `.env` должен находиться **в корне проекта**. Скрипты запуска автоматически создают виртуальное окружение Python 3.12 и устанавливают зависимости при первом запуске.
+
+### Миграции БД
+
+```bash
+# Применить все миграции
+alembic upgrade head
+
+# Посмотреть текущую версию
+alembic current
+```
+
+## Модули
+
+| Модуль | Описание |
+|---|---|
+| Дашборд | KPI-метрики, алерты по сертификатам, здоровье курсов |
+| Курсы | Список курсов, статусы, количество студентов |
+| Финансы | Доходы по месяцам, возвраты, чистая выручка, последние платежи |
+| Когорты | Сегментация студентов (Active/Passive/Fading/Sleeping) |
+
+## Структура проекта
+
+```
+├── backend/
+│   ├── app/
+│   │   ├── api/          # FastAPI роутеры
+│   │   ├── models/       # SQLAlchemy модели
+│   │   ├── services/     # Бизнес-логика (sync, stepik_api, crypto)
+│   │   └── config.py     # Настройки из .env
+│   ├── alembic/          # Миграции БД
+│   ├── tests/            # Backend тесты (pytest)
+│   │   ├── conftest.py   # Фикстуры, test DB engine
+│   │   └── test_*.py     # Модульные тесты API и бизнес-логики
+│   ├── pytest.ini        # Конфигурация pytest (asyncio_mode=auto)
+│   ├── requirements.txt  # Python зависимости
+│   └── requirements-test.txt  # Тестовые зависимости
+├── frontend/
+│   ├── src/
+│   │   ├── components/   # React компоненты
+│   │   ├── pages/        # Страницы (Dashboard, Courses, Financials, Cohorts)
+│   │   ├── contexts/     # AuthContext, SyncContext
+│   │   ├── constants.js  # Цвета (CHART_COLORS), лейблы, навигация, APP_VERSION
+│   │   └── test/         # Frontend тесты (vitest + jsdom)
+│   ├── vite.config.js
+│   └── package.json
+├── docker-compose.yml    # PostgreSQL + Redis
+├── .env.example          # Шаблон переменных окружения
+├── .dockerignore         # Игнорирование файлов для Docker
+├── start.sh              # Запуск (Linux/Mac)
+└── start.bat             # Запуск (Windows)
+```
+
+### Тестирование
+
+```bash
+# Backend — 102 теста
+cd backend
+python -m pytest tests/ -v
+
+# Frontend — 78 тестов
+cd frontend
+npx vitest run
+```
+
+## База данных
+
+| Таблица | Описание |
+|---|---|
+| `users` | Авторы, зашифрованные OAuth2 токены (Fernet) |
+| `courses` | Курсы автора, health_score |
+| `student_enrollments` | Прогресс и когортный статус студентов |
+| `submissions` | Отправки решений по шагам (correct/wrong) |
+| `financial_snapshots` | Финансовая сводка по месяцам и курсам (JSONB) |
+
+PK — UUID. Токены шифруются через `cryptography.fernet`, ключ `ENCRYPTION_KEY` из `.env`.
+
+### Миграции
+
+Миграции применяются через Alembic:
+
+```bash
+# Создать новую миграцию
+alembic revision --autogenerate -m "описание"
+
+# Применить все миграции
+alembic upgrade head
+
+# Откатить последнюю миграцию
+alembic downgrade -1
 ```
 
 ## Документация
 
 | Файл | Описание |
 |---|---|
-| [`docs/brd.md`](docs/brd.md) | Бизнес-требования (BRD), функциональные модули, бизнес-правила |
-| [`docs/spec.md`](docs/spec.md) | Техническое задание, схема БД, план реализации |
-| [`docs/api.md`](docs/api.md) | Справочник по Stepik API, эндпоинты, авторизация |
+| [`docs/brd.md`](docs/brd.md) | Бизнес-требования, функциональные модули |
+| [`docs/api.md`](docs/api.md) | Справочник по Stepik API |

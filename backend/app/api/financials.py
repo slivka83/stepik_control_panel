@@ -3,13 +3,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.models import FinancialSnapshot
+from app.models import FinancialSnapshot, User
+from app.api.auth import get_user
 
 router = APIRouter(prefix="/api/financials", tags=["financials"])
 
 
 @router.get("")
-async def get_financials(db: AsyncSession = Depends(get_db)):
+async def get_financials(
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+):
     snapshot_result = await db.execute(select(FinancialSnapshot).limit(1))
     snapshot = snapshot_result.scalar_one_or_none()
     if not snapshot:

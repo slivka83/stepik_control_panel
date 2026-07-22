@@ -1,9 +1,13 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import { useAuth } from './AuthContext'
 import api from '../api'
 
 const SyncContext = createContext()
 
+export { SyncContext }
+
 export function SyncProvider({ children }) {
+  const { user, loading: authLoading } = useAuth()
   const [syncStatus, setSyncStatus] = useState({ in_progress: false, last_sync: null })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -15,17 +19,19 @@ export function SyncProvider({ children }) {
     courses: [],
     financials: null,
   })
+  const abortRef = useRef(null)
+  const pollIntervalRef = useRef(30000)
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (signal) => {
     try {
       const [kpiRes, cohortsRes, revenueRes, alertsRes, coursesRes, financialsRes] =
         await Promise.allSettled([
-          api.get('/api/dashboard/kpi'),
-          api.get('/api/dashboard/cohorts'),
-          api.get('/api/dashboard/revenue'),
-          api.get('/api/dashboard/alerts'),
-          api.get('/api/courses'),
-          api.get('/api/financials'),
+          api.get('/dashboard/kpi', { signal }),
+          api.get('/dashboard/cohorts', { signal }),
+          api.get('/dashboard/revenue', { signal }),
+          api.get('/dashboard/alerts', { signal }),
+          api.get('/courses', { signal }),
+          api.get('/financials', { signal }),
         ])
 
       setData(prev => ({
@@ -49,34 +55,50 @@ export function SyncProvider({ children }) {
       } else {
         setError(null)
       }
+      pollIntervalRef.current = 30000
     } catch (err) {
-      setError(err.message)
+      if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
+        setError(err.message)
+        pollIntervalRef.current = Math.min(pollIntervalRef.current * 2, 300000)
+      }
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    fetchAll()
+    if (authLoading || !user) {
+      setLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+    abortRef.current = controller
+    fetchAll(controller.signal)
 
     let lastKnownSync = null
     const poll = async () => {
       try {
-        const { data: status } = await api.get('/api/sync/status')
+        const { data: status } = await api.get('/sync/status', { signal: controller.signal })
         setSyncStatus(status)
         if (lastKnownSync && status.last_sync && lastKnownSync !== status.last_sync) {
-          fetchAll()
+          fetchAll(controller.signal)
         }
         lastKnownSync = status.last_sync
-      } catch {}
+      } catch {
+        // aborted or network error
+      }
     }
 
-    const interval = setInterval(poll, 30000)
-    return () => clearInterval(interval)
-  }, [fetchAll])
+    const interval = setInterval(poll, pollIntervalRef.current)
+    return () => {
+      controller.abort()
+      clearInterval(interval)
+    }
+  }, [user, authLoading, fetchAll])
 
   return (
-    <SyncContext.Provider value={{ syncStatus, data, loading, error, refresh: fetchAll }}>
+    <SyncContext.Provider value={{ syncStatus, data, loading, error, refresh: () => fetchAll() }}>
       {children}
     </SyncContext.Provider>
   )

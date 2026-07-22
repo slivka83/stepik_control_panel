@@ -1,11 +1,11 @@
 import time as time_mod
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.models import FinancialSnapshot
+from app.models import FinancialSnapshot, User
 from app.api.auth import get_user
 import app.services.sync as sync_mod
 
@@ -13,7 +13,10 @@ router = APIRouter(prefix="/api/sync", tags=["sync"])
 
 
 @router.get("/status")
-async def sync_status(db: AsyncSession = Depends(get_db)):
+async def sync_status(
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(FinancialSnapshot).limit(1))
     snap = result.scalar_one_or_none()
     last_sync = snap.updated_at.isoformat() if snap else None
@@ -31,6 +34,10 @@ async def sync_status(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("")
-async def trigger_sync(force: bool = False, user=Depends(get_user)):
-    result = await sync_mod.sync_all(force=force)
-    return result
+async def trigger_sync(
+    background_tasks: BackgroundTasks,
+    force: bool = False,
+    user: User = Depends(get_user),
+):
+    background_tasks.add_task(sync_mod.sync_all, force, user.id)
+    return {"status": "sync_started"}

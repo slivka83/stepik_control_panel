@@ -1,12 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import TestRouter from './TestRouter'
-
-const mockGet = vi.fn()
-vi.mock('../api', () => ({
-  default: { get: (...args) => mockGet(...args) },
-}))
-
 import Dashboard from '../pages/Dashboard'
 
 const mockKpi = {
@@ -32,118 +26,91 @@ const mockRevenue = {
 
 const mockAlerts = {
   alerts: [
-    { type: 'warning', message: '29 студентов набрали проходной балл, но не получили сертификат', link: 'https://stepik.org/course/68260/certificates', link_text: 'Открыть на Stepik →' },
-    { type: 'error', message: '5643 студентов на курсе «Алгоритмы ML» не набрали ни одного балла', link: 'https://stepik.org/course/68260/students', link_text: 'Посмотреть на Stepik →' },
+    { type: 'warning', message: '29 студентов набрали проходной балл, но не получили сертификат', link: 'https://stepik.org/course/68260/certificates', link_text: 'Открыть на Stepik' },
+    { type: 'error', message: '5643 студентов на курсе «Алгоритмы ML» не набрали ни одного балла', link: 'https://stepik.org/course/68260/students', link_text: 'Посмотреть на Stepik' },
   ],
 }
 
-const mockCourses = { courses: [] }
-const mockFinancials = { summary: { total_payments: 0 }, months: [], courses: [], recent_payments: [] }
-
-const mockAll = () => {
-  mockGet
-    .mockResolvedValueOnce({ data: mockKpi })
-    .mockResolvedValueOnce({ data: mockCohorts })
-    .mockResolvedValueOnce({ data: mockRevenue })
-    .mockResolvedValueOnce({ data: mockAlerts })
-    .mockResolvedValueOnce({ data: mockCourses })
-    .mockResolvedValueOnce({ data: mockFinancials })
+const fullSyncValue = {
+  syncStatus: { in_progress: false, last_sync: null },
+  data: {
+    kpi: mockKpi,
+    cohorts: mockCohorts,
+    revenue: mockRevenue,
+    alerts: mockAlerts.alerts,
+    courses: [],
+    financials: { summary: { total_payments: 0 }, months: [], courses: [], recent_payments: [] },
+  },
+  loading: false,
+  error: null,
+  refresh: vi.fn(),
 }
 
 describe('Dashboard', () => {
-  beforeEach(() => {
-    mockGet.mockReset()
+  it('renders dashboard title', () => {
+    render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
+    expect(screen.getByText('Сводная аналитика')).toBeInTheDocument()
   })
 
-  it('renders dashboard title', async () => {
-    mockAll()
-    render(<TestRouter><Dashboard /></TestRouter>)
-    await waitFor(() => {
-      expect(screen.getByText('Сводная аналитика')).toBeInTheDocument()
-    })
+  it('renders all six KPI cards', () => {
+    render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
+    expect(screen.getByText('Доход за месяц')).toBeInTheDocument()
+    expect(screen.getByText('Чистый доход')).toBeInTheDocument()
+    expect(screen.getByText('Оборот')).toBeInTheDocument()
+    expect(screen.getByText('Студенты')).toBeInTheDocument()
+    expect(screen.getByText('Покупок')).toBeInTheDocument()
+    expect(screen.getByText('Сертификаты')).toBeInTheDocument()
   })
 
-  it('renders all six KPI cards', async () => {
-    mockAll()
-    render(<TestRouter><Dashboard /></TestRouter>)
-    await waitFor(() => {
-      expect(screen.getByText('Доход за месяц')).toBeInTheDocument()
-      expect(screen.getByText('Чистый доход')).toBeInTheDocument()
-      expect(screen.getByText('Оборот')).toBeInTheDocument()
-      expect(screen.getByText('Студенты')).toBeInTheDocument()
-      expect(screen.getByText('Покупок')).toBeInTheDocument()
-      expect(screen.getByText('Сертификаты')).toBeInTheDocument()
-    })
+  it('renders alerts', () => {
+    render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
+    expect(screen.getByText('Алерты')).toBeInTheDocument()
+    expect(screen.getByText(/29 студентов набрали проходной балл/)).toBeInTheDocument()
+    expect(screen.getByText(/5643 студентов/)).toBeInTheDocument()
   })
 
-  it('renders financial KPI values', async () => {
-    mockAll()
-    render(<TestRouter><Dashboard /></TestRouter>)
-    await waitFor(() => {
-      expect(screen.getByText('Доход за месяц')).toBeInTheDocument()
-      expect(screen.getByText('Чистый доход')).toBeInTheDocument()
-      expect(screen.getByText('Оборот')).toBeInTheDocument()
-      expect(screen.getByText('Покупок')).toBeInTheDocument()
-    })
+  it('renders alert deep links to stepik.org', () => {
+    render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
+    const links = screen.getAllByRole('link')
+    const stepikLinks = links.filter(l => l.href.includes('stepik.org'))
+    expect(stepikLinks.length).toBeGreaterThanOrEqual(2)
   })
 
-  it('renders alerts from API', async () => {
-    mockAll()
-    render(<TestRouter><Dashboard /></TestRouter>)
-    await waitFor(() => {
-      expect(screen.getByText('Алерты')).toBeInTheDocument()
-      expect(screen.getByText(/29 студентов набрали проходной балл/)).toBeInTheDocument()
-      expect(screen.getByText(/5643 студентов/)).toBeInTheDocument()
-    })
+  it('renders empty alerts section when no alerts', () => {
+    const noAlertsValue = {
+      ...fullSyncValue,
+      data: { ...fullSyncValue.data, alerts: [] },
+    }
+    render(<TestRouter syncValue={noAlertsValue}><Dashboard /></TestRouter>)
+    expect(screen.queryByText('Алерты')).not.toBeInTheDocument()
   })
 
-  it('renders alert deep links to stepik.org', async () => {
-    mockAll()
-    render(<TestRouter><Dashboard /></TestRouter>)
-    await waitFor(() => {
-      const links = screen.getAllByRole('link')
-      const stepikLinks = links.filter(l => l.href.includes('stepik.org'))
-      expect(stepikLinks.length).toBeGreaterThanOrEqual(2)
-    })
+  it('renders with zero KPI values', () => {
+    const zeroValue = {
+      ...fullSyncValue,
+      data: {
+        ...fullSyncValue.data,
+        kpi: { total_revenue: 0, total_students: 0, certificates_issued: 0, courses_count: 0, net_income: 0, total_turnover: 0, total_payments: 0, total_refunds: 0, total_income: 0 },
+        cohorts: { active: 0, passive: 0, fading: 0, sleeping: 0 },
+        revenue: { months: [] },
+      },
+    }
+    render(<TestRouter syncValue={zeroValue}><Dashboard /></TestRouter>)
+    expect(screen.getByText('Сводная аналитика')).toBeInTheDocument()
+    expect(screen.getByText('Доход за месяц')).toBeInTheDocument()
+    expect(screen.getByText('Студенты')).toBeInTheDocument()
+    expect(screen.getByText('Сертификаты')).toBeInTheDocument()
   })
 
-  it('renders empty alerts section when no alerts', async () => {
-    mockGet
-      .mockResolvedValueOnce({ data: mockKpi })
-      .mockResolvedValueOnce({ data: mockCohorts })
-      .mockResolvedValueOnce({ data: mockRevenue })
-      .mockResolvedValueOnce({ data: { alerts: [] } })
-      .mockResolvedValueOnce({ data: mockCourses })
-      .mockResolvedValueOnce({ data: mockFinancials })
-    render(<TestRouter><Dashboard /></TestRouter>)
-    await waitFor(() => {
-      expect(screen.queryByText('Алерты')).not.toBeInTheDocument()
-    })
+  it('renders chart sections', () => {
+    render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
+    expect(screen.getByText('Когортная сегментация')).toBeInTheDocument()
+    expect(screen.getByText('Доход по месяцам')).toBeInTheDocument()
   })
 
-  it('renders with zero KPI values', async () => {
-    mockGet
-      .mockResolvedValueOnce({ data: { total_revenue: 0, total_students: 0, certificates_issued: 0, courses_count: 0, net_income: 0, total_turnover: 0, total_payments: 0, total_refunds: 0, total_income: 0 } })
-      .mockResolvedValueOnce({ data: { active: 0, passive: 0, fading: 0, sleeping: 0 } })
-      .mockResolvedValueOnce({ data: { months: [] } })
-      .mockResolvedValueOnce({ data: { alerts: [] } })
-      .mockResolvedValueOnce({ data: mockCourses })
-      .mockResolvedValueOnce({ data: mockFinancials })
-    render(<TestRouter><Dashboard /></TestRouter>)
-    await waitFor(() => {
-      expect(screen.getByText('Сводная аналитика')).toBeInTheDocument()
-      expect(screen.getByText('Доход за месяц')).toBeInTheDocument()
-      expect(screen.getByText('Студенты')).toBeInTheDocument()
-      expect(screen.getByText('Сертификаты')).toBeInTheDocument()
-    })
-  })
-
-  it('renders chart sections', async () => {
-    mockAll()
-    render(<TestRouter><Dashboard /></TestRouter>)
-    await waitFor(() => {
-      expect(screen.getByText('Когортная сегментация')).toBeInTheDocument()
-      expect(screen.getByText('Доход по месяцам')).toBeInTheDocument()
-    })
+  it('shows loading state', () => {
+    const loadingValue = { ...fullSyncValue, loading: true, data: { ...fullSyncValue.data, kpi: null } }
+    render(<TestRouter syncValue={loadingValue}><Dashboard /></TestRouter>)
+    expect(screen.getByText('Сводная аналитика')).toBeInTheDocument()
   })
 })

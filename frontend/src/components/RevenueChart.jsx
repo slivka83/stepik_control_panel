@@ -1,36 +1,37 @@
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { CHART_COLORS } from '../constants'
+import { isCurrentMonth } from '../utils/isCurrentMonth'
 
 const COLORS = {
-  past: '#38bdf8',
-  current: '#4ade80',
-  forecast: '#1e293b',
+  past: CHART_COLORS.cyberBlue,
+  current: CHART_COLORS.neonGreen,
 }
 
 export default function RevenueChart({ data = [] }) {
   if (!data.length) {
     return (
-      <div className="glass-panel p-6">
-        <h3 className="text-white font-medium mb-4">Доход по месяцам</h3>
-        <div className="h-64 flex items-center justify-center text-gray-500">
+      <div className="glass-panel p-4">
+        <h3 className="text-white font-medium mb-3">Доход по месяцам</h3>
+        <div className="h-48 flex items-center justify-center text-gray-500">
           Нет данных для отображения
         </div>
       </div>
     )
   }
 
-  const now = new Date()
-  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const totalIncome = data.reduce((sum, d) => sum + (d.income || 0), 0)
 
   return (
-    <div className="glass-panel p-6">
-      <h3 className="text-white font-medium mb-4">Доход по месяцам</h3>
-      <div className="h-64">
+    <figure role="img" aria-label="Диаграмма доходов по месяцам" className="glass-panel p-4">
+      <figcaption className="sr-only">Доходы за {data.length} месяцев, всего {totalIncome.toLocaleString('ru-RU')} ₽</figcaption>
+      <h3 className="text-white font-medium mb-3">Доход по месяцам</h3>
+      <div className="h-48">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+            <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.gridLine} />
             <XAxis
               dataKey="month"
-              stroke="#64748b"
+              stroke={CHART_COLORS.textSecondary}
               fontSize={12}
               fontFamily="JetBrains Mono"
               tickFormatter={(value) => {
@@ -41,31 +42,31 @@ export default function RevenueChart({ data = [] }) {
               }}
             />
             <YAxis
-              stroke="#64748b"
+              stroke={CHART_COLORS.textSecondary}
               fontSize={12}
               fontFamily="JetBrains Mono"
               tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: '#162032',
+                backgroundColor: CHART_COLORS.panelBg,
                 border: '1px solid rgba(56, 189, 248, 0.3)',
                 borderRadius: '8px',
                 fontFamily: 'JetBrains Mono',
               }}
-              formatter={(value) => [`${value.toLocaleString('ru-RU')} ₽`, 'Доход']}
+              formatter={(value) => [`${(value ?? 0).toLocaleString('ru-RU')} ₽`, 'Доход']}
             />
             <Bar dataKey="income" radius={[4, 4, 0, 0]}>
-              {data.map((entry, index) => (
+              {data.map((entry) => (
                 <Cell
-                  key={`cell-${index}`}
-                  fill={entry.month?.startsWith(currentMonth) ? COLORS.current : COLORS.past}
+                  key={`cell-${entry.month}-${entry.year}`}
+                  fill={isCurrentMonth(entry.month) ? COLORS.current : COLORS.past}
                 />
               ))}
             </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
-    </div>
+    </figure>
   )
 }

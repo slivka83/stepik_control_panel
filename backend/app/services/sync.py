@@ -7,8 +7,8 @@ from sqlalchemy import select, text
 
 from app.config import get_settings
 from app.database import async_session
-from app.models.models import (
-    Course, StudentEnrollment, FinancialSnapshot, User,
+from app.models import (
+    Course, StudentEnrollment, Submission, FinancialSnapshot, User,
 )
 from app.services.stepik_api import _request, get_finance_token
 from app.services.crypto import decrypt_token
@@ -43,6 +43,19 @@ async def _paginated_get(path: str, token: str, params: dict | None = None, key:
     return all_items
 
 
+def calculate_cohort_status(last_viewed_at: datetime) -> str:
+    if last_viewed_at.tzinfo is None:
+        last_viewed_at = last_viewed_at.replace(tzinfo=timezone.utc)
+    days = (datetime.now(timezone.utc) - last_viewed_at).days
+    if days <= 7:
+        return "Active"
+    if days <= 30:
+        return "Passive"
+    if days <= 90:
+        return "Fading"
+    return "Sleeping"
+
+
 def can_sync() -> bool:
     if _sync_in_progress:
         return False
@@ -51,14 +64,18 @@ def can_sync() -> bool:
     return (time.time() - _last_sync_completed_at) >= SYNC_COOLDOWN_SECONDS
 
 
-async def sync_courses_and_enrollments():
-    """Fetch from API first, then atomically replace DB data."""
+async def sync_courses_and_enrollments(user_id=None):
+    """Fetch from API first, then atomically replace DB data (fetch-then-replace)."""
     async with async_session() as session:
-        result = await session.execute(select(User).limit(1))
-        user_db = result.scalar_one_or_none()
-        if not user_db:
+        if user_id:
+            result = await session.execute(select(User).where(User.id == user_id))
+        else:
+            result = await session.execute(select(User))
+        users = result.scalars().all()
+        if not users:
             logger.warning("No user found, skipping course sync")
             return
+        user_db = users[0]
         token = decrypt_token(user_db.access_token)
         user_id_db = user_db.id
 
@@ -96,6 +113,39 @@ async def sync_courses_and_enrollments():
         except Exception:
             all_certs[sid] = set()
 
+    now = datetime.now(timezone.utc)
+    enrollments_to_insert = []
+
+    for sid, grades in all_grades.items():
+        cert_users = all_certs.get(sid, set())
+        for grade in grades:
+            student_id = grade.get("user")
+            if not student_id:
+                continue
+
+            score = grade.get("score", 0) or 0
+            is_passed = student_id in cert_users
+
+            last_viewed_ts = grade.get("last_viewed")
+            if last_viewed_ts:
+                if isinstance(last_viewed_ts, (int, float)):
+                    last_viewed = datetime.fromtimestamp(int(last_viewed_ts), tz=timezone.utc)
+                else:
+                    last_viewed = datetime.fromisoformat(
+                        str(last_viewed_ts).replace("Z", "+00:00")
+                    )
+            else:
+                last_viewed = now
+
+            enrollments_to_insert.append({
+                "stepik_course_id": sid,
+                "student_id": student_id,
+                "cohort_status": calculate_cohort_status(last_viewed),
+                "points_earned": int(score),
+                "certificate_issued": is_passed,
+                "last_viewed_at": last_viewed,
+            })
+
     async with async_session() as session:
         async with session.begin():
             await session.execute(text("DELETE FROM student_enrollments"))
@@ -116,54 +166,97 @@ async def sync_courses_and_enrollments():
                 course_map[c["id"]] = course
 
             total_enrollments = 0
-            total_certs = 0
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-
-            for sid, grades in all_grades.items():
-                local_course = course_map.get(sid)
+            for e in enrollments_to_insert:
+                local_course = course_map.get(e["stepik_course_id"])
                 if not local_course:
                     continue
-                cert_users = all_certs.get(sid, set())
+                enrollment = StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=local_course.id,
+                    student_id=e["student_id"],
+                    cohort_status=e["cohort_status"],
+                    points_earned=e["points_earned"],
+                    certificate_issued=e["certificate_issued"],
+                    last_viewed_at=e["last_viewed_at"],
+                )
+                session.add(enrollment)
+                total_enrollments += 1
 
-                for grade in grades:
-                    student_id = grade.get("user")
-                    if not student_id:
-                        continue
+            logger.info("Synced: %d courses, %d enrollments",
+                       len(courses_data), total_enrollments)
 
-                    score = grade.get("score", 0) or 0
-                    is_passed = student_id in cert_users
 
-                    last_viewed_ts = grade.get("last_viewed")
-                    if last_viewed_ts:
-                        if isinstance(last_viewed_ts, (int, float)):
-                            last_viewed = datetime.fromtimestamp(int(last_viewed_ts), tz=timezone.utc).replace(tzinfo=None)
-                        else:
-                            last_viewed = datetime.fromisoformat(
-                                str(last_viewed_ts).replace("Z", "+00:00")
-                            ).replace(tzinfo=None)
-                    else:
-                        last_viewed = now
+async def sync_submissions(user_id=None):
+    """Fetch submissions for all courses and store in DB (fetch-then-replace)."""
+    async with async_session() as session:
+        if user_id:
+            courses = (await session.execute(select(Course).where(Course.user_id == user_id))).scalars().all()
+        else:
+            courses = (await session.execute(select(Course))).scalars().all()
+        if not courses:
+            logger.warning("No courses found, skipping submissions sync")
+            return
+        course_map = {c.stepik_course_id: c.id for c in courses}
 
-                    enrollment = StudentEnrollment(
-                        id=uuid.uuid4(),
-                        course_id=local_course.id,
-                        student_id=student_id,
-                        cohort_status="Active" if score > 0 else "Passive",
-                        points_earned=int(score),
-                        certificate_issued=is_passed,
-                        last_viewed_at=last_viewed,
+    async with async_session() as session:
+        if user_id:
+            result = await session.execute(select(User).where(User.id == user_id))
+        else:
+            result = await session.execute(select(User))
+        users = result.scalars().all()
+        if not users:
+            return
+        user_db = users[0]
+        token = decrypt_token(user_db.access_token)
+
+    all_submissions = []
+    for stepik_course_id in course_map:
+        try:
+            submissions = await _paginated_get(
+                "/submissions", token,
+                {"course": stepik_course_id}, "submissions"
+            )
+            for s in submissions:
+                step_id = s.get("step")
+                student_id = s.get("user")
+                status = s.get("status", "")
+                sub_time = s.get("time")
+                if not step_id or not student_id or not status or not sub_time:
+                    continue
+                if isinstance(sub_time, (int, float)):
+                    submission_time = datetime.fromtimestamp(int(sub_time), tz=timezone.utc)
+                else:
+                    submission_time = datetime.fromisoformat(
+                        str(sub_time).replace("Z", "+00:00")
                     )
-                    session.add(enrollment)
-                    total_enrollments += 1
+                all_submissions.append({
+                    "course_id": course_map[stepik_course_id],
+                    "step_id": step_id,
+                    "student_id": student_id,
+                    "status": status,
+                    "submission_time": submission_time,
+                })
+        except Exception as e:
+            logger.warning("  submissions error for course %d: %s", stepik_course_id, e)
 
-                total_certs += len(cert_users)
+    async with async_session() as session:
+        async with session.begin():
+            await session.execute(text("DELETE FROM submissions"))
+            for s in all_submissions:
+                submission = Submission(
+                    id=uuid.uuid4(),
+                    course_id=s["course_id"],
+                    step_id=s["step_id"],
+                    student_id=s["student_id"],
+                    status=s["status"],
+                    submission_time=s["submission_time"],
+                )
+                session.add(submission)
+            logger.info("Synced: %d submissions", len(all_submissions))
 
-            logger.info("Synced: %d courses, %d enrollments, %d certificates",
-                       len(courses_data), total_enrollments, total_certs)
 
-
-async def sync_financials():
-    """Sync financial data from Stepik API to FinancialSnapshot."""
+async def sync_financials(user_id=None):
+    """Sync financial data from Stepik API to FinancialSnapshot (fetch-then-replace)."""
     settings = get_settings()
     try:
         token = await get_finance_token(
@@ -182,7 +275,10 @@ async def sync_financials():
         return
 
     async with async_session() as session:
-        courses = (await session.execute(select(Course))).scalars().all()
+        if user_id:
+            courses = (await session.execute(select(Course).where(Course.user_id == user_id))).scalars().all()
+        else:
+            courses = (await session.execute(select(Course))).scalars().all()
         course_map = {c.stepik_course_id: c.title for c in courses}
 
     total_turnover = sum(float(m.get("total_turnover", 0) or 0) for m in by_months)
@@ -270,7 +366,7 @@ async def sync_financials():
             snapshot = FinancialSnapshot(
                 id=uuid.uuid4(),
                 data=snapshot_data,
-                updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                updated_at=datetime.now(timezone.utc),
             )
             session.add(snapshot)
 
@@ -278,8 +374,11 @@ async def sync_financials():
                len(months_data), len(course_list), len(recent_payments))
 
 
-async def sync_all(force: bool = False):
-    """Run all sync jobs. Skips if cooldown hasn't passed (unless force=True)."""
+async def sync_all(force: bool = False, user_id=None):
+    """Run all sync jobs. Skips if cooldown hasn't passed (unless force=True).
+
+    If user_id is provided, sync only that user's data; otherwise sync all users.
+    """
     global _sync_in_progress, _last_sync_completed_at
 
     if _sync_in_progress:
@@ -294,8 +393,9 @@ async def sync_all(force: bool = False):
     _sync_in_progress = True
     logger.info("=== Full sync started ===")
     try:
-        await sync_courses_and_enrollments()
-        await sync_financials()
+        await sync_courses_and_enrollments(user_id)
+        await sync_submissions(user_id)
+        await sync_financials(user_id)
         _last_sync_completed_at = time.time()
         logger.info("=== Full sync completed ===")
         return {"status": "ok"}

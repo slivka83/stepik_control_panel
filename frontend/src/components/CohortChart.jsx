@@ -1,5 +1,5 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
-import { COHORT_COLORS, COHORT_LABELS } from '../constants'
+import { COHORT_COLORS, COHORT_LABELS, CHART_COLORS } from '../constants'
 
 export default function CohortChart({ data = {} }) {
   const chartData = Object.entries(data).map(([key, value]) => ({
@@ -8,13 +8,13 @@ export default function CohortChart({ data = {} }) {
     color: COHORT_COLORS[key]?.hex,
   }))
 
-  const total = chartData.reduce((sum, item) => sum + item.value, 0)
+  const total = chartData.reduce((sum, item) => sum + (item.value || 0), 0)
 
   if (!total) {
     return (
-      <div className="glass-panel p-6">
-        <h3 className="text-white font-medium mb-4">Когортная сегментация</h3>
-        <div className="h-64 flex items-center justify-center text-gray-500">
+      <div className="glass-panel p-4">
+        <h3 className="text-white font-medium mb-3">Когортная сегментация</h3>
+        <div className="h-48 flex items-center justify-center text-gray-500">
           Нет данных для отображения
         </div>
       </div>
@@ -22,10 +22,14 @@ export default function CohortChart({ data = {} }) {
   }
 
   return (
-    <div className="glass-panel p-6">
-      <h3 className="text-white font-medium mb-4">Когортная сегментация</h3>
-      <div className="flex items-center gap-6">
-        <div className="h-48 w-48">
+    <figure role="img" aria-label="Диаграмма когортной сегментации студентов" className="glass-panel p-4">
+      <figcaption className="sr-only">
+        Всего студентов: {total}. Активные: {chartData[0]?.value || 0}, пассивные: {chartData[1]?.value || 0},
+        затухающие: {chartData[2]?.value || 0}, спящие: {chartData[3]?.value || 0}.
+      </figcaption>
+      <h3 className="text-white font-medium mb-3">Когортная сегментация</h3>
+      <div className="flex items-center gap-4">
+        <div className="h-40 w-40">
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
@@ -37,22 +41,23 @@ export default function CohortChart({ data = {} }) {
                 paddingAngle={2}
                 dataKey="value"
               >
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.color} />
+                {chartData.map((entry) => (
+                  <Cell key={`cell-${entry.name}`} fill={entry.color} />
                 ))}
               </Pie>
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#162032',
+                  backgroundColor: CHART_COLORS.panelBg,
                   border: '1px solid rgba(56, 189, 248, 0.3)',
                   borderRadius: '8px',
                   fontFamily: 'JetBrains Mono',
                 }}
+                formatter={(value) => value.toLocaleString('ru-RU')}
               />
             </PieChart>
           </ResponsiveContainer>
         </div>
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-2">
           {chartData.map((item) => (
             <div key={item.name} className="flex items-center gap-3">
               <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }}></div>
@@ -65,6 +70,6 @@ export default function CohortChart({ data = {} }) {
           ))}
         </div>
       </div>
-    </div>
+    </figure>
   )
 }

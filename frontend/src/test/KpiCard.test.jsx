@@ -52,4 +52,14 @@ describe('KpiCard', () => {
     const { container } = render(<KpiCard title="No trend" value={100} />)
     expect(container.textContent).not.toContain('%')
   })
+
+  it.each([
+    ['cyber-blue', 'text-cyber-blue'],
+    ['neon-green', 'text-neon-green'],
+    ['amber-alert', 'text-amber-alert'],
+    ['crimson-alert', 'text-crimson-alert'],
+  ])('renders with color %s', (color, expectedClass) => {
+    const { container } = render(<KpiCard title="Test" value={100} color={color} />)
+    expect(container.querySelector('.font-mono')).toHaveClass(expectedClass)
+  })
 })

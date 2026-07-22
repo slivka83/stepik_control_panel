@@ -14,25 +14,40 @@ Stepik Control Panel — CRM/BI-панель для авторов курсов 
 ## Технологии
 
 - **Backend:** Python 3.12+, FastAPI, SQLAlchemy 2.0 (async, `asyncpg`), Alembic, APScheduler
-- **Frontend:** React 18+, Vite, Tailwind CSS v3, Recharts/Nivo, Framer Motion
+- **Frontend:** React 18+, Vite, Tailwind CSS v3, Recharts
 - **БД:** PostgreSQL 16, Redis 7
 - **Шрифты:** Inter (текст), JetBrains Mono (строго для числовых показателей, ID, финансов)
 
 ## Запуск
 
 ```bash
-docker-compose up --build
-# UI: http://localhost:3000
+# Linux/Mac
+./start.sh
+
+# Windows
+start.bat
 ```
 
 Требуется `.env` из `.env.example` (OAuth2 Client ID/Secret, `ENCRYPTION_KEY`, данные БД).
+
+Порты настраиваются в `.env`:
+```
+BACKEND_PORT=8000
+FRONTEND_PORT=3000
+```
 
 ## Stepik API
 
 - Базовый URL: `https://stepik.org/api/`
 - Плоская схема: нет вложенных путей, фильтрация через query-параметры
 - Пакетная загрузка: `?ids[]=1&ids[]=2` (side-loading)
-- Используемые эндпоинты: `courses/{id}`, `sections?course=`, `units?section=`, `steps?lesson=`, `course-grades?course=`, `submissions?course=&status=wrong`
+- Используемые эндпоинты:
+  - `GET /courses?teacher=` — курсы автора
+  - `GET /course-grades?course=` — оценки студентов
+  - `GET /certificates?course=` — сертификаты
+  - `GET /submissions?course=` — отправки решений
+  - `GET /course-benefit-by-months` — финансовые данные
+  - `GET /course-benefits` — детали по курсам
 
 ## OAuth2 (только read)
 
@@ -58,10 +73,10 @@ curl -X POST \
 | Таблица | Назначение |
 |---|---|
 | `users` | Авторы/владельцы, зашифрованные токены (Fernet) |
-| `courses` | Курсы, контент-кэш, health_score |
+| `courses` | Курсы, health_score |
 | `student_enrollments` | Прогресс студентов, когортный статус |
-| `financial_transactions` | Доходы, возвраты, B2B |
-| `competitor_courses` | Снапшоты курсов конкурентов |
+| `submissions` | Отправки решений по шагам (correct/wrong) |
+| `financial_snapshots` | Снапшоты финансовой сводки |
 
 PK — UUID. Токены шифруются через `cryptography.fernet`, ключ `ENCRYPTION_KEY` из `.env`.
 
@@ -86,6 +101,8 @@ PK — UUID. Токены шифруются через `cryptography.fernet`, �
 - `amber-alert` `#f59e0b` — предупреждения
 - `crimson-alert` `#f43f5e` — критические алерты
 
+Графики используют `CHART_COLORS` из `frontend/src/constants.js`.
+
 ## Критерии приёмки
 
 1. Нет ни одного POST/PUT/PATCH/DELETE к `stepik.org` в кодовой базе
@@ -96,5 +113,4 @@ PK — UUID. Токены шифруются через `cryptography.fernet`, �
 ## Документация
 
 - `docs/brd.md` — бизнес-требования, модули, бизнес-правила
-- `docs/spec.md` — техническое задание, схема БД, план реализации
 - `docs/api.md` — справочник по Stepik API

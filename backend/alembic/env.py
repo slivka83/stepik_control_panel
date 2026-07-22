@@ -1,13 +1,11 @@
 import asyncio
 from logging.config import fileConfig
 
-from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
 from alembic import context
 
 from app.config import get_settings
 from app.database import Base
-from app.models.models import User, Course, StudentEnrollment, FinancialTransaction, CompetitorCourse
+from app.models import User, Course, StudentEnrollment, Submission, FinancialSnapshot  # noqa: F401
 
 config = context.config
 

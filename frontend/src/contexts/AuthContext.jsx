@@ -1,18 +1,13 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 
 const AuthContext = createContext(null)
-const TOKEN_KEY = 'stepik_session_token'
 
-export function getToken() {
-  return localStorage.getItem(TOKEN_KEY)
-}
-
-function setToken(token) {
-  localStorage.setItem(TOKEN_KEY, token)
-}
-
-function clearToken() {
-  localStorage.removeItem(TOKEN_KEY)
+async function parseJsonResponse(res) {
+  const contentType = res.headers.get('content-type')
+  if (!contentType?.includes('application/json')) {
+    throw new Error(`Server returned non-JSON response (${res.status})`)
+  }
+  return res.json()
 }
 
 export function AuthProvider({ children }) {
@@ -20,32 +15,15 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const sessionToken = params.get('session_token')
-    if (sessionToken) {
-      setToken(sessionToken)
-      window.history.replaceState({}, '', window.location.pathname)
-    }
-
-    const token = getToken()
-    if (!token) {
-      setLoading(false)
-      return
-    }
-
     const checkAuth = async () => {
       try {
-        const res = await fetch('/api/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        })
+        const res = await fetch('/api/auth/me', { credentials: 'include' })
         if (res.ok) {
-          setUser(await res.json())
+          setUser(await parseJsonResponse(res))
         } else {
-          clearToken()
           setUser(null)
         }
       } catch {
-        clearToken()
         setUser(null)
       } finally {
         setLoading(false)
@@ -58,8 +36,12 @@ export function AuthProvider({ children }) {
     window.location.href = '/api/auth/login'
   }
 
-  const logout = () => {
-    clearToken()
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+    } catch {
+      // ignore
+    }
     setUser(null)
   }
 

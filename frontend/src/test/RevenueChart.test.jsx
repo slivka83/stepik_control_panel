@@ -35,4 +35,23 @@ describe('RevenueChart', () => {
     render(<RevenueChart data={data} />)
     expect(screen.getByText('Доход по месяцам')).toBeInTheDocument()
   })
+
+  it('wraps chart in figure with aria-label', () => {
+    const data = [{ month: 'Январь 2026', income: 1000, year: 2026 }]
+    const { container } = render(<RevenueChart data={data} />)
+    const figure = container.querySelector('figure')
+    expect(figure).toBeInTheDocument()
+    expect(figure).toHaveAttribute('aria-label', 'Диаграмма доходов по месяцам')
+  })
+
+  it('renders figcaption with total income summary', () => {
+    const data = [
+      { month: 'Январь 2026', income: 1000, year: 2026 },
+      { month: 'Февраль 2026', income: 2000, year: 2026 },
+    ]
+    const { container } = render(<RevenueChart data={data} />)
+    const figcaption = container.querySelector('figcaption')
+    expect(figcaption).toBeInTheDocument()
+    expect(figcaption.textContent).toContain('3')
+  })
 })

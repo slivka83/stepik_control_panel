@@ -1,21 +1,28 @@
+import uuid as uuid_module
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models.models import Course, StudentEnrollment
+from app.models import Course, StudentEnrollment, User
+from app.api.auth import get_user
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
 
 
 @router.get("")
-async def list_courses(db: AsyncSession = Depends(get_db)):
+async def list_courses(
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
         select(
             Course,
             func.count(StudentEnrollment.id).label("enrollment_count"),
         )
         .outerjoin(StudentEnrollment, Course.id == StudentEnrollment.course_id)
+        .where(Course.user_id == user.id)
         .group_by(Course.id)
     )
     rows = result.all()
@@ -33,9 +40,17 @@ async def list_courses(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{course_id}")
-async def get_course(course_id: str, db: AsyncSession = Depends(get_db)):
+async def get_course(
+    course_id: str,
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        course_uuid = uuid_module.UUID(course_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Course not found")
     result = await db.execute(
-        select(Course).where(Course.id == course_id)
+        select(Course).where(Course.id == course_uuid, Course.user_id == user.id)
     )
     course = result.scalar_one_or_none()
     if not course:

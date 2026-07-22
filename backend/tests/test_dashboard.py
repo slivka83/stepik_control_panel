@@ -1,0 +1,234 @@
+import uuid
+from datetime import datetime, timedelta, timezone
+from fastapi.testclient import TestClient
+from unittest.mock import patch
+
+from app.main import app
+from app.database import Base, get_db, engine
+from app.models import Course, StudentEnrollment, FinancialSnapshot, User
+from app.services.crypto import encrypt_token
+
+
+client = TestClient(app, raise_server_exceptions=False)
+
+
+async def _seed_db(session):
+    user = User(
+        id=uuid.uuid4(),
+        stepik_id=64381531,
+        access_token=encrypt_token("test_access"),
+        refresh_token=encrypt_token("test_refresh"),
+        token_expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).replace(tzinfo=None),
+    )
+    session.add(user)
+    await session.flush()
+    return user
+
+
+class TestDashboardKPI:
+    async def test_kpi_returns_all_fields(self, db_session):
+        user = await _seed_db(db_session)
+        course = Course(
+            id=uuid.uuid4(), user_id=user.id, stepik_course_id=100,
+            title="Python", status="Published", health_score=95.0,
+        )
+        db_session.add(course)
+        await db_session.flush()
+
+        db_session.add(StudentEnrollment(
+            id=uuid.uuid4(), course_id=course.id, student_id=1,
+            last_viewed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            points_earned=50, certificate_issued=False,
+        ))
+        db_session.add(StudentEnrollment(
+            id=uuid.uuid4(), course_id=course.id, student_id=2,
+            last_viewed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            points_earned=100, certificate_issued=True,
+        ))
+        db_session.add(FinancialSnapshot(
+            id=uuid.uuid4(),
+            data={"summary": {
+                "current_month_turnover": 40000, "total_income": 150000,
+                "net_income": 145000, "total_turnover": 200000,
+                "total_refunds": 5000, "total_payments": 42,
+            }, "months": [], "courses": [], "recent_payments": []},
+            updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        ))
+        await db_session.commit()
+
+        async def override():
+            yield db_session
+        app.dependency_overrides[get_db] = override
+
+        try:
+            response = client.get("/api/dashboard/kpi")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["courses_count"] == 1
+            assert data["total_students"] == 2
+            assert data["certificates_issued"] == 1
+            assert data["total_revenue"] == 40000
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_kpi_no_snapshot_returns_zeros(self, db_session):
+        async def override():
+            yield db_session
+        app.dependency_overrides[get_db] = override
+        try:
+            response = client.get("/api/dashboard/kpi")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["total_revenue"] == 0
+            assert data["total_students"] == 0
+            assert data["courses_count"] == 0
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestDashboardCohorts:
+    async def test_cohorts_returns_all_statuses(self, db_session):
+        user = await _seed_db(db_session)
+        course = Course(
+            id=uuid.uuid4(), user_id=user.id, stepik_course_id=100,
+            title="Python", status="Published", health_score=95.0,
+        )
+        db_session.add(course)
+        await db_session.flush()
+
+        for sid, days in [(1, 3), (2, 15), (3, 50), (4, 100)]:
+            db_session.add(StudentEnrollment(
+                id=uuid.uuid4(), course_id=course.id, student_id=sid,
+                last_viewed_at=(datetime.now(timezone.utc) - timedelta(days=days)).replace(tzinfo=None),
+                points_earned=50,
+            ))
+        await db_session.commit()
+
+        async def override():
+            yield db_session
+        app.dependency_overrides[get_db] = override
+        try:
+            response = client.get("/api/dashboard/cohorts")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["active"] == 1
+            assert data["passive"] == 1
+            assert data["fading"] == 1
+            assert data["sleeping"] == 1
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_cohorts_no_courses(self, db_session):
+        async def override():
+            yield db_session
+        app.dependency_overrides[get_db] = override
+        try:
+            response = client.get("/api/dashboard/cohorts")
+            assert response.status_code == 200
+            assert response.json() == {"active": 0, "passive": 0, "fading": 0, "sleeping": 0}
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestDashboardRevenue:
+    async def test_revenue_returns_months(self, db_session):
+        db_session.add(FinancialSnapshot(
+            id=uuid.uuid4(),
+            data={"summary": {}, "months": [{"month": "Январь 2026", "income": 50000}],
+                  "courses": [], "recent_payments": []},
+            updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        ))
+        await db_session.commit()
+
+        async def override():
+            yield db_session
+        app.dependency_overrides[get_db] = override
+        try:
+            response = client.get("/api/dashboard/revenue")
+            assert response.status_code == 200
+            months = response.json()["months"]
+            assert len(months) == 1
+            assert months[0]["income"] == 50000
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_revenue_no_snapshot(self, db_session):
+        async def override():
+            yield db_session
+        app.dependency_overrides[get_db] = override
+        try:
+            response = client.get("/api/dashboard/revenue")
+            assert response.status_code == 200
+            assert response.json()["months"] == []
+        finally:
+            app.dependency_overrides.clear()
+
+
+class TestDashboardAlerts:
+    async def test_alerts_certificate_pending(self, db_session):
+        user = await _seed_db(db_session)
+        course = Course(
+            id=uuid.uuid4(), user_id=user.id, stepik_course_id=123,
+            title="ML", status="Published", health_score=90.0,
+        )
+        db_session.add(course)
+        await db_session.flush()
+        for i in range(5):
+            db_session.add(StudentEnrollment(
+                id=uuid.uuid4(), course_id=course.id, student_id=100 + i,
+                last_viewed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                points_earned=150, certificate_issued=False,
+            ))
+        await db_session.commit()
+
+        async def override():
+            yield db_session
+        app.dependency_overrides[get_db] = override
+        try:
+            response = client.get("/api/dashboard/alerts")
+            assert response.status_code == 200
+            alerts = response.json()["alerts"]
+            cert_alerts = [a for a in alerts if "сертификат" in a["message"]]
+            assert len(cert_alerts) == 1
+            assert "stepik.org/course/123/certificates" in cert_alerts[0]["link"]
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_alerts_low_score(self, db_session):
+        user = await _seed_db(db_session)
+        course = Course(
+            id=uuid.uuid4(), user_id=user.id, stepik_course_id=456,
+            title="JS", status="Published", health_score=90.0,
+        )
+        db_session.add(course)
+        await db_session.flush()
+        for i in range(15):
+            db_session.add(StudentEnrollment(
+                id=uuid.uuid4(), course_id=course.id, student_id=200 + i,
+                last_viewed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                points_earned=0, certificate_issued=False,
+            ))
+        await db_session.commit()
+
+        async def override():
+            yield db_session
+        app.dependency_overrides[get_db] = override
+        try:
+            response = client.get("/api/dashboard/alerts")
+            assert response.status_code == 200
+            errors = [a for a in response.json()["alerts"] if a["type"] == "error"]
+            assert len(errors) == 1
+            assert "15 студентов" in errors[0]["message"]
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_alerts_no_courses(self, db_session):
+        async def override():
+            yield db_session
+        app.dependency_overrides[get_db] = override
+        try:
+            response = client.get("/api/dashboard/alerts")
+            assert response.status_code == 200
+            assert response.json()["alerts"] == []
+        finally:
+            app.dependency_overrides.clear()

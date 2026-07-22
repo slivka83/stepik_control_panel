@@ -1,6 +1,7 @@
-# Environment
+# Environment files
 .env
-.env.local
+.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -13,6 +14,7 @@ build/
 venv/
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 
 # Node
 node_modules/
@@ -24,9 +26,23 @@ frontend/dist/
 *.swp
 *.swo
 
+# Database files
+*.db
+
 # OS
 .DS_Store
 Thumbs.db
 
 # Docker
 *.log
+docker-compose.override.yml
+
+# Certificates
+*.pem
+*.key
+*.crt
+
+# Coverage
+.coverage
+htmlcov/
+coverage/

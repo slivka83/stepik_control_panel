@@ -1,29 +1,43 @@
 import axios from 'axios'
-import { getToken } from './contexts/AuthContext'
 
 const api = axios.create({
+  baseURL: import.meta.env.VITE_API_URL || '/api',
   timeout: 30000,
+  withCredentials: true,
 })
 
-api.interceptors.request.use((config) => {
-  const token = getToken()
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`
+let isRefreshing = false
+let refreshPromise = null
+
+async function refreshSession() {
+  if (!isRefreshing) {
+    isRefreshing = true
+    refreshPromise = fetch('/api/auth/refresh', {
+      method: 'POST',
+      credentials: 'include',
+    }).finally(() => {
+      isRefreshing = false
+    })
   }
-  return config
-})
+  const res = await refreshPromise
+  return res.ok
+}
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      localStorage.removeItem('stepik_session_token')
-      if (!window.location.pathname.startsWith('/api/auth')) {
-        window.location.reload()
+  async (error) => {
+    const originalRequest = error.config
+
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true
+      const refreshed = await refreshSession()
+      if (refreshed) {
+        return api(originalRequest)
       }
+      window.location.href = '/'
     }
     return Promise.reject(error)
-  }
+  },
 )
 
 export default api

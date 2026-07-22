@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
+  CHART_COLORS,
+  APP_VERSION,
   COHORT_COLORS,
   COHORT_LABELS,
   COHORT_DAYS,
@@ -9,6 +11,32 @@ import {
 } from '../constants'
 
 describe('Constants', () => {
+  describe('CHART_COLORS', () => {
+    it('has all chart color keys', () => {
+      expect(CHART_COLORS).toHaveProperty('cyberBlue')
+      expect(CHART_COLORS).toHaveProperty('neonGreen')
+      expect(CHART_COLORS).toHaveProperty('gridLine')
+      expect(CHART_COLORS).toHaveProperty('textSecondary')
+      expect(CHART_COLORS).toHaveProperty('panelBg')
+    })
+
+    it('all values are valid hex colors', () => {
+      for (const [key, val] of Object.entries(CHART_COLORS)) {
+        expect(val).toMatch(/^#[0-9a-f]{6}$/i)
+      }
+    })
+  })
+
+  describe('APP_VERSION', () => {
+    it('is a semver string', () => {
+      expect(APP_VERSION).toMatch(/^\d+\.\d+\.\d+$/)
+    })
+
+    it('is version 0.2.0', () => {
+      expect(APP_VERSION).toBe('0.2.0')
+    })
+  })
+
   describe('COHORT_COLORS', () => {
     it('has all four cohort types', () => {
       expect(COHORT_COLORS).toHaveProperty('active')
@@ -53,6 +81,14 @@ describe('Constants', () => {
     })
   })
 
+  describe('STATUS_COLORS', () => {
+    it('has color classes for all statuses', () => {
+      expect(STATUS_COLORS.debited).toContain('neon-green')
+      expect(STATUS_COLORS.refunded).toContain('crimson-alert')
+      expect(STATUS_COLORS.pending).toContain('amber-alert')
+    })
+  })
+
   describe('NAV_ITEMS', () => {
     it('has four navigation items', () => {
       expect(NAV_ITEMS).toHaveLength(4)
@@ -69,6 +105,11 @@ describe('Constants', () => {
     it('first item is dashboard', () => {
       expect(NAV_ITEMS[0].to).toBe('/')
       expect(NAV_ITEMS[0].label).toBe('Дашборд')
+    })
+
+    it('last item is cohorts', () => {
+      expect(NAV_ITEMS[3].to).toBe('/cohorts')
+      expect(NAV_ITEMS[3].label).toBe('Когорты')
     })
   })
 })

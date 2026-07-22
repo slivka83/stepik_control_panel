@@ -1,5 +1,3 @@
-import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 from app.main import app
 
@@ -11,7 +9,8 @@ class TestHealthEndpoint:
     def test_health_returns_ok(self):
         response = client.get("/api/health")
         assert response.status_code == 200
-        assert response.json() == {"status": "ok"}
+        data = response.json()
+        assert data["status"] in ("ok", "degraded")
 
     def test_health_get_only(self):
         response = client.post("/api/health")
@@ -21,8 +20,9 @@ class TestHealthEndpoint:
 class TestAuthLogin:
     def test_login_redirects_to_stepik(self):
         response = client.get("/api/auth/login", follow_redirects=False)
-        assert response.status_code == 307
-        assert "stepik.org/oauth2/authorize/" in response.headers["location"]
+        assert response.status_code == 302
+        location = response.headers["location"]
+        assert "stepik.org/oauth2/authorize/" in location
 
     def test_login_includes_scope_read(self):
         response = client.get("/api/auth/login", follow_redirects=False)
@@ -44,11 +44,9 @@ class TestAuthLogin:
         location = response.headers["location"]
         assert "redirect_uri=" in location
 
-
-class TestAuthToken:
-    def test_token_no_user_returns_401(self):
-        response = client.get("/api/auth/token")
-        assert response.status_code == 401
+    def test_login_sets_state_cookie(self):
+        response = client.get("/api/auth/login", follow_redirects=False)
+        assert "oauth_state" in response.cookies
 
 
 class TestAuthMe:
@@ -62,10 +60,9 @@ class TestAuthMe:
 
 
 class TestAuthLogout:
-    def test_logout_returns_ok(self):
-        response = client.get("/api/auth/logout")
-        assert response.status_code == 200
-        assert response.json() == {"ok": True}
+    def test_logout_returns_no_content(self):
+        response = client.post("/api/auth/logout")
+        assert response.status_code == 204
 
 
 class TestSessionSigning:

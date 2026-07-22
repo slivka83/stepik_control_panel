@@ -1,21 +1,39 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useSync } from '../contexts/SyncContext'
 import { STATUS_LABELS, STATUS_COLORS } from '../constants'
+import { formatCurrency } from '../utils/formatNumber'
+import ErrorBanner from '../components/ErrorBanner'
+import { pluralize } from '../utils/pluralize'
+
+const PAGE_SIZE = 20
+const TABS = [
+  { key: 'months', label: 'По месяцам' },
+  { key: 'courses', label: 'По курсам' },
+  { key: 'recent', label: 'Последние операции' },
+]
 
 export default function Financials() {
-  const { data, loading } = useSync()
+  const { data, loading, error, refresh } = useSync()
   const financials = data.financials
-  const [activeTab, setActiveTab] = useState('months')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'months')
+  const [paymentsPage, setPaymentsPage] = useState(1)
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab)
+    setSearchParams({ tab })
+  }
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-white">Финансовая аналитика</h1>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="space-y-4">
+        <h1 className="text-xl font-bold text-white">Финансовая аналитика</h1>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="glass-panel p-5 animate-pulse">
-              <div className="h-3 bg-gray-700 rounded w-16 mb-2"></div>
-              <div className="h-6 bg-gray-700 rounded w-24"></div>
+            <div key={`skeleton-fin-${i}`} className="glass-panel p-3 animate-pulse">
+              <div className="h-2 bg-gray-700 rounded w-16 mb-1"></div>
+              <div className="h-5 bg-gray-700 rounded w-24"></div>
             </div>
           ))}
         </div>
@@ -25,9 +43,10 @@ export default function Financials() {
 
   if (!financials) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-white">Финансовая аналитика</h1>
-        <div className="glass-panel p-12 text-center">
+      <div className="space-y-4">
+        <h1 className="text-xl font-bold text-white">Финансовая аналитика</h1>
+        {error && <ErrorBanner message={error} onRetry={refresh} />}
+        <div className="glass-panel p-8 text-center">
           <p className="text-gray-400">Финансовые данные пока недоступны</p>
         </div>
       </div>
@@ -37,62 +56,54 @@ export default function Financials() {
   const { summary, months, courses, recent_payments } = financials || {}
   const hasData = (summary?.total_payments || 0) > 0
 
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Финансовая аналитика</h1>
+  const totalPages = Math.ceil((recent_payments?.length || 0) / PAGE_SIZE)
+  const paginatedPayments = (recent_payments || []).slice(
+    (paymentsPage - 1) * PAGE_SIZE,
+    paymentsPage * PAGE_SIZE,
+  )
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        <div className="glass-panel p-5">
+  return (
+    <div className="space-y-4">
+      <h1 className="text-xl font-bold text-white">Финансовая аналитика</h1>
+
+      {error && <ErrorBanner message={error} onRetry={refresh} />}
+
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div className="glass-panel p-3">
           <div className="text-gray-400 text-xs mb-1">Оборот</div>
-          <div className="font-mono text-xl font-bold text-white">
-            {(summary?.total_turnover || 0).toLocaleString('ru-RU')} ₽
-          </div>
+          <div className="font-mono text-lg font-bold text-white">{formatCurrency(summary?.total_turnover)}</div>
         </div>
-        <div className="glass-panel p-5">
+        <div className="glass-panel p-3">
           <div className="text-gray-400 text-xs mb-1">Доход</div>
-          <div className="font-mono text-xl font-bold text-neon-green">
-            {(summary?.total_income || 0).toLocaleString('ru-RU')} ₽
-          </div>
+          <div className="font-mono text-lg font-bold text-neon-green">{formatCurrency(summary?.total_income)}</div>
         </div>
-        <div className="glass-panel p-5">
+        <div className="glass-panel p-3">
           <div className="text-gray-400 text-xs mb-1">Возвраты</div>
-          <div className="font-mono text-xl font-bold text-crimson-alert">
-            {(summary?.total_refunds || 0).toLocaleString('ru-RU')} ₽
-          </div>
+          <div className="font-mono text-lg font-bold text-crimson-alert">{formatCurrency(summary?.total_refunds)}</div>
         </div>
-        <div className="glass-panel p-5">
+        <div className="glass-panel p-3">
           <div className="text-gray-400 text-xs mb-1">Чистый доход</div>
-          <div className="font-mono text-xl font-bold text-cyber-blue">
-            {(summary?.net_income || 0).toLocaleString('ru-RU')} ₽
-          </div>
+          <div className="font-mono text-lg font-bold text-cyber-blue">{formatCurrency(summary?.net_income)}</div>
         </div>
-        <div className="glass-panel p-5">
+        <div className="glass-panel p-3">
           <div className="text-gray-400 text-xs mb-1">Покупок</div>
-          <div className="font-mono text-xl font-bold text-amber-alert">
-            {summary?.total_payments || 0}
-          </div>
+          <div className="font-mono text-lg font-bold text-amber-alert">{summary?.total_payments || 0}</div>
         </div>
       </div>
 
       {!hasData && (
-        <div className="glass-panel p-6">
-          <p className="text-gray-400 text-sm">
-            Финансовые данные пока недоступны.
-          </p>
+        <div className="glass-panel p-4">
+          <p className="text-gray-400 text-sm">Финансовые данные пока недоступны.</p>
         </div>
       )}
 
       {hasData && (
         <>
           <div className="flex gap-2 border-b border-gray-700 pb-0">
-            {[
-              { key: 'months', label: 'По месяцам' },
-              { key: 'courses', label: 'По курсам' },
-              { key: 'recent', label: 'Последние операции' },
-            ].map((tab) => (
+            {TABS.map((tab) => (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => handleTabChange(tab.key)}
                 className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
                   activeTab === tab.key
                     ? 'border-cyber-blue text-cyber-blue'
@@ -105,8 +116,8 @@ export default function Financials() {
           </div>
 
           {activeTab === 'months' && (
-            <div className="glass-panel p-6">
-              <h3 className="text-white font-medium mb-4">Доход по месяцам</h3>
+            <div className="glass-panel p-4">
+              <h3 className="text-white font-medium mb-3">Доход по месяцам</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -119,18 +130,14 @@ export default function Financials() {
                     </tr>
                   </thead>
                   <tbody>
-                    {[...months].reverse().map((m, i) => (
-                      <tr key={i} className="border-b border-gray-800">
+                    {[...months].reverse().map((m) => (
+                      <tr key={`month-${m.year}-${m.month_num}`} className="border-b border-gray-800">
                         <td className="py-2 text-white">{m.month}</td>
                         <td className="py-2 text-right font-mono text-gray-300">{m.payments_count}</td>
-                        <td className="py-2 text-right font-mono text-white">
-                          {m.turnover.toLocaleString('ru-RU')} ₽
-                        </td>
-                        <td className="py-2 text-right font-mono text-neon-green">
-                          {m.income.toLocaleString('ru-RU')} ₽
-                        </td>
+                        <td className="py-2 text-right font-mono text-white">{formatCurrency(m.turnover)}</td>
+                        <td className="py-2 text-right font-mono text-neon-green">{formatCurrency(m.income)}</td>
                         <td className="py-2 text-right font-mono text-crimson-alert">
-                          {m.refunds > 0 ? `-${m.refunds.toLocaleString('ru-RU')} ₽` : '—'}
+                          {m.refunds > 0 ? `-${formatCurrency(m.refunds)}` : '—'}
                         </td>
                       </tr>
                     ))}
@@ -141,8 +148,8 @@ export default function Financials() {
           )}
 
           {activeTab === 'courses' && (
-            <div className="glass-panel p-6">
-              <h3 className="text-white font-medium mb-4">Доход по курсам</h3>
+            <div className="glass-panel p-4">
+              <h3 className="text-white font-medium mb-3">Доход по курсам</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -155,20 +162,14 @@ export default function Financials() {
                     </tr>
                   </thead>
                   <tbody>
-                    {courses.map((c, i) => (
-                      <tr key={i} className="border-b border-gray-800">
-                        <td className="py-2 text-white max-w-xs truncate" title={c.title}>
-                          {c.title}
-                        </td>
+                    {courses.map((c) => (
+                      <tr key={`course-${c.course_id}`} className="border-b border-gray-800">
+                        <td className="py-2 text-white max-w-xs truncate" title={c.title}>{c.title}</td>
                         <td className="py-2 text-right font-mono text-gray-300">{c.payments}</td>
-                        <td className="py-2 text-right font-mono text-white">
-                          {c.turnover.toLocaleString('ru-RU')} ₽
-                        </td>
-                        <td className="py-2 text-right font-mono text-neon-green">
-                          {c.income.toLocaleString('ru-RU')} ₽
-                        </td>
+                        <td className="py-2 text-right font-mono text-white">{formatCurrency(c.turnover)}</td>
+                        <td className="py-2 text-right font-mono text-neon-green">{formatCurrency(c.income)}</td>
                         <td className="py-2 text-right font-mono text-crimson-alert">
-                          {c.refunds > 0 ? `-${c.refunds.toLocaleString('ru-RU')} ₽` : '—'}
+                          {c.refunds > 0 ? `-${formatCurrency(c.refunds)}` : '—'}
                         </td>
                       </tr>
                     ))}
@@ -179,8 +180,10 @@ export default function Financials() {
           )}
 
           {activeTab === 'recent' && (
-            <div className="glass-panel p-6">
-              <h3 className="text-white font-medium mb-4">Последние операции</h3>
+            <div className="glass-panel p-4">
+              <h3 className="text-white font-medium mb-3">
+                Последние операции ({recent_payments.length} {pluralize(recent_payments.length, ['операция', 'операции', 'операций'])})
+              </h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
@@ -194,31 +197,46 @@ export default function Financials() {
                     </tr>
                   </thead>
                   <tbody>
-                    {recent_payments.map((p, i) => (
-                      <tr key={i} className="border-b border-gray-800">
-                        <td className="py-2 text-gray-300">
-                          {new Date(p.time).toLocaleDateString('ru-RU')}
-                        </td>
-                        <td className="py-2 text-white max-w-xs truncate" title={p.course}>
-                          {p.course}
-                        </td>
-                        <td className="py-2 text-right font-mono text-white">
-                          {p.payment_amount.toLocaleString('ru-RU')} ₽
-                        </td>
+                    {paginatedPayments.map((p) => (
+                      <tr key={`payment-${p.id}`} className="border-b border-gray-800">
+                        <td className="py-2 text-gray-300">{new Date(p.time).toLocaleDateString('ru-RU')}</td>
+                        <td className="py-2 text-white max-w-xs truncate" title={p.course}>{p.course}</td>
+                        <td className="py-2 text-right font-mono text-white">{formatCurrency(p.payment_amount)}</td>
                         <td className={`py-2 text-right font-mono ${p.status === 'refunded' ? 'text-crimson-alert' : 'text-neon-green'}`}>
-                          {p.status === 'refunded' ? '−' : ''}{p.amount.toLocaleString('ru-RU')} ₽
+                          {p.status === 'refunded' ? '−' : ''}{formatCurrency(p.amount)}
                         </td>
                         <td className={`py-2 text-center text-sm font-medium ${STATUS_COLORS[p.status] || 'text-gray-400'}`}>
                           {STATUS_LABELS[p.status] || p.status}
                         </td>
-                        <td className="py-2 text-center text-gray-500 text-sm">
-                          {p.promo_code || '—'}
-                        </td>
+                        <td className="py-2 text-center text-gray-500 text-sm">{p.promo_code || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4">
+                  <span className="text-xs text-gray-500">
+                    Страница {paymentsPage} из {totalPages}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setPaymentsPage((p) => Math.max(1, p - 1))}
+                      disabled={paymentsPage === 1}
+                      className="px-3 py-1 text-xs text-cyber-blue border border-cyber-blue/30 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-cyber-blue/10 transition-colors"
+                    >
+                      ← Назад
+                    </button>
+                    <button
+                      onClick={() => setPaymentsPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={paymentsPage === totalPages}
+                      className="px-3 py-1 text-xs text-cyber-blue border border-cyber-blue/30 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed hover:bg-cyber-blue/10 transition-colors"
+                    >
+                      Вперёд →
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </>

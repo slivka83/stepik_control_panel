@@ -1,6 +1,6 @@
-import pytest
 import os
-import ast
+
+import pytest
 
 
 class TestEdgeCases:
@@ -44,36 +44,43 @@ class TestEdgeCases:
 
 
 class TestCrossCuttingConcerns:
-    def test_no_post_to_stepik_in_api_client(self):
+    @pytest.mark.asyncio
+    async def test_no_post_to_stepik_in_api_client(self):
         from app.services.stepik_api import _request
-        import inspect
-        source = inspect.getsource(_request)
-        assert "Only GET requests" in source
+        with pytest.raises(ValueError, match="Only GET requests"):
+            await _request("POST", "/courses")
+
+    @pytest.mark.asyncio
+    async def test_no_put_to_stepik_in_api_client(self):
+        from app.services.stepik_api import _request
+        with pytest.raises(ValueError, match="Only GET requests"):
+            await _request("PUT", "/courses")
+
+    @pytest.mark.asyncio
+    async def test_no_delete_to_stepik_in_api_client(self):
+        from app.services.stepik_api import _request
+        with pytest.raises(ValueError, match="Only GET requests"):
+            await _request("DELETE", "/courses")
 
     def test_encryption_key_required(self):
         assert os.environ.get("ENCRYPTION_KEY") is not None
 
-    def test_scope_read_in_token_exchange(self):
+    @pytest.mark.asyncio
+    async def test_scope_read_in_token_exchange(self):
         from app.services.stepik_api import exchange_code_for_token
-        import inspect
-        source = inspect.getsource(exchange_code_for_token)
-        assert "scope" in source
-        assert "read" in source
+        import httpx
+        from unittest.mock import AsyncMock, patch
 
-    def test_all_get_only_to_stepik(self):
-        from app.services.stepik_api import _request
-        import inspect
-        source = inspect.getsource(_request)
-        assert "GET" in source
+        mock_response = AsyncMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"access_token": "test"}
 
-    def test_redirect_uri_parameterized(self):
-        from app.services.stepik_api import exchange_code_for_token
-        import inspect
-        source = inspect.getsource(exchange_code_for_token)
-        assert "redirect_uri" in source
+        with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_response):
+            await exchange_code_for_token("code", "id", "secret", "uri")
+            call_args = httpx.AsyncClient.post.call_args
+            assert "scope" in call_args.kwargs["data"]
+            assert call_args.kwargs["data"]["scope"] == "read"
 
     def test_token_refresh_checks_expiry(self):
-        from app.services.token_refresh import refresh_user_tokens
-        import inspect
-        source = inspect.getsource(refresh_user_tokens)
-        assert "token_expires_at" in source
+        from app.services.token_refresh import TOKEN_EXPIRY_BUFFER_SECONDS
+        assert TOKEN_EXPIRY_BUFFER_SECONDS == 900

@@ -1,28 +1,36 @@
 import os
-os.environ["ENCRYPTION_KEY"] = "qlH5mDp3kj_nhcS3TKrZqjniP_on0n6eMg9sp8DQ2UQ="
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test.db"
+
+from cryptography.fernet import Fernet
+
+os.environ["ENCRYPTION_KEY"] = Fernet.generate_key().decode()
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["REDIS_URL"] = "redis://localhost:6379/1"
 os.environ["STEPIK_CLIENT_ID"] = "test_client_id"
 os.environ["STEPIK_CLIENT_SECRET"] = "test_client_secret"
-os.environ["STEPIK_REDIRECT_URI"] = "http://localhost:8000/api/auth/callback"
 
 import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+
+from app.models import Base, User, Course, StudentEnrollment, Submission, FinancialSnapshot  # noqa: F401
+from app.database import engine, get_db, async_session
 
 
-@pytest.fixture(scope="session")
-def event_loop():
-    import asyncio
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(scope="function")
-async def setup_db():
-    from sqlalchemy.ext.asyncio import create_async_engine
-    from app.database import Base
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+@pytest_asyncio.fixture(scope="function")
+async def db_session():
     async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
         await conn.run_sync(Base.metadata.create_all)
-    yield engine
-    await engine.dispose()
+
+    async with async_session() as session:
+        yield session
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+
+
+@pytest_asyncio.fixture(scope="function")
+async def override_get_db(db_session):
+    async def _override():
+        yield db_session
+    return _override

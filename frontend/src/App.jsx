@@ -1,25 +1,42 @@
-import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom'
-import { AuthProvider } from './contexts/AuthContext'
+import { lazy, Suspense } from 'react'
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import Layout from './components/Layout'
-import Dashboard from './pages/Dashboard'
-import Courses from './pages/Courses'
-import Financials from './pages/Financials'
-import Cohorts from './pages/Cohorts'
+
+const Dashboard = lazy(() => import('./pages/Dashboard'))
+const Courses = lazy(() => import('./pages/Courses'))
+const Financials = lazy(() => import('./pages/Financials'))
+const Cohorts = lazy(() => import('./pages/Cohorts'))
+const NotFound = lazy(() => import('./pages/NotFound'))
+
+function PageSkeleton() {
+  return (
+    <div className="animate-pulse space-y-6 p-6">
+      <div className="h-8 bg-space-gray rounded w-1/3" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="h-32 bg-space-gray rounded-xl" />
+        ))}
+      </div>
+      <div className="h-64 bg-space-gray rounded-xl" />
+    </div>
+  )
+}
 
 function App() {
   return (
-    <AuthProvider>
-      <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <Layout>
+    <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+      <Layout>
+        <Suspense fallback={<PageSkeleton />}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/courses" element={<Courses />} />
             <Route path="/financials" element={<Financials />} />
             <Route path="/cohorts" element={<Cohorts />} />
+            <Route path="*" element={<NotFound />} />
           </Routes>
-        </Layout>
-      </Router>
-    </AuthProvider>
+        </Suspense>
+      </Layout>
+    </Router>
   )
 }
 

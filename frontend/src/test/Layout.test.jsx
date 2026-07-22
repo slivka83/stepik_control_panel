@@ -3,16 +3,23 @@ import { render, screen, waitFor } from '@testing-library/react'
 import TestRouter from './TestRouter'
 import Layout from '../components/Layout'
 
+const defaultSyncValue = {
+  syncStatus: { in_progress: false, last_sync: '2026-07-21T10:00:00' },
+  data: { kpi: null, cohorts: {}, revenue: { months: [] }, alerts: [], courses: [], financials: null },
+  loading: false,
+  error: null,
+  refresh: vi.fn(),
+}
+
 describe('Layout', () => {
   beforeEach(() => {
-    localStorage.clear()
     vi.restoreAllMocks()
   })
 
   it('renders children', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
     render(
-      <TestRouter>
+      <TestRouter syncValue={defaultSyncValue}>
         <Layout><div>Test Content</div></Layout>
       </TestRouter>
     )
@@ -24,7 +31,7 @@ describe('Layout', () => {
   it('renders sidebar nav links', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
     render(
-      <TestRouter>
+      <TestRouter syncValue={defaultSyncValue}>
         <Layout><div>Content</div></Layout>
       </TestRouter>
     )
@@ -39,7 +46,7 @@ describe('Layout', () => {
   it('shows login button when not authenticated', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
     render(
-      <TestRouter>
+      <TestRouter syncValue={defaultSyncValue}>
         <Layout><div>Content</div></Layout>
       </TestRouter>
     )
@@ -49,13 +56,13 @@ describe('Layout', () => {
   })
 
   it('shows SYNCED when authenticated', async () => {
-    localStorage.setItem('stepik_session_token', 'test-token-123')
-    global.fetch = vi.fn().mockResolvedValue({
+    vi.spyOn(global, 'fetch').mockResolvedValue({
       ok: true,
+      headers: { get: (name) => name === 'content-type' ? 'application/json' : null },
       json: () => Promise.resolve({ id: '1', stepik_id: 123, authenticated: true }),
     })
     render(
-      <TestRouter>
+      <TestRouter syncValue={defaultSyncValue}>
         <Layout><div>Content</div></Layout>
       </TestRouter>
     )
@@ -65,13 +72,13 @@ describe('Layout', () => {
   })
 
   it('shows Stepik ID when authenticated', async () => {
-    localStorage.setItem('stepik_session_token', 'test-token-123')
-    global.fetch = vi.fn().mockResolvedValue({
+    vi.spyOn(global, 'fetch').mockResolvedValue({
       ok: true,
+      headers: { get: (name) => name === 'content-type' ? 'application/json' : null },
       json: () => Promise.resolve({ id: '1', stepik_id: 64381531, authenticated: true }),
     })
     render(
-      <TestRouter>
+      <TestRouter syncValue={defaultSyncValue}>
         <Layout><div>Content</div></Layout>
       </TestRouter>
     )
@@ -81,13 +88,13 @@ describe('Layout', () => {
   })
 
   it('shows logout button when authenticated', async () => {
-    localStorage.setItem('stepik_session_token', 'test-token-123')
-    global.fetch = vi.fn().mockResolvedValue({
+    vi.spyOn(global, 'fetch').mockResolvedValue({
       ok: true,
+      headers: { get: (name) => name === 'content-type' ? 'application/json' : null },
       json: () => Promise.resolve({ id: '1', stepik_id: 123, authenticated: true }),
     })
     render(
-      <TestRouter>
+      <TestRouter syncValue={defaultSyncValue}>
         <Layout><div>Content</div></Layout>
       </TestRouter>
     )
@@ -99,7 +106,7 @@ describe('Layout', () => {
   it('hides SYNCED when not authenticated', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
     render(
-      <TestRouter>
+      <TestRouter syncValue={defaultSyncValue}>
         <Layout><div>Content</div></Layout>
       </TestRouter>
     )
@@ -112,7 +119,7 @@ describe('Layout', () => {
   it('renders version', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
     render(
-      <TestRouter>
+      <TestRouter syncValue={defaultSyncValue}>
         <Layout><div>Content</div></Layout>
       </TestRouter>
     )
@@ -124,7 +131,7 @@ describe('Layout', () => {
   it('renders read-only mode label', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
     render(
-      <TestRouter>
+      <TestRouter syncValue={defaultSyncValue}>
         <Layout><div>Content</div></Layout>
       </TestRouter>
     )
@@ -136,7 +143,7 @@ describe('Layout', () => {
   it('renders nav links with correct hrefs', async () => {
     vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
     render(
-      <TestRouter>
+      <TestRouter syncValue={defaultSyncValue}>
         <Layout><div>Content</div></Layout>
       </TestRouter>
     )

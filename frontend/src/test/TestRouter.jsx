@@ -1,19 +1,36 @@
 import { MemoryRouter } from 'react-router-dom'
+import { vi } from 'vitest'
+import { SyncContext } from '../contexts/SyncContext'
 import { AuthProvider } from '../contexts/AuthContext'
-import { SyncProvider } from '../contexts/SyncContext'
 
 const ROUTER_FUTURE = {
   v7_startTransition: true,
   v7_relativeSplatPath: true,
 }
 
-export default function TestRouter({ children, initialEntries = ['/'] }) {
+const defaultSyncValue = {
+  syncStatus: { in_progress: false, last_sync: null },
+  data: {
+    kpi: null,
+    cohorts: {},
+    revenue: { months: [] },
+    alerts: [],
+    courses: [],
+    financials: null,
+  },
+  loading: false,
+  error: null,
+  refresh: vi.fn(),
+}
+
+export default function TestRouter({ children, initialEntries = ['/'], syncValue }) {
+  const value = syncValue || defaultSyncValue
   return (
     <MemoryRouter future={ROUTER_FUTURE} initialEntries={initialEntries}>
       <AuthProvider>
-        <SyncProvider>
+        <SyncContext.Provider value={value}>
           {children}
-        </SyncProvider>
+        </SyncContext.Provider>
       </AuthProvider>
     </MemoryRouter>
   )

@@ -1,10 +1,15 @@
 import httpx
-from typing import Any
+import asyncio
+import logging
 import time
+from typing import Any
 
 from app.services.rate_limiter import acquire_token, handle_rate_limit
 
 STEPIK_API_BASE = "https://stepik.org/api"
+MAX_RETRIES = 5
+
+logger = logging.getLogger(__name__)
 
 
 class StepikAPIError(Exception):
@@ -14,7 +19,27 @@ class StepikAPIError(Exception):
         super().__init__(f"Stepik API error {status_code}: {detail}")
 
 
-async def _request(method: str, path: str, token: str | None = None, params: dict | None = None) -> dict[str, Any]:
+class StepikRateLimitError(StepikAPIError):
+    def __init__(self, detail: str = ""):
+        super().__init__(429, detail)
+
+
+async def _request(
+    method: str,
+    path: str,
+    token: str | None = None,
+    params: dict | None = None,
+    retries: int = 0,
+) -> dict[str, Any]:
+    """Make a GET request to Stepik API with retry on 429/5xx.
+
+    Flow:
+    1. Acquire rate-limit token from Redis bucket
+    2. Send GET request with Bearer token
+    3. On 429: sleep with exponential backoff, retry (max MAX_RETRIES)
+    4. On 5xx: sleep with exponential backoff, retry (max MAX_RETRIES)
+    5. After MAX_RETRIES: raise StepikRateLimitError
+    """
     if method.upper() != "GET":
         raise ValueError("Only GET requests are allowed to Stepik API (Zero-Write Policy)")
 
@@ -35,9 +60,20 @@ async def _request(method: str, path: str, token: str | None = None, params: dic
         )
 
         if response.status_code == 429:
-            retry_after = float(response.headers.get("Retry-After", "5"))
-            await handle_rate_limit(retry_after)
-            return await _request(method, path, token, params)
+            if retries >= MAX_RETRIES:
+                raise StepikRateLimitError(f"Exceeded {MAX_RETRIES} retries for {path}")
+            retry_after_header = int(response.headers.get("Retry-After", 2 ** retries))
+            retry_after = min(retry_after_header, 2 ** retries)
+            logger.warning("Rate limited on %s, retry %d/%d after %ds", path, retries + 1, MAX_RETRIES, retry_after)
+            await asyncio.sleep(retry_after)
+            return await _request(method, path, token, params, retries + 1)
+
+        if response.status_code >= 500:
+            if retries < MAX_RETRIES:
+                wait = 2 ** retries
+                logger.warning("Server error %d on %s, retry %d/%d after %ds", response.status_code, path, retries + 1, MAX_RETRIES, wait)
+                await asyncio.sleep(wait)
+                return await _request(method, path, token, params, retries + 1)
 
         if response.status_code >= 400:
             raise StepikAPIError(response.status_code, response.text)
@@ -45,56 +81,8 @@ async def _request(method: str, path: str, token: str | None = None, params: dic
         return response.json()
 
 
-async def get_course(course_id: int, token: str | None = None) -> dict:
-    data = await _request("GET", f"/courses/{course_id}", token)
-    return data.get("courses", [{}])[0]
-
-
-async def get_courses(user_id: int | None = None, token: str | None = None) -> list[dict]:
-    params: dict[str, Any] = {}
-    if user_id:
-        params["teacher"] = user_id
-    data = await _request("GET", "/courses", token, params)
-    return data.get("courses", [])
-
-
-async def get_sections(course_id: int, token: str | None = None) -> list[dict]:
-    params = {"course": course_id}
-    data = await _request("GET", "/sections", token, params)
-    return data.get("sections", [])
-
-
-async def get_units(section_id: int, token: str | None = None) -> list[dict]:
-    params = {"section": section_id}
-    data = await _request("GET", "/units", token, params)
-    return data.get("units", [])
-
-
-async def get_steps(lesson_id: int, token: str | None = None) -> list[dict]:
-    params = {"lesson": lesson_id}
-    data = await _request("GET", "/steps", token, params)
-    return data.get("steps", [])
-
-
-async def get_course_grades(course_id: int, token: str | None = None) -> list[dict]:
-    params = {"course": course_id}
-    data = await _request("GET", "/course-grades", token, params)
-    return data.get("course-grades", [])
-
-
-async def get_courses_batch(ids: list[int], token: str | None = None) -> list[dict]:
-    params = {"ids[]": ids}
-    data = await _request("GET", "/courses", token, params)
-    return data.get("courses", [])
-
-
-async def get_wrong_submissions(course_id: int, token: str | None = None) -> list[dict]:
-    params = {"course": course_id, "status": "wrong"}
-    data = await _request("GET", "/submissions", token, params)
-    return data.get("submissions", [])
-
-
 async def get_user_profile(token: str) -> dict:
+    """Fetch authenticated user's profile from Stepik."""
     data = await _request("GET", "/profiles", token)
     profiles = data.get("profiles", [])
     if profiles:
@@ -104,13 +92,8 @@ async def get_user_profile(token: str) -> dict:
     return users[0] if users else {}
 
 
-async def get_user_courses(course_id: int, token: str) -> list[dict]:
-    params = {"course": course_id}
-    data = await _request("GET", "/user-courses", token, params)
-    return data.get("user-courses", [])
-
-
 async def refresh_access_token(refresh_token: str, client_id: str, client_secret: str) -> dict:
+    """Exchange refresh_token for a new access_token via Stepik OAuth2."""
     async with httpx.AsyncClient() as client:
         response = await client.post(
             "https://stepik.org/oauth2/token/",
@@ -129,6 +112,7 @@ async def refresh_access_token(refresh_token: str, client_id: str, client_secret
 
 
 async def exchange_code_for_token(code: str, client_id: str, client_secret: str, redirect_uri: str) -> dict:
+    """Exchange OAuth2 authorization code for access/refresh tokens."""
     async with httpx.AsyncClient() as client:
         response = await client.post(
             "https://stepik.org/oauth2/token/",
@@ -148,12 +132,19 @@ async def exchange_code_for_token(code: str, client_id: str, client_secret: str,
 
 
 _finance_token_cache: dict[str, Any] = {"token": None, "expires_at": 0}
+_finance_token_lock = asyncio.Lock()
 
 
 async def get_finance_token(client_id: str, client_secret: str) -> str:
+    """Get or refresh finance API token using client_credentials grant.
+
+    Uses asyncio.Lock to be thread-safe across concurrent async contexts.
+    Caches token until 60s before expiry.
+    """
     now = time.time()
-    if _finance_token_cache["token"] and _finance_token_cache["expires_at"] > now + 60:
-        return _finance_token_cache["token"]
+    async with _finance_token_lock:
+        if _finance_token_cache["token"] and _finance_token_cache["expires_at"] > now + 60:
+            return _finance_token_cache["token"]
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
@@ -171,6 +162,7 @@ async def get_finance_token(client_id: str, client_secret: str) -> str:
         data = response.json()
         token = data.get("access_token", "")
         expires_in = data.get("expires_in", 36000)
-        _finance_token_cache["token"] = token
-        _finance_token_cache["expires_at"] = now + expires_in
+        async with _finance_token_lock:
+            _finance_token_cache["token"] = token
+            _finance_token_cache["expires_at"] = now + expires_in
         return token

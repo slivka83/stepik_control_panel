@@ -2,9 +2,8 @@ import pytest
 from unittest.mock import patch, AsyncMock, MagicMock
 import httpx
 from app.services.stepik_api import (
-    _request, get_course, get_courses_batch, get_sections,
-    get_units, get_steps, get_course_grades, get_wrong_submissions,
-    get_user_profile, get_user_courses, refresh_access_token,
+    _request,
+    get_user_profile, refresh_access_token,
     exchange_code_for_token, StepikAPIError, STEPIK_API_BASE
 )
 
@@ -181,76 +180,6 @@ class TestTokenAuth:
                 assert "Authorization" not in call_kwargs["headers"]
 
 
-class TestBatchLoading:
-    @pytest.mark.asyncio
-    async def test_batch_uses_ids_param(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('httpx.AsyncClient') as mock_client:
-                mock_response = MagicMock()
-                mock_response.status_code = 200
-                mock_response.json.return_value = {"courses": [{"id": 1}, {"id": 2}]}
-                mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                mock_client.request = AsyncMock(return_value=mock_response)
-
-                result = await get_courses_batch([1, 2])
-
-                call_kwargs = mock_client.request.call_args[1]
-                assert call_kwargs["params"] == {"ids[]": [1, 2]}
-
-
-class TestEndpointFunctions:
-    @pytest.mark.asyncio
-    async def test_get_course(self):
-        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
-            mock_req.return_value = {"courses": [{"id": 1, "title": "Test"}]}
-            result = await get_course(1)
-            assert result == {"id": 1, "title": "Test"}
-            mock_req.assert_called_once_with("GET", "/courses/1", None)
-
-    @pytest.mark.asyncio
-    async def test_get_sections(self):
-        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
-            mock_req.return_value = {"sections": [{"id": 1}]}
-            result = await get_sections(1)
-            assert result == [{"id": 1}]
-
-    @pytest.mark.asyncio
-    async def test_get_units(self):
-        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
-            mock_req.return_value = {"units": [{"id": 1}]}
-            result = await get_units(1)
-            assert result == [{"id": 1}]
-
-    @pytest.mark.asyncio
-    async def test_get_steps(self):
-        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
-            mock_req.return_value = {"steps": [{"id": 1}]}
-            result = await get_steps(1)
-            assert result == [{"id": 1}]
-
-    @pytest.mark.asyncio
-    async def test_get_course_grades(self):
-        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
-            mock_req.return_value = {"course-grades": [{"student": 1}]}
-            result = await get_course_grades(1)
-            assert result == [{"student": 1}]
-
-    @pytest.mark.asyncio
-    async def test_get_wrong_submissions(self):
-        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
-            mock_req.return_value = {"submissions": [{"id": 1}]}
-            result = await get_wrong_submissions(1)
-            assert result == [{"id": 1}]
-
-    @pytest.mark.asyncio
-    async def test_get_course_empty_response(self):
-        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
-            mock_req.return_value = {}
-            result = await get_course(1)
-            assert result == {}
-
-
 class TestExchangeCodeForToken:
     @pytest.mark.asyncio
     async def test_exchange_success(self):
@@ -317,18 +246,6 @@ class TestGetUserProfile:
             mock_req.side_effect = [{"profiles": []}, {"users": []}]
             result = await get_user_profile("my_token")
             assert result == {}
-
-
-class TestGetUserCourses:
-    @pytest.mark.asyncio
-    async def test_returns_user_courses(self):
-        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
-            mock_req.return_value = {
-                "user-courses": [{"id": 1, "last_viewed_at": "2024-01-01"}]
-            }
-            result = await get_user_courses(100, "my_token")
-            assert len(result) == 1
-            mock_req.assert_called_once_with("GET", "/user-courses", "my_token", {"course": 100})
 
 
 class TestRefreshAccessToken:

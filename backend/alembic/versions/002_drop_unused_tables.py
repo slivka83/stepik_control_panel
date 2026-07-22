@@ -7,6 +7,7 @@ Create Date: 2024-01-02
 from typing import Sequence, Union
 
 from alembic import op
+import sqlalchemy as sa
 
 revision: str = "002"
 down_revision: Union[str, None] = "001"
@@ -22,24 +23,24 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.create_table(
         "financial_transactions",
-        op.Column("id", op.String(36), primary_key=True),
-        op.Column("course_id", op.String(36), nullable=False),
-        op.Column("amount", op.Numeric(10, 2), nullable=False),
-        op.Column("is_refund", op.Boolean, default=False),
-        op.Column("transaction_date", op.DateTime, nullable=False),
-        op.Column("is_b2b", op.Boolean, default=False),
-        op.Column("ltv_cohort", op.String),
-        op.Column("created_at", op.DateTime),
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("course_id", sa.String(36), nullable=False),
+        sa.Column("amount", sa.Numeric(10, 2), nullable=False),
+        sa.Column("is_refund", sa.Boolean, default=False),
+        sa.Column("transaction_date", sa.DateTime, nullable=False),
+        sa.Column("is_b2b", sa.Boolean, default=False),
+        sa.Column("ltv_cohort", sa.String),
+        sa.Column("created_at", sa.DateTime),
     )
     op.create_table(
         "competitor_courses",
-        op.Column("id", op.String(36), primary_key=True),
-        op.Column("user_id", op.String(36), nullable=False),
-        op.Column("competitor_course_id", op.Integer, nullable=False),
-        op.Column("title", op.String),
-        op.Column("rating", op.Float),
-        op.Column("price", op.Numeric(10, 2)),
-        op.Column("students_count", op.Integer),
-        op.Column("snapshot_date", op.DateTime, nullable=False),
-        op.Column("created_at", op.DateTime),
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("user_id", sa.String(36), nullable=False),
+        sa.Column("competitor_course_id", sa.Integer, nullable=False),
+        sa.Column("title", sa.String),
+        sa.Column("rating", sa.Float),
+        sa.Column("price", sa.Numeric(10, 2)),
+        sa.Column("students_count", sa.Integer),
+        sa.Column("snapshot_date", sa.DateTime, nullable=False),
+        sa.Column("created_at", sa.DateTime),
     )
