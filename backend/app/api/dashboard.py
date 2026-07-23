@@ -108,7 +108,7 @@ async def get_kpi(
     summary = snapshot.data.get("summary", {}) if snapshot else {}
 
     return {
-        "total_revenue": summary.get("current_month_turnover", 0),
+        "total_revenue": summary.get("current_month_income", 0),
         "total_students": total_students,
         "certificates_issued": certificates_issued,
         "courses_count": len(courses),

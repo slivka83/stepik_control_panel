@@ -10,6 +10,10 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       port: Number(frontendPort),
+      watch: {
+        usePolling: true,
+        interval: 300,
+      },
       proxy: {
         '/api': {
           target: `http://localhost:${backendPort}`,

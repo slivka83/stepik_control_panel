@@ -13,9 +13,9 @@ export default function KpiCard({ title, value, prefix = '', suffix = '', color 
   const textColor = COLOR_CLASSES[color]?.split(' ')[0] || 'text-cyber-blue'
 
   return (
-    <div className="glass-panel glass-panel-hover p-3 transition-all duration-300">
-      <div className="text-gray-400 text-xs mb-1">{title}</div>
-      <div className={`font-mono text-xl lg:text-2xl font-bold ${textColor}`}>
+    <div className="glass-panel glass-panel-hover p-4 transition-all duration-300">
+      <div className="text-gray-400 text-xs mb-2">{title}</div>
+      <div className={`font-mono text-xl lg:text-2xl font-bold whitespace-nowrap ${textColor}`}>
         {prefix}
         <CountUp
           end={value}

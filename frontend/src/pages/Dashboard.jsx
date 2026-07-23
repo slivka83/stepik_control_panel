@@ -11,7 +11,7 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="space-y-4">
+      <div className="flex flex-col flex-1 gap-4 min-h-0">
         <h1 className="text-xl font-bold text-white">Сводная аналитика</h1>
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -21,14 +21,14 @@ export default function Dashboard() {
             </div>
           ))}
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="glass-panel p-4 animate-pulse">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0">
+          <div className="glass-panel p-4 animate-pulse flex flex-col">
             <div className="h-3 bg-gray-700 rounded w-32 mb-3"></div>
-            <div className="h-48 bg-gray-700 rounded"></div>
+            <div className="flex-1 bg-gray-700 rounded min-h-0"></div>
           </div>
-          <div className="glass-panel p-4 animate-pulse">
+          <div className="glass-panel p-4 animate-pulse flex flex-col">
             <div className="h-3 bg-gray-700 rounded w-32 mb-3"></div>
-            <div className="h-48 bg-gray-700 rounded"></div>
+            <div className="flex-1 bg-gray-700 rounded min-h-0"></div>
           </div>
         </div>
       </div>
@@ -36,7 +36,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col flex-1 gap-4 min-h-0">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-white">Сводная аналитика</h1>
       </div>
@@ -45,14 +45,14 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <KpiCard title="Доход за месяц" value={kpi?.total_revenue || 0} suffix=" ₽" color="neon-green" />
-        <KpiCard title="Чистый доход" value={kpi?.net_income || 0} suffix=" ₽" color="cyber-blue" />
-        <KpiCard title="Оборот" value={kpi?.total_turnover || 0} suffix=" ₽" color="amber-alert" />
+        <KpiCard title="Весь доход" value={kpi?.net_income || 0} suffix=" ₽" color="cyber-blue" />
+        <KpiCard title="Весь оборот" value={kpi?.total_turnover || 0} suffix=" ₽" color="amber-alert" />
         <KpiCard title="Студенты" value={kpi?.total_students || 0} color="cyber-blue" />
         <KpiCard title="Покупок" value={kpi?.total_payments || 0} color="neon-green" />
         <KpiCard title="Сертификаты" value={kpi?.certificates_issued || 0} color="amber-alert" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0">
         <RevenueChart data={revenue.months} />
         <CohortChart data={cohorts} />
       </div>

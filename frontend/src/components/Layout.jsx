@@ -98,7 +98,7 @@ export default function Layout({ children }) {
   return (
     <div className="h-screen overflow-hidden bg-space-black">
       <Sidebar />
-      <main role="main" aria-label="Основной контент" className="ml-16 lg:ml-56 h-full overflow-y-auto p-4">
+      <main role="main" aria-label="Основной контент" className="ml-16 lg:ml-56 h-full overflow-y-auto p-4 flex flex-col">
         {children}
       </main>
     </div>
