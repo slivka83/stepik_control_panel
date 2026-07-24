@@ -20,7 +20,7 @@ function Sidebar() {
   }
 
   return (
-    <aside className="fixed top-0 left-0 h-screen w-16 lg:w-56 bg-space-gray border-r border-cyber-blue/10 flex flex-col items-center lg:items-start py-6 z-40">
+    <aside className="fixed top-0 left-0 h-screen w-16 bg-space-gray border-r border-cyber-blue/10 flex flex-col items-center py-6 z-40">
       <nav role="navigation" aria-label="Основная навигация" className="flex flex-col gap-2 w-full px-2">
         {NAV_ITEMS.map((item) => (
           <NavLink
@@ -28,8 +28,9 @@ function Sidebar() {
             to={item.to}
             end={item.to === '/'}
             aria-label={item.label}
+            title={item.label}
             className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ${
+              `flex items-center justify-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ${
                 isActive
                   ? 'bg-cyber-blue/20 text-cyber-blue border border-cyber-blue/30'
                   : 'text-gray-400 hover:text-cyber-blue hover:bg-space-gray-light border border-transparent'
@@ -37,35 +38,38 @@ function Sidebar() {
             }
           >
             <span className="text-lg" aria-hidden="true">{item.icon}</span>
-            <span className="hidden lg:block text-sm font-medium">{item.label}</span>
+            <span className="hidden text-sm font-medium">{item.label}</span>
           </NavLink>
         ))}
       </nav>
 
-      <div className="mt-auto px-2 w-full">
+      <div className="mt-auto px-2 w-full flex flex-col items-center gap-2">
         {loading ? (
           <span className="text-xs text-gray-500 font-mono animate-pulse">...</span>
         ) : user ? (
-          <div className="flex flex-col gap-2">
+          <>
             <button
               onClick={handleSync}
-              className="px-3 py-1 text-xs text-cyber-blue border border-cyber-blue/30 rounded-lg hover:bg-cyber-blue/10 transition-colors font-medium text-left"
+              title="Обновить"
+              className="w-10 h-10 flex items-center justify-center text-cyber-blue border border-cyber-blue/30 rounded-lg hover:bg-cyber-blue/10 transition-colors text-lg"
             >
-              Обновить
+              ↻
             </button>
             <button
               onClick={logout}
-              className="px-2 py-1 text-xs text-crimson-alert border border-crimson-alert/30 rounded-lg hover:bg-crimson-alert/10 transition-colors"
+              title="Выйти"
+              className="w-10 h-10 flex items-center justify-center text-crimson-alert border border-crimson-alert/30 rounded-lg hover:bg-crimson-alert/10 transition-colors text-lg"
             >
-              Выйти
+              ⏻
             </button>
-          </div>
+          </>
         ) : (
           <button
             onClick={login}
-            className="px-3 py-1 text-xs text-cyber-blue border border-cyber-blue/30 rounded-lg hover:bg-cyber-blue/10 transition-colors font-medium w-full text-left"
+            title="Войти"
+            className="w-10 h-10 flex items-center justify-center text-cyber-blue border border-cyber-blue/30 rounded-lg hover:bg-cyber-blue/10 transition-colors text-lg"
           >
-            Войти
+            →
           </button>
         )}
       </div>
@@ -77,7 +81,7 @@ export default function Layout({ children }) {
   return (
     <div className="h-screen overflow-hidden bg-space-black">
       <Sidebar />
-      <main role="main" aria-label="Основной контент" className="ml-16 lg:ml-56 h-full overflow-y-auto p-4 flex flex-col">
+      <main role="main" aria-label="Основной контент" className="ml-16 h-full overflow-y-auto p-4 flex flex-col">
         {children}
       </main>
     </div>
