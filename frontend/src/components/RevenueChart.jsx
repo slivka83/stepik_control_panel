@@ -92,7 +92,7 @@ export default function RevenueChart({ data = [] }) {
       </div>
       <div className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 15, right: 10, left: 0, bottom: -10 }}>
+          <BarChart data={chartData} margin={{ top: 15, right: 10, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.gridLine} />
             <XAxis
               dataKey="month"
@@ -100,15 +100,12 @@ export default function RevenueChart({ data = [] }) {
               fontSize={11}
               fontFamily="JetBrains Mono"
               interval={0}
-              angle={-90}
-              textAnchor="end"
-              height={50}
-              tickMargin={0}
+              tickMargin={8}
               tickFormatter={(value) => {
                 if (!value) return ''
                 const parts = value.split(' ')
                 const month = parts[0] || ''
-                return month.length > 3 ? month.substring(0, 3) + '.' : month
+                return month.length > 3 ? month.substring(0, 3) : month
               }}
             />
             <YAxis

@@ -17,6 +17,13 @@ check_deps() {
     fi
 }
 
+DETACH=0
+for arg in "$@"; do
+  case "$arg" in
+    -d|--detach) DETACH=1 ;;
+  esac
+done
+
 check_deps
 
 if [ ! -f "$PROJECT_DIR/.env" ]; then
@@ -117,6 +124,17 @@ echo "  │                                  │"
 echo "  │  API: http://localhost:$BACKEND_PORT"
 echo "  └──────────────────────────────────┘"
 echo ""
+if [ "$DETACH" -eq 1 ]; then
+  trap - EXIT INT TERM
+  echo "  Backend PID:  $(cat /tmp/stepik_backend.pid)"
+  echo "  Frontend PID: $(cat /tmp/stepik_frontend.pid)"
+  echo "  Logs: /tmp/stepik_backend.log, /tmp/stepik_frontend.log"
+  echo ""
+  echo "  Stop: ./stop.sh"
+  echo ""
+  exit 0
+fi
+
 echo "  Stop: Ctrl+C"
 echo ""
 

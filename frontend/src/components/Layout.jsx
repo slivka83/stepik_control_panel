@@ -1,13 +1,11 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { useSync } from '../contexts/SyncContext'
-import { NAV_ITEMS, APP_VERSION } from '../constants'
+import { NAV_ITEMS } from '../constants'
 import api from '../api'
 
 function Sidebar() {
   const { user, loading, login, logout } = useAuth()
-  const { syncStatus } = useSync()
   const [syncing, setSyncing] = useState(false)
 
   const handleSync = async () => {
@@ -45,46 +43,27 @@ function Sidebar() {
       </nav>
 
       <div className="mt-auto px-2 w-full">
-        <div className="glass-panel p-3 text-xs text-gray-500 hidden lg:block">
-          <div className="text-cyber-blue font-mono">v{APP_VERSION}</div>
-          <div className="mt-1">Read-Only Mode</div>
-        </div>
-
         {loading ? (
           <span className="text-xs text-gray-500 font-mono animate-pulse">...</span>
         ) : user ? (
-          <div className="flex flex-col gap-2 mt-3">
-            {syncStatus.in_progress || syncing ? (
-              <div className="flex items-center gap-2 px-1">
-                <div className="w-2 h-2 rounded-full bg-amber-alert animate-pulse"></div>
-                <span className="text-xs text-amber-alert font-mono hidden lg:block">Синхронизация...</span>
-              </div>
-            ) : (
-              <button
-                onClick={handleSync}
-                className="px-3 py-1 text-xs text-cyber-blue border border-cyber-blue/30 rounded-lg hover:bg-cyber-blue/10 transition-colors font-medium text-left"
-              >
-                Обновить
-              </button>
-            )}
-            <div className="flex items-center gap-2 px-1">
-              <div className="w-2 h-2 rounded-full bg-neon-green animate-pulse"></div>
-              <span className="text-xs text-gray-400 font-mono hidden lg:block">SYNCED</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-gray-500 font-mono hidden lg:block">ID: {user.stepik_id}</span>
-              <button
-                onClick={logout}
-                className="px-2 py-1 text-xs text-crimson-alert border border-crimson-alert/30 rounded-lg hover:bg-crimson-alert/10 transition-colors"
-              >
-                Выйти
-              </button>
-            </div>
+          <div className="flex flex-col gap-2">
+            <button
+              onClick={handleSync}
+              className="px-3 py-1 text-xs text-cyber-blue border border-cyber-blue/30 rounded-lg hover:bg-cyber-blue/10 transition-colors font-medium text-left"
+            >
+              Обновить
+            </button>
+            <button
+              onClick={logout}
+              className="px-2 py-1 text-xs text-crimson-alert border border-crimson-alert/30 rounded-lg hover:bg-crimson-alert/10 transition-colors"
+            >
+              Выйти
+            </button>
           </div>
         ) : (
           <button
             onClick={login}
-            className="px-3 py-1 text-xs text-cyber-blue border border-cyber-blue/30 rounded-lg hover:bg-cyber-blue/10 transition-colors font-medium w-full text-left mt-3"
+            className="px-3 py-1 text-xs text-cyber-blue border border-cyber-blue/30 rounded-lg hover:bg-cyber-blue/10 transition-colors font-medium w-full text-left"
           >
             Войти
           </button>

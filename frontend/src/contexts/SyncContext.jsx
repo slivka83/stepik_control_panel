@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useAuth } from './AuthContext'
 import api from '../api'
 
@@ -34,19 +34,23 @@ export function SyncProvider({ children }) {
           api.get('/financials', { signal }),
         ])
 
-      setData(prev => ({
-        ...prev,
-        kpi: kpiRes.status === 'fulfilled' ? kpiRes.value.data : prev.kpi,
-        cohorts: cohortsRes.status === 'fulfilled' ? cohortsRes.value.data : prev.cohorts,
-        revenue: revenueRes.status === 'fulfilled' ? revenueRes.value.data : prev.revenue,
-        alerts: alertsRes.status === 'fulfilled'
-          ? (alertsRes.value.data.alerts || [])
-          : prev.alerts,
-        courses: coursesRes.status === 'fulfilled'
-          ? (coursesRes.value.data.courses || [])
-          : prev.courses,
-        financials: financialsRes.status === 'fulfilled' ? financialsRes.value.data : prev.financials,
-      }))
+      setData(prev => {
+        const next = {
+          ...prev,
+          kpi: kpiRes.status === 'fulfilled' ? kpiRes.value.data : prev.kpi,
+          cohorts: cohortsRes.status === 'fulfilled' ? cohortsRes.value.data : prev.cohorts,
+          revenue: revenueRes.status === 'fulfilled' ? revenueRes.value.data : prev.revenue,
+          alerts: alertsRes.status === 'fulfilled'
+            ? (alertsRes.value.data.alerts || [])
+            : prev.alerts,
+          courses: coursesRes.status === 'fulfilled'
+            ? (coursesRes.value.data.courses || [])
+            : prev.courses,
+          financials: financialsRes.status === 'fulfilled' ? financialsRes.value.data : prev.financials,
+        }
+        if (JSON.stringify(prev) === JSON.stringify(next)) return prev
+        return next
+      })
 
       const failures = [kpiRes, cohortsRes, revenueRes, alertsRes, coursesRes, financialsRes]
         .filter(r => r.status === 'rejected')
@@ -80,7 +84,10 @@ export function SyncProvider({ children }) {
     const poll = async () => {
       try {
         const { data: status } = await api.get('/sync/status', { signal: controller.signal })
-        setSyncStatus(status)
+        setSyncStatus(prev => {
+          if (prev.in_progress === status.in_progress && prev.last_sync === status.last_sync) return prev
+          return status
+        })
         if (lastKnownSync && status.last_sync && lastKnownSync !== status.last_sync) {
           fetchAll(controller.signal)
         }
@@ -97,8 +104,13 @@ export function SyncProvider({ children }) {
     }
   }, [user, authLoading, fetchAll])
 
+  const contextValue = useMemo(
+    () => ({ syncStatus, data, loading, error, refresh: () => fetchAll() }),
+    [syncStatus, data, loading, error, fetchAll]
+  )
+
   return (
-    <SyncContext.Provider value={{ syncStatus, data, loading, error, refresh: () => fetchAll() }}>
+    <SyncContext.Provider value={contextValue}>
       {children}
     </SyncContext.Provider>
   )

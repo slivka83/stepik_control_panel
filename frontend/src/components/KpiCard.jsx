@@ -20,6 +20,8 @@ export default function KpiCard({ title, value, prefix = '', suffix = '', color 
         <CountUp
           end={value}
           duration={1.5}
+          redraw={false}
+          preserveValue
           formattingFn={(val) => formatNumber(val)}
         />
         {suffix}
