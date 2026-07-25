@@ -39,5 +39,10 @@ async def trigger_sync(
     force: bool = False,
     user: User = Depends(get_user),
 ):
+    if sync_mod._sync_in_progress:
+        return {"status": "already_in_progress"}
+    if not force and not sync_mod.can_sync():
+        remaining = int(sync_mod.SYNC_COOLDOWN_SECONDS - (time_mod.time() - sync_mod._last_sync_completed_at))
+        return {"status": "cooldown", "cooldown_remaining_seconds": max(0, remaining)}
     background_tasks.add_task(sync_mod.sync_all, force, user.id)
     return {"status": "sync_started"}

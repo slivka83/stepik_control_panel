@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 _sync_in_progress = False
 _last_sync_completed_at: float = 0
+_community_cache: dict = {"reviews_count": 0, "average_rating": 0}
 
 MONTH_NAMES = {
     1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
@@ -24,14 +25,14 @@ MONTH_NAMES = {
     9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
 }
 
-SYNC_COOLDOWN_SECONDS = 3600  # 1 hour
+SYNC_COOLDOWN_SECONDS = 60  # 1 minute
 
 
 async def _paginated_get(path: str, token: str, params: dict | None = None, key: str | None = None) -> list:
     all_items = []
     page = 1
     while True:
-        p = {**(params or {}), "page": page, "page_size": 50}
+        p = {**(params or {}), "page": page, "page_size": 100}
         data = await _request("GET", path, token, p)
         items_key = key or path.lstrip("/")
         items = data.get(items_key, [])
@@ -41,6 +42,22 @@ async def _paginated_get(path: str, token: str, params: dict | None = None, key:
             break
         page += 1
     return all_items
+
+
+async def _count_comments(course_ids: list[int], token: str) -> int:
+    total = 0
+    for cid in course_ids:
+        page = 1
+        while True:
+            data = await _request("GET", "/comments", token,
+                                  {"course": cid, "page": page, "page_size": 100})
+            items = data.get("comments", [])
+            total += len(items)
+            logger.info("Comments course=%d page=%d got=%d total_so_far=%d", cid, page, len(items), total)
+            if not data.get("meta", {}).get("has_next", False) or not items:
+                break
+            page += 1
+    return total
 
 
 def calculate_cohort_status(last_viewed_at: datetime) -> str:
@@ -158,7 +175,7 @@ async def sync_courses_and_enrollments(user_id=None):
                     user_id=user_id_db,
                     stepik_course_id=c["id"],
                     title=c.get("title", "Untitled"),
-                    status="Published" if c.get("is_published", True) else "Draft",
+                    status="Published" if c.get("is_public", False) else "Draft",
                     health_score=100.0,
                 )
                 session.add(course)
@@ -184,6 +201,46 @@ async def sync_courses_and_enrollments(user_id=None):
 
             logger.info("Synced: %d courses, %d enrollments",
                        len(courses_data), total_enrollments)
+
+    rating_sum = 0.0
+    rating_count = 0
+    reviews_count = 0
+
+    review_ids = [c.get("review_summary") for c in courses_data if c.get("review_summary")]
+    if review_ids:
+        try:
+            ids_param = "&".join(f"ids[]={rid}" for rid in review_ids)
+            linked_data = await _request("GET", f"/course-review-summaries?{ids_param}", token)
+            summaries = linked_data.get("course-review-summaries", [])
+            logger.info("Got %d review summaries from Stepik", len(summaries))
+            for rs in summaries:
+                avg = rs.get("average")
+                cnt = rs.get("count", 0)
+                logger.info("Review summary ID %s: average=%s count=%s", rs.get("id"), avg, cnt)
+                if avg is not None and cnt > 0:
+                    rating_sum += float(avg)
+                    rating_count += 1
+                reviews_count += int(cnt or 0)
+        except Exception as e:
+            logger.warning("Failed to fetch review summaries: %s", e)
+
+    logger.info("Found review_summary on %d/%d courses, total reviews: %d",
+                rating_count, len(courses_data), reviews_count)
+
+    course_ids = [c["id"] for c in courses_data]
+    comments_count = 0
+    try:
+        comments_count = await _count_comments(course_ids, token)
+    except Exception as e:
+        logger.warning("Failed to count comments: %s", e)
+    logger.info("Total comments across %d courses: %d", len(course_ids), comments_count)
+
+    global _community_cache
+    _community_cache = {
+        "reviews_count": reviews_count,
+        "average_rating": round(rating_sum / rating_count, 2) if rating_count > 0 else 0,
+        "comments_count": comments_count,
+    }
 
 
 async def sync_submissions(user_id=None):
@@ -285,6 +342,7 @@ async def sync_financials(user_id=None):
     total_income = sum(float(m.get("total_user_income", 0) or 0) for m in by_months)
     total_refunds = sum(float(m.get("total_refunds", 0) or 0) for m in by_months)
     total_payments = sum(int(m.get("count_payments", 0) or 0) for m in by_months)
+    total_refunds_count = sum(int(m.get("count_refunds", 0) or 0) for m in by_months)
 
     now = datetime.now(timezone.utc)
     current_month_turnover = 0.0
@@ -351,6 +409,7 @@ async def sync_financials(user_id=None):
             "total_income": total_income,
             "total_refunds": total_refunds,
             "total_payments": total_payments,
+            "total_refunds_count": total_refunds_count,
             "net_income": total_income - total_refunds,
             "current_month_turnover": current_month_turnover,
             "current_month_income": current_month_income,
@@ -374,6 +433,34 @@ async def sync_financials(user_id=None):
                len(months_data), len(course_list), len(recent_payments))
 
 
+async def sync_community_stats(user_id=None):
+    """Write cached review/rating data to FinancialSnapshot.
+
+    Reviews and ratings are extracted from courses data in sync_courses_and_enrollments.
+    No extra API calls needed - data comes from DB.
+    """
+    global _community_cache
+
+    async with async_session() as session:
+        result = await session.execute(select(FinancialSnapshot).limit(1))
+        snapshot = result.scalar_one_or_none()
+        if snapshot:
+            snapshot.data = {
+                **snapshot.data,
+                "community": {
+                    "total_comments": _community_cache.get("comments_count", 0),
+                    "total_reviews": _community_cache.get("reviews_count", 0),
+                    "average_rating": _community_cache.get("average_rating", 0),
+                },
+            }
+            await session.commit()
+
+    logger.info("Community stats: %d reviews, avg rating %.2f, %d comments",
+                _community_cache.get("reviews_count", 0),
+                _community_cache.get("average_rating", 0),
+                _community_cache.get("comments_count", 0))
+
+
 async def sync_all(force: bool = False, user_id=None):
     """Run all sync jobs. Skips if cooldown hasn't passed (unless force=True).
 
@@ -393,14 +480,17 @@ async def sync_all(force: bool = False, user_id=None):
     _sync_in_progress = True
     logger.info("=== Full sync started ===")
     try:
+        logger.info("Step 1/3: syncing courses and enrollments...")
         await sync_courses_and_enrollments(user_id)
-        await sync_submissions(user_id)
+        logger.info("Step 2/3: syncing financials...")
         await sync_financials(user_id)
+        logger.info("Step 3/3: syncing community stats...")
+        await sync_community_stats(user_id)
         _last_sync_completed_at = time.time()
         logger.info("=== Full sync completed ===")
         return {"status": "ok"}
     except Exception as e:
-        logger.error("Sync failed: %s", e)
+        logger.error("Sync failed: %s", e, exc_info=True)
         return {"status": "error", "detail": str(e)}
     finally:
         _sync_in_progress = False

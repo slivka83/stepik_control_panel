@@ -84,8 +84,11 @@ async def get_kpi(
     if not course_ids:
         return {
             "total_revenue": 0, "total_students": 0, "certificates_issued": 0,
-            "courses_count": 0, "total_income": 0, "net_income": 0,
+            "courses_count": 0, "courses_published": 0, "courses_unpublished": 0,
+            "total_income": 0, "net_income": 0,
             "total_turnover": 0, "total_refunds": 0, "total_payments": 0,
+            "current_month_turnover": 0,
+            "total_comments": 0, "total_reviews": 0, "average_rating": 0,
         }
 
     students_result = await db.execute(
@@ -106,17 +109,25 @@ async def get_kpi(
     snapshot_result = await db.execute(select(FinancialSnapshot).limit(1))
     snapshot = snapshot_result.scalar_one_or_none()
     summary = snapshot.data.get("summary", {}) if snapshot else {}
+    community = snapshot.data.get("community", {}) if snapshot else {}
 
     return {
         "total_revenue": summary.get("current_month_income", 0),
         "total_students": total_students,
         "certificates_issued": certificates_issued,
         "courses_count": len(courses),
+        "courses_published": sum(1 for c in courses if c.status == "Published"),
+        "courses_unpublished": sum(1 for c in courses if c.status != "Published"),
         "total_income": summary.get("total_income", 0),
         "net_income": summary.get("net_income", 0),
         "total_turnover": summary.get("total_turnover", 0),
         "total_refunds": summary.get("total_refunds", 0),
+        "total_refunds_count": summary.get("total_refunds_count", 0),
         "total_payments": summary.get("total_payments", 0),
+        "current_month_turnover": summary.get("current_month_turnover", 0),
+        "total_comments": community.get("total_comments", 0),
+        "total_reviews": community.get("total_reviews", 0),
+        "average_rating": community.get("average_rating", 0),
     }
 
 

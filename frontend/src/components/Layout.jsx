@@ -11,7 +11,17 @@ function Sidebar() {
   const handleSync = async () => {
     setSyncing(true)
     try {
-      await api.post('/sync')
+      const { data: trigger } = await api.post('/sync')
+      if (trigger.status === 'cooldown' || trigger.status === 'already_in_progress') {
+        await new Promise(r => setTimeout(r, 500))
+        setSyncing(false)
+        return
+      }
+      while (true) {
+        await new Promise(r => setTimeout(r, 1000))
+        const { data } = await api.get('/sync/status')
+        if (!data.in_progress) break
+      }
     } catch (err) {
       console.error('Sync error:', err)
     } finally {
@@ -53,7 +63,7 @@ function Sidebar() {
               title="Обновить"
               className="w-10 h-10 flex items-center justify-center text-cyber-blue border border-cyber-blue/30 rounded-lg hover:bg-cyber-blue/10 transition-colors text-lg"
             >
-              ↻
+              <span className={`inline-block ${syncing ? 'animate-spin' : ''}`}>↻</span>
             </button>
             <button
               onClick={logout}
