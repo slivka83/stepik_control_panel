@@ -7,9 +7,12 @@ import api from '../api'
 function Sidebar() {
   const { user, loading, login, logout } = useAuth()
   const [syncing, setSyncing] = useState(false)
+  const [progress, setProgress] = useState(0)
+  const [syncStep, setSyncStep] = useState('')
 
   const handleSync = async () => {
     setSyncing(true)
+    setProgress(0)
     try {
       const { data: trigger } = await api.post('/sync')
       if (trigger.status === 'cooldown' || trigger.status === 'already_in_progress') {
@@ -20,12 +23,16 @@ function Sidebar() {
       while (true) {
         await new Promise(r => setTimeout(r, 1000))
         const { data } = await api.get('/sync/status')
+        setProgress(data.progress || 0)
+        setSyncStep(data.step || '')
         if (!data.in_progress) break
       }
     } catch (err) {
       console.error('Sync error:', err)
     } finally {
       setSyncing(false)
+      setProgress(0)
+      setSyncStep('')
     }
   }
 
@@ -60,10 +67,17 @@ function Sidebar() {
           <>
             <button
               onClick={handleSync}
-              title="Обновить"
-              className="w-10 h-10 flex items-center justify-center text-cyber-blue border border-cyber-blue/30 rounded-lg hover:bg-cyber-blue/10 transition-colors text-lg"
+              title={syncing ? `${syncStep} (${progress}%)` : 'Обновить'}
+              className="relative w-10 h-10 flex items-center justify-center border border-cyber-blue/30 rounded-lg overflow-hidden text-lg group"
+              disabled={syncing}
             >
-              <span className={`inline-block ${syncing ? 'animate-spin' : ''}`}>↻</span>
+              {syncing && (
+                <span
+                  className="absolute bottom-0 left-0 w-full bg-cyber-blue/25 transition-all duration-1000 ease-linear"
+                  style={{ height: `${progress}%` }}
+                />
+              )}
+              <span className={`relative z-10 inline-block text-cyber-blue transition-colors duration-300 ${syncing ? 'animate-spin' : 'group-hover:text-white'}`}>↻</span>
             </button>
             <button
               onClick={logout}

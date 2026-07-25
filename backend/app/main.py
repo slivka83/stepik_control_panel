@@ -34,26 +34,7 @@ async def lifespan(app):
         except Exception as e:
             logger.warning("Initial token refresh failed: %s", e)
 
-        async with async_session() as session:
-            result = await session.execute(select(FinancialSnapshot).limit(1))
-            snap = result.scalar_one_or_none()
-            if snap and snap.updated_at:
-                updated_ts = snap.updated_at.timestamp() if snap.updated_at.tzinfo is None else snap.updated_at.timestamp()
-                elapsed = time_mod.time() - updated_ts
-                if elapsed < SYNC_COOLDOWN_SECONDS:
-                    logger.info("Data is %ds old, skipping sync (cooldown %ds)", int(elapsed), SYNC_COOLDOWN_SECONDS)
-                else:
-                    logger.info("Data is %ds old, running startup sync", int(elapsed))
-                    try:
-                        await sync_all()
-                    except Exception as e:
-                        logger.error("Startup sync failed: %s", e)
-            else:
-                logger.info("No existing data, running initial sync")
-                try:
-                    await sync_all()
-                except Exception as e:
-                    logger.error("Startup sync failed: %s", e)
+        logger.info("Startup tasks complete, data available via sync button")
 
     asyncio.create_task(_startup_tasks())
 

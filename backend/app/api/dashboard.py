@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends
-from sqlalchemy import select, func
+from sqlalchemy import select, func, extract
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, timezone
 
 from app.database import get_db
-from app.models import Course, StudentEnrollment, FinancialSnapshot, User
+from app.models import Course, StudentEnrollment, FinancialSnapshot, User, Submission, Submission
 from app.api.auth import get_user
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -157,6 +157,7 @@ async def get_cohorts(
             select(func.count(StudentEnrollment.id))
             .where(
                 StudentEnrollment.course_id.in_(course_ids),
+                StudentEnrollment.cohort_status != "Zombie",
                 StudentEnrollment.last_viewed_at >= now - timedelta(days=days_max),
                 StudentEnrollment.last_viewed_at < now - timedelta(days=days_min),
             )
@@ -168,9 +169,19 @@ async def get_cohorts(
         .where(
             StudentEnrollment.course_id.in_(course_ids),
             StudentEnrollment.last_viewed_at < now - timedelta(days=90),
+            StudentEnrollment.cohort_status != "Zombie",
         )
     )
     cohorts["sleeping"] = sleeping_result.scalar() or 0
+
+    zombie_result = await db.execute(
+        select(func.count(StudentEnrollment.id))
+        .where(
+            StudentEnrollment.course_id.in_(course_ids),
+            StudentEnrollment.cohort_status == "Zombie",
+        )
+    )
+    cohorts["zombie"] = zombie_result.scalar() or 0
 
     return cohorts
 
@@ -183,4 +194,49 @@ async def get_revenue(
     snapshot_result = await db.execute(select(FinancialSnapshot).limit(1))
     snapshot = snapshot_result.scalar_one_or_none()
     months = snapshot.data.get("months", []) if snapshot else []
+    return {"months": months}
+
+
+MONTH_LABELS_RU = {
+    1: 'Январь', 2: 'Февраль', 3: 'Март', 4: 'Апрель', 5: 'Май', 6: 'Июнь',
+    7: 'Июль', 8: 'Август', 9: 'Сентябрь', 10: 'Октябрь', 11: 'Ноябрь', 12: 'Декабрь',
+}
+
+
+@router.get("/submissions")
+async def get_submissions(
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+):
+    courses_result = await db.execute(
+        select(Course).where(Course.user_id == user.id)
+    )
+    courses = courses_result.scalars().all()
+    course_ids = [c.id for c in courses]
+
+    if not course_ids:
+        return {"months": []}
+
+    result = await db.execute(
+        select(
+            extract("year", Submission.submission_time).label("year"),
+            extract("month", Submission.submission_time).label("month"),
+            func.count(Submission.id).label("total"),
+            func.count(Submission.id).filter(Submission.status == "correct").label("correct"),
+        )
+        .where(Submission.course_id.in_(course_ids))
+        .group_by("year", "month")
+        .order_by("year", "month")
+    )
+    rows = result.all()
+
+    months = []
+    for row in rows:
+        y, m = int(row.year), int(row.month)
+        months.append({
+            "month": f"{MONTH_LABELS_RU.get(m, str(m))} {y}",
+            "total": row.total,
+            "correct": row.correct,
+        })
+
     return {"months": months}

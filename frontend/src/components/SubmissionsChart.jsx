@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts'
 import { CHART_COLORS } from '../constants'
 
-const COLOR = '#4ade80'
+const COLOR_BRIGHT = '#38bdf8'
+const COLOR_DIM = '#1a6a9e'
 
 function BarShape({ activeMonth, onBarEnter, onBarLeave, ...props }) {
   const { x, y, width, height, fill, fillOpacity, payload } = props
@@ -29,14 +30,16 @@ function BarShape({ activeMonth, onBarEnter, onBarLeave, ...props }) {
   )
 }
 
-export default function RevenueChart({ data = [] }) {
+export default function SubmissionsChart({ data = {} }) {
   const [activeMonth, setActiveMonth] = useState(null)
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
 
-  if (!data.length) {
+  const months = (data.months || []).slice(-18)
+
+  if (!months.length) {
     return (
       <div className="glass-panel p-4 flex flex-col min-h-0">
-        <h3 className="text-white font-medium mb-3">Доход по месяцам</h3>
+        <h3 className="text-white font-medium mb-3">Отправленные решения</h3>
         <div className="flex-1 flex items-center justify-center text-gray-500">
           Нет данных для отображения
         </div>
@@ -44,32 +47,31 @@ export default function RevenueChart({ data = [] }) {
     )
   }
 
-  const chartData = data.map(d => ({
+  const chartData = months.map(d => ({
     ...d,
-    commission: Math.max((d.turnover || 0) - (d.income || 0), 0),
+    wrong: Math.max((d.total || 0) - (d.correct || 0), 0),
   }))
-
-  const totalIncome = data.reduce((sum, d) => sum + (d.income || 0), 0)
-  const activeEntry = activeMonth ? chartData.find(d => d.month === activeMonth) : null
 
   const handleBarEnter = (month, cx, cy) => {
     setActiveMonth(month)
     setTooltipPos({ x: cx, y: cy })
   }
 
+  const activeEntry = activeMonth ? chartData.find(d => d.month === activeMonth) : null
+
   return (
-    <figure role="img" aria-label="Диаграмма доходов по месяцам" className="glass-panel p-4 flex flex-col min-h-0">
-      <figcaption className="sr-only">Доходы за {data.length} месяцев, всего {totalIncome.toLocaleString('ru-RU')} ₽</figcaption>
+    <figure role="img" aria-label="Диаграмма решений по месяцам" className="glass-panel p-4 flex flex-col min-h-0">
+      <figcaption className="sr-only">Отправленные решения за {months.length} месяцев</figcaption>
       <div className="flex items-center justify-between mb-2 shrink-0">
-        <h3 className="text-white font-medium">Доход по месяцам</h3>
+        <h3 className="text-white font-medium">Отправленные решения</h3>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: COLOR }}></div>
-            <span className="text-xs text-gray-400">Доход</span>
+            <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: COLOR_BRIGHT }}></div>
+            <span className="text-xs text-gray-400">Правильные</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: COLOR, opacity: 0.4 }}></div>
-            <span className="text-xs text-gray-400">Оборот</span>
+            <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: COLOR_DIM }}></div>
+            <span className="text-xs text-gray-400">Всего</span>
           </div>
           <div className="flex items-center gap-2">
             <svg className="w-3 h-3" viewBox="0 0 12 12">
@@ -88,13 +90,13 @@ export default function RevenueChart({ data = [] }) {
             margin={{ top: 15, right: 10, left: 0, bottom: 0 }}
           >
             <defs>
-              <pattern id="hatch-income" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                <rect width="6" height="6" fill={COLOR} />
-                <line x1="0" y1="0" x2="0" y2="6" stroke="#0b0f19" strokeWidth="2" />
+              <pattern id="hatch-correct" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <rect width="6" height="6" fill={COLOR_BRIGHT} />
+                <line x1="0" y1="0" x2="0" y2="6" stroke={COLOR_DIM} strokeWidth="2" />
               </pattern>
-              <pattern id="hatch-commission" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                <rect width="6" height="6" fill={COLOR} fillOpacity="0.35" />
-                <line x1="0" y1="0" x2="0" y2="6" stroke={COLOR} strokeWidth="2" strokeOpacity="0.5" />
+              <pattern id="hatch-wrong" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <rect width="6" height="6" fill={COLOR_DIM} fillOpacity="0.5" />
+                <line x1="0" y1="0" x2="0" y2="6" stroke={COLOR_BRIGHT} strokeWidth="2" strokeOpacity="0.4" />
               </pattern>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.gridLine} />
@@ -120,7 +122,7 @@ export default function RevenueChart({ data = [] }) {
               tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
             />
             <Bar
-              dataKey="income"
+              dataKey="correct"
               stackId="a"
               shape={(props) => (
                 <BarShape
@@ -133,13 +135,13 @@ export default function RevenueChart({ data = [] }) {
             >
               {chartData.map((entry, i) => (
                 <Cell
-                  key={`cell-income-${entry.month}`}
-                  fill={i === chartData.length - 1 ? 'url(#hatch-income)' : COLOR}
+                  key={`cell-correct-${entry.month}`}
+                  fill={i === chartData.length - 1 ? 'url(#hatch-correct)' : COLOR_BRIGHT}
                 />
               ))}
             </Bar>
             <Bar
-              dataKey="commission"
+              dataKey="wrong"
               stackId="a"
               radius={[4, 4, 0, 0]}
               shape={(props) => (
@@ -153,9 +155,9 @@ export default function RevenueChart({ data = [] }) {
             >
               {chartData.map((entry, i) => (
                 <Cell
-                  key={`cell-comm-${entry.month}`}
-                  fill={i === chartData.length - 1 ? 'url(#hatch-commission)' : COLOR}
-                  fillOpacity={i === chartData.length - 1 ? 1 : 0.35}
+                  key={`cell-wrong-${entry.month}`}
+                  fill={i === chartData.length - 1 ? 'url(#hatch-wrong)' : COLOR_DIM}
+                  fillOpacity={i === chartData.length - 1 ? 1 : 0.5}
                 />
               ))}
             </Bar>
@@ -166,20 +168,20 @@ export default function RevenueChart({ data = [] }) {
         <div
           className="fixed z-[100] whitespace-nowrap px-3 py-2 rounded-lg pointer-events-none"
           style={{
-            left: `${tooltipPos.x + 12}px`,
-            top: `${tooltipPos.y - 12}px`,
-            transform: 'translateY(-100%)',
+            left: `${tooltipPos.x - 12}px`,
+            top: `${tooltipPos.y}px`,
+            transform: 'translate(-100%, -100%)',
             backgroundColor: CHART_COLORS.panelBg,
             border: '1px solid rgba(56, 189, 248, 0.3)',
             fontFamily: 'JetBrains Mono',
           }}
         >
           <div style={{ color: '#ffffff', fontSize: 13, marginBottom: 4 }}>{activeEntry.month}</div>
-          <div style={{ color: COLOR, fontSize: 12 }}>
-            Доход: {(activeEntry.income ?? 0).toLocaleString('ru-RU')} ₽
+          <div style={{ color: COLOR_BRIGHT, fontSize: 12 }}>
+            Правильные: {(activeEntry.correct ?? 0).toLocaleString('ru-RU')}
           </div>
-          <div style={{ color: COLOR, opacity: 0.6, fontSize: 12 }}>
-            Оборот: {(activeEntry.turnover ?? 0).toLocaleString('ru-RU')} ₽
+          <div style={{ color: COLOR_DIM, fontSize: 12 }}>
+            Всего: {(activeEntry.total ?? 0).toLocaleString('ru-RU')}
           </div>
         </div>,
         document.body

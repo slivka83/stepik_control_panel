@@ -157,3 +157,36 @@ class TestCohortBoundaries:
         from datetime import timedelta
         last = datetime.now(timezone.utc) - timedelta(days=365)
         assert calculate_cohort_status(last) == "Sleeping"
+
+    def test_zombie_none(self):
+        assert calculate_cohort_status(None) == "Sleeping"
+
+    def test_zombie_same_day_old(self):
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+        old = now - timedelta(days=200)
+        assert calculate_cohort_status(old, old) == "Zombie"
+
+    def test_zombie_3_days_old(self):
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+        old = now - timedelta(days=200)
+        joined = old - timedelta(days=3)
+        assert calculate_cohort_status(old, joined) == "Zombie"
+
+    def test_zombie_4_days_old(self):
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+        old = now - timedelta(days=200)
+        joined = old - timedelta(days=4)
+        assert calculate_cohort_status(old, joined) == "Sleeping"
+
+    def test_zombie_same_day_recent(self):
+        now = datetime.now(timezone.utc)
+        assert calculate_cohort_status(now, now) == "Active"
+
+    def test_zombie_different_day(self):
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+        joined = now - timedelta(days=1)
+        assert calculate_cohort_status(now, joined) != "Zombie"

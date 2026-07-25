@@ -28,6 +28,8 @@ async def sync_status(
 
     return {
         "in_progress": sync_mod._sync_in_progress,
+        "progress": sync_mod._sync_progress,
+        "step": sync_mod._sync_step,
         "last_sync": last_sync,
         "cooldown_remaining_seconds": remaining,
     }

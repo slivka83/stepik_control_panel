@@ -12,10 +12,14 @@ export const COHORT_COLORS = {
   active: { text: 'text-neon-green', bg: 'bg-neon-green', hex: '#4ade80' },
   passive: { text: 'text-cyber-blue', bg: 'bg-cyber-blue', hex: '#38bdf8' },
   fading: { text: 'text-amber-alert', bg: 'bg-amber-alert', hex: '#f59e0b' },
-  sleeping: { text: 'text-crimson-alert', bg: 'bg-crimson-alert', hex: '#f43f5e' },
+  sleeping: { text: 'text-gray-400', bg: 'bg-gray-400', hex: '#6b7280' },
+  zombie: { text: 'text-gray-400', bg: 'bg-gray-400', hex: '#6b7280' },
 }
 
+export const COHORT_ORDER = ['active', 'passive', 'fading', 'sleeping', 'zombie']
+
 export const COHORT_LABELS = {
+  zombie: 'Зомби',
   active: 'Активные',
   passive: 'Пассивные',
   fading: 'Затухающие',
@@ -23,10 +27,11 @@ export const COHORT_LABELS = {
 }
 
 export const COHORT_DAYS = {
-  active: '≤ 7 дней',
-  passive: '8–30 дней',
-  fading: '30–90 дней',
-  sleeping: '> 90 дней',
+  zombie: 'Никогда не открывали курс',
+  active: 'Активность ≤ 7 дней назад',
+  passive: 'Активность 8–30 дней назад',
+  fading: 'Активность 30–90 дней назад',
+  sleeping: 'Активность > 90 дней назад',
 }
 
 export const STATUS_LABELS = {

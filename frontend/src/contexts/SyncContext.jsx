@@ -18,13 +18,14 @@ export function SyncProvider({ children }) {
     alerts: [],
     courses: [],
     financials: null,
+    submissions: null,
   })
   const abortRef = useRef(null)
   const pollIntervalRef = useRef(30000)
 
   const fetchAll = useCallback(async (signal) => {
     try {
-      const [kpiRes, cohortsRes, revenueRes, alertsRes, coursesRes, financialsRes] =
+      const [kpiRes, cohortsRes, revenueRes, alertsRes, coursesRes, financialsRes, submissionsRes] =
         await Promise.allSettled([
           api.get('/dashboard/kpi', { signal }),
           api.get('/dashboard/cohorts', { signal }),
@@ -32,6 +33,7 @@ export function SyncProvider({ children }) {
           api.get('/dashboard/alerts', { signal }),
           api.get('/courses', { signal }),
           api.get('/financials', { signal }),
+          api.get('/dashboard/submissions', { signal }),
         ])
 
       setData(prev => {
@@ -47,12 +49,13 @@ export function SyncProvider({ children }) {
             ? (coursesRes.value.data.courses || [])
             : prev.courses,
           financials: financialsRes.status === 'fulfilled' ? financialsRes.value.data : prev.financials,
+          submissions: submissionsRes.status === 'fulfilled' ? submissionsRes.value.data : prev.submissions,
         }
         if (JSON.stringify(prev) === JSON.stringify(next)) return prev
         return next
       })
 
-      const failures = [kpiRes, cohortsRes, revenueRes, alertsRes, coursesRes, financialsRes]
+      const failures = [kpiRes, cohortsRes, revenueRes, alertsRes, coursesRes, financialsRes, submissionsRes]
         .filter(r => r.status === 'rejected')
       if (failures.length > 0) {
         setError(`${failures.length} endpoint(s) failed to load`)
