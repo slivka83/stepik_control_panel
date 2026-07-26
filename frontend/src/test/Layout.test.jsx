@@ -38,8 +38,9 @@ describe('Layout', () => {
     await waitFor(() => {
       expect(screen.getByText('Дашборд')).toBeInTheDocument()
       expect(screen.getByText('Курсы')).toBeInTheDocument()
+      expect(screen.getByText('Решения')).toBeInTheDocument()
       expect(screen.getByText('Финансы')).toBeInTheDocument()
-      expect(screen.getByText('Когорты')).toBeInTheDocument()
+      expect(screen.getByText('Студенты')).toBeInTheDocument()
     })
   })
 
@@ -152,9 +153,11 @@ describe('Layout', () => {
       expect(dashLink).toHaveAttribute('href', '/')
       const coursesLink = screen.getByText('Курсы').closest('a')
       expect(coursesLink).toHaveAttribute('href', '/courses')
+      const solutionsLink = screen.getByText('Решения').closest('a')
+      expect(solutionsLink).toHaveAttribute('href', '/solutions')
       const finLink = screen.getByText('Финансы').closest('a')
       expect(finLink).toHaveAttribute('href', '/financials')
-      const cohortLink = screen.getByText('Когорты').closest('a')
+      const cohortLink = screen.getByText('Студенты').closest('a')
       expect(cohortLink).toHaveAttribute('href', '/cohorts')
     })
   })

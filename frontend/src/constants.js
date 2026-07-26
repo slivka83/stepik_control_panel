@@ -47,10 +47,11 @@ export const STATUS_COLORS = {
 }
 
 export const NAV_ITEMS = [
-  { to: '/', label: 'Дашборд', icon: '◈' },
-  { to: '/courses', label: 'Курсы', icon: '◆' },
-  { to: '/financials', label: 'Финансы', icon: '◉' },
-  { to: '/cohorts', label: 'Когорты', icon: '◎' },
+  { to: '/', label: 'Дашборд', icon: '⊞' },
+  { to: '/courses', label: 'Курсы', icon: '📖︎' },
+  { to: '/solutions', label: 'Решения', icon: '☑' },
+  { to: '/financials', label: 'Финансы', icon: '$' },
+  { to: '/cohorts', label: 'Студенты', icon: '🎓︎' },
 ]
 
 export const STEPIK_URLS = {

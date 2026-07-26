@@ -2,6 +2,8 @@ import uuid
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.models import User, Course, StudentEnrollment, Submission, FinancialSnapshot
 
@@ -63,9 +65,12 @@ async def test_course_relationship(db_session):
     db_session.add(course)
     await db_session.commit()
 
-    await db_session.refresh(user)
-    assert len(user.courses) == 1
-    assert user.courses[0].title == "Test"
+    result = await db_session.execute(
+        select(User).where(User.id == user.id).options(selectinload(User.courses))
+    )
+    user_loaded = result.scalar_one()
+    assert len(user_loaded.courses) == 1
+    assert user_loaded.courses[0].title == "Test"
 
 
 @pytest.mark.asyncio
@@ -105,8 +110,8 @@ async def test_submission_creation(db_session):
 
     submission = Submission(
         course_id=course.id,
-        step_id=500,
-        student_id=200,
+        stepik_submission_id=900,
+        stepik_step_id=500,
         status="correct",
         submission_time=datetime.now(timezone.utc),
     )
@@ -115,7 +120,9 @@ async def test_submission_creation(db_session):
     result = await db_session.get(Submission, submission.id)
     assert result is not None
     assert result.status == "correct"
-    assert result.step_id == 500
+    assert result.stepik_step_id == 500
+    assert result.stepik_submission_id == 900
+    assert result.is_author is False
 
 
 @pytest.mark.asyncio

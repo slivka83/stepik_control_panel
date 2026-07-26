@@ -116,8 +116,9 @@ export default function RevenueChart({ data = [] }) {
               stroke={CHART_COLORS.textSecondary}
               fontSize={12}
               fontFamily="JetBrains Mono"
-              width={45}
-              tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+              width={50}
+              tickCount={6}
+              tickFormatter={(value) => value >= 1000 ? `${(value / 1000).toFixed(1).replace(/\.0$/, '')}k` : value}
             />
             <Bar
               dataKey="income"

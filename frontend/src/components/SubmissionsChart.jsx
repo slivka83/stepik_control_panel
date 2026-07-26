@@ -118,8 +118,9 @@ export default function SubmissionsChart({ data = {} }) {
               stroke={CHART_COLORS.textSecondary}
               fontSize={12}
               fontFamily="JetBrains Mono"
-              width={45}
-              tickFormatter={(value) => `${(value / 1000).toFixed(0)}k`}
+              width={50}
+              tickCount={6}
+              tickFormatter={(value) => value === 0 ? '0' : `${(value / 1000).toFixed(1)}k`}
             />
             <Bar
               dataKey="correct"

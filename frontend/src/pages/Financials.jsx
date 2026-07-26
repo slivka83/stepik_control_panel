@@ -10,6 +10,7 @@ const PAGE_SIZE = 20
 const TABS = [
   { key: 'months', label: 'По месяцам' },
   { key: 'courses', label: 'По курсам' },
+  { key: 'promo', label: 'По промокодам' },
   { key: 'recent', label: 'Последние операции' },
 ]
 
@@ -28,7 +29,6 @@ export default function Financials() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <h1 className="text-xl font-bold text-white">Финансовая аналитика</h1>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={`skeleton-fin-${i}`} className="glass-panel p-3 animate-pulse">
@@ -44,7 +44,6 @@ export default function Financials() {
   if (!financials) {
     return (
       <div className="space-y-4">
-        <h1 className="text-xl font-bold text-white">Финансовая аналитика</h1>
         {error && <ErrorBanner message={error} onRetry={refresh} />}
         <div className="glass-panel p-8 text-center">
           <p className="text-gray-400">Финансовые данные пока недоступны</p>
@@ -53,7 +52,7 @@ export default function Financials() {
     )
   }
 
-  const { summary, months, courses, recent_payments } = financials || {}
+  const { summary, months, courses, promos, recent_payments } = financials || {}
   const hasData = (summary?.total_payments || 0) > 0
 
   const totalPages = Math.ceil((recent_payments?.length || 0) / PAGE_SIZE)
@@ -64,8 +63,6 @@ export default function Financials() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-white">Финансовая аналитика</h1>
-
       {error && <ErrorBanner message={error} onRetry={refresh} />}
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -170,6 +167,42 @@ export default function Financials() {
                         <td className="py-2 text-right font-mono text-neon-green">{formatCurrency(c.income)}</td>
                         <td className="py-2 text-right font-mono text-crimson-alert">
                           {c.refunds > 0 ? `-${formatCurrency(c.refunds)}` : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'promo' && (
+            <div className="glass-panel p-4">
+              <h3 className="text-white font-medium mb-3">Доход по промокодам</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-700">
+                      <th className="text-left text-gray-400 py-2 font-normal">Промокод</th>
+                      <th className="text-right text-gray-400 py-2 font-normal">Покупок</th>
+                      <th className="text-right text-gray-400 py-2 font-normal">Оборот</th>
+                      <th className="text-right text-gray-400 py-2 font-normal">Доход</th>
+                      <th className="text-right text-gray-400 py-2 font-normal">Возвраты</th>
+                      <th className="text-right text-gray-400 py-2 font-normal">Последнее применение</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(promos || []).map((p) => (
+                      <tr key={`promo-${p.promo_code}`} className="border-b border-gray-800">
+                        <td className="py-2 text-white font-mono">{p.promo_code}</td>
+                        <td className="py-2 text-right font-mono text-gray-300">{p.payments}</td>
+                        <td className="py-2 text-right font-mono text-white">{formatCurrency(p.turnover)}</td>
+                        <td className="py-2 text-right font-mono text-neon-green">{formatCurrency(p.income)}</td>
+                        <td className="py-2 text-right font-mono text-crimson-alert">
+                          {p.refunds > 0 ? `-${formatCurrency(p.refunds)}` : '—'}
+                        </td>
+                        <td className="py-2 text-right text-gray-400">
+                          {p.last_used ? new Date(p.last_used).toLocaleDateString('ru-RU') : '—'}
                         </td>
                       </tr>
                     ))}

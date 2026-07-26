@@ -2,8 +2,8 @@ import { useSync } from '../contexts/SyncContext'
 import KpiCard from '../components/KpiCard'
 import RevenueChart from '../components/RevenueChart'
 import SubmissionsChart from '../components/SubmissionsChart'
-import CohortChart from '../components/CohortChart'
-import CohortBar from '../components/CohortBar'
+import StudentsChart from '../components/StudentsChart'
+import StudentsBar from '../components/StudentsBar'
 import ErrorBanner from '../components/ErrorBanner'
 
 export default function Dashboard() {
@@ -53,24 +53,24 @@ export default function Dashboard() {
       {error && <ErrorBanner message={error} onRetry={refresh} />}
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KpiCard title="Доход /месяц" value={kpi?.total_revenue || 0} suffix=" ₽" color="neon-green" />
-        <KpiCard title="Доход /весь" value={kpi?.net_income || 0} suffix=" ₽" color="cyber-blue" />
-        <KpiCard title="Покупки /все" value={kpi?.total_payments || 0} secondValue={kpi?.total_refunds_count || 0} color="neon-green" />
+        <KpiCard title="Доход /месяц" value={kpi?.total_revenue || 0} trend={kpi?.revenue_change_pct} color="white" suffix={'\u200A₽'} />
+        <KpiCard title="Покупки /месяц" value={kpi?.current_month_payments || 0} trend={kpi?.payments_change_pct} color="white" />
+        <KpiCard title="Возвраты /месяц" value={kpi?.current_month_refunds_count || 0} trend={kpi?.refunds_change_pct} color="white" suffix={'\u200A₽'} />
         <KpiCard title="Курсы" value={kpi?.courses_published || 0} secondValue={kpi?.courses_unpublished || 0} color="white" />
         <KpiCard title="Студенты" value={kpi?.total_students || 0} color="white" />
-        <KpiCard title="Сертификаты" value={kpi?.certificates_issued || 0} color="white" />
+        <KpiCard title="Средний рейтинг" value={kpi?.average_rating || 0} ratingColor fractionDigits={2} minimumFractionDigits={2} />
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <KpiCard title="Оборот /месяц" value={kpi?.current_month_turnover || 0} suffix=" ₽" color="dim-green" />
-        <KpiCard title="Оборот /весь" value={kpi?.total_turnover || 0} suffix=" ₽" color="dim-blue" />
-        <KpiCard title="Возвраты /все" value={kpi?.total_refunds || 0} suffix=" ₽" color="crimson-alert" />
-        <KpiCard title="Средний рейтинг" value={kpi?.average_rating || 0} ratingColor fractionDigits={2} minimumFractionDigits={2} />
+        <KpiCard title="Решения /месяц" value={kpi?.current_month_submissions || 0} trend={kpi?.submissions_change_pct} color="white" />
+        <KpiCard title="Студенты /месяц" value={kpi?.current_month_students || 0} trend={kpi?.students_change_pct} color="white" />
+        <KpiCard title="Комментарии /месяц" value={kpi?.current_month_comments || 0} trend={kpi?.comments_change_pct} color="white" />
+        <KpiCard title="Сертификаты" value={kpi?.certificates_issued || 0} color="white" />
         <KpiCard title="Отзывы" value={kpi?.total_reviews || 0} color="white" />
         <KpiCard title="Комментарии" value={kpi?.total_comments || 0} color="white" />
       </div>
 
-      <CohortBar data={cohorts} />
+      <StudentsBar data={cohorts} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0">
         <RevenueChart data={revenue.months} />

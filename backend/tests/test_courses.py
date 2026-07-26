@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.database import get_db
 from app.models import Course, StudentEnrollment, User
+from app.api.auth import get_user
 from app.services.crypto import encrypt_token
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -22,11 +23,25 @@ async def _seed_db(session):
     return user
 
 
+async def _override_get_user():
+    pass
+
+
+def _setup_overrides(session, user):
+    async def override_db():
+        yield session
+
+    async def override_user():
+        return user
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_user] = override_user
+
+
 class TestCoursesList:
     async def test_list_courses_empty(self, db_session):
-        async def override():
-            yield db_session
-        app.dependency_overrides[get_db] = override
+        user = await _seed_db(db_session)
+        _setup_overrides(db_session, user)
         try:
             response = client.get("/api/courses")
             assert response.status_code == 200
@@ -48,9 +63,7 @@ class TestCoursesList:
         ))
         await db_session.commit()
 
-        async def override():
-            yield db_session
-        app.dependency_overrides[get_db] = override
+        _setup_overrides(db_session, user)
         try:
             response = client.get("/api/courses")
             assert response.status_code == 200
@@ -73,9 +86,7 @@ class TestCoursesGet:
         await db_session.commit()
         course_id = str(course.id)
 
-        async def override():
-            yield db_session
-        app.dependency_overrides[get_db] = override
+        _setup_overrides(db_session, user)
         try:
             response = client.get(f"/api/courses/{course_id}")
             assert response.status_code == 200
@@ -86,9 +97,8 @@ class TestCoursesGet:
             app.dependency_overrides.clear()
 
     async def test_get_course_not_found(self, db_session):
-        async def override():
-            yield db_session
-        app.dependency_overrides[get_db] = override
+        user = await _seed_db(db_session)
+        _setup_overrides(db_session, user)
         try:
             response = client.get(f"/api/courses/{uuid.uuid4()}")
             assert response.status_code == 404

@@ -6,6 +6,7 @@ from unittest.mock import patch
 from app.main import app
 from app.database import Base, get_db, engine
 from app.models import Course, StudentEnrollment, FinancialSnapshot, User
+from app.api.auth import get_user
 from app.services.crypto import encrypt_token
 
 
@@ -38,17 +39,20 @@ class TestDashboardKPI:
         db_session.add(StudentEnrollment(
             id=uuid.uuid4(), course_id=course.id, student_id=1,
             last_viewed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            date_joined=datetime.now(timezone.utc).replace(tzinfo=None),
             points_earned=50, certificate_issued=False,
         ))
         db_session.add(StudentEnrollment(
             id=uuid.uuid4(), course_id=course.id, student_id=2,
             last_viewed_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            date_joined=datetime.now(timezone.utc).replace(tzinfo=None),
             points_earned=100, certificate_issued=True,
         ))
         db_session.add(FinancialSnapshot(
             id=uuid.uuid4(),
             data={"summary": {
-                "current_month_turnover": 40000, "total_income": 150000,
+                "current_month_turnover": 40000, "current_month_income": 40000,
+                "total_income": 150000,
                 "net_income": 145000, "total_turnover": 200000,
                 "total_refunds": 5000, "total_payments": 42,
             }, "months": [], "courses": [], "recent_payments": []},
@@ -56,9 +60,12 @@ class TestDashboardKPI:
         ))
         await db_session.commit()
 
-        async def override():
+        async def override_db():
             yield db_session
-        app.dependency_overrides[get_db] = override
+        async def override_user():
+            return user
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
 
         try:
             response = client.get("/api/dashboard/kpi")
@@ -72,9 +79,14 @@ class TestDashboardKPI:
             app.dependency_overrides.clear()
 
     async def test_kpi_no_snapshot_returns_zeros(self, db_session):
-        async def override():
+        user = await _seed_db(db_session)
+
+        async def override_db():
             yield db_session
-        app.dependency_overrides[get_db] = override
+        async def override_user():
+            return user
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
         try:
             response = client.get("/api/dashboard/kpi")
             assert response.status_code == 200
@@ -104,9 +116,12 @@ class TestDashboardCohorts:
             ))
         await db_session.commit()
 
-        async def override():
+        async def override_db():
             yield db_session
-        app.dependency_overrides[get_db] = override
+        async def override_user():
+            return user
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
         try:
             response = client.get("/api/dashboard/cohorts")
             assert response.status_code == 200
@@ -119,9 +134,14 @@ class TestDashboardCohorts:
             app.dependency_overrides.clear()
 
     async def test_cohorts_no_courses(self, db_session):
-        async def override():
+        user = await _seed_db(db_session)
+
+        async def override_db():
             yield db_session
-        app.dependency_overrides[get_db] = override
+        async def override_user():
+            return user
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
         try:
             response = client.get("/api/dashboard/cohorts")
             assert response.status_code == 200
@@ -132,6 +152,7 @@ class TestDashboardCohorts:
 
 class TestDashboardRevenue:
     async def test_revenue_returns_months(self, db_session):
+        user = await _seed_db(db_session)
         db_session.add(FinancialSnapshot(
             id=uuid.uuid4(),
             data={"summary": {}, "months": [{"month": "Январь 2026", "income": 50000}],
@@ -140,9 +161,12 @@ class TestDashboardRevenue:
         ))
         await db_session.commit()
 
-        async def override():
+        async def override_db():
             yield db_session
-        app.dependency_overrides[get_db] = override
+        async def override_user():
+            return user
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
         try:
             response = client.get("/api/dashboard/revenue")
             assert response.status_code == 200
@@ -153,9 +177,14 @@ class TestDashboardRevenue:
             app.dependency_overrides.clear()
 
     async def test_revenue_no_snapshot(self, db_session):
-        async def override():
+        user = await _seed_db(db_session)
+
+        async def override_db():
             yield db_session
-        app.dependency_overrides[get_db] = override
+        async def override_user():
+            return user
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
         try:
             response = client.get("/api/dashboard/revenue")
             assert response.status_code == 200
@@ -181,9 +210,12 @@ class TestDashboardAlerts:
             ))
         await db_session.commit()
 
-        async def override():
+        async def override_db():
             yield db_session
-        app.dependency_overrides[get_db] = override
+        async def override_user():
+            return user
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
         try:
             response = client.get("/api/dashboard/alerts")
             assert response.status_code == 200
@@ -210,9 +242,12 @@ class TestDashboardAlerts:
             ))
         await db_session.commit()
 
-        async def override():
+        async def override_db():
             yield db_session
-        app.dependency_overrides[get_db] = override
+        async def override_user():
+            return user
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
         try:
             response = client.get("/api/dashboard/alerts")
             assert response.status_code == 200
@@ -223,9 +258,14 @@ class TestDashboardAlerts:
             app.dependency_overrides.clear()
 
     async def test_alerts_no_courses(self, db_session):
-        async def override():
+        user = await _seed_db(db_session)
+
+        async def override_db():
             yield db_session
-        app.dependency_overrides[get_db] = override
+        async def override_user():
+            return user
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
         try:
             response = client.get("/api/dashboard/alerts")
             assert response.status_code == 200

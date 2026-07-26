@@ -4,13 +4,24 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.database import get_db
-from app.models import FinancialSnapshot
+from app.models import FinancialSnapshot, User
+from app.api.auth import get_user
+from app.services.crypto import encrypt_token
 
 client = TestClient(app, raise_server_exceptions=False)
 
 
 class TestFinancials:
     async def test_returns_snapshot_data(self, db_session):
+        user = User(
+            id=uuid.uuid4(), stepik_id=64381531,
+            access_token=encrypt_token("test_access"),
+            refresh_token=encrypt_token("test_refresh"),
+            token_expires_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+        db_session.add(user)
+        await db_session.flush()
+
         db_session.add(FinancialSnapshot(
             id=uuid.uuid4(),
             data={
@@ -24,9 +35,14 @@ class TestFinancials:
         ))
         await db_session.commit()
 
-        async def override():
+        async def override_db():
             yield db_session
-        app.dependency_overrides[get_db] = override
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
         try:
             response = client.get("/api/financials")
             assert response.status_code == 200
@@ -39,9 +55,23 @@ class TestFinancials:
             app.dependency_overrides.clear()
 
     async def test_no_snapshot_returns_defaults(self, db_session):
-        async def override():
+        user = User(
+            id=uuid.uuid4(), stepik_id=64381531,
+            access_token=encrypt_token("test_access"),
+            refresh_token=encrypt_token("test_refresh"),
+            token_expires_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        )
+        db_session.add(user)
+        await db_session.commit()
+
+        async def override_db():
             yield db_session
-        app.dependency_overrides[get_db] = override
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
         try:
             response = client.get("/api/financials")
             assert response.status_code == 200

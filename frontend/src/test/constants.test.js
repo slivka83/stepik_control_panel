@@ -90,8 +90,8 @@ describe('Constants', () => {
   })
 
   describe('NAV_ITEMS', () => {
-    it('has four navigation items', () => {
-      expect(NAV_ITEMS).toHaveLength(4)
+    it('has five navigation items', () => {
+      expect(NAV_ITEMS).toHaveLength(5)
     })
 
     it('each item has to, label, and icon', () => {
@@ -108,8 +108,8 @@ describe('Constants', () => {
     })
 
     it('last item is cohorts', () => {
-      expect(NAV_ITEMS[3].to).toBe('/cohorts')
-      expect(NAV_ITEMS[3].label).toBe('Когорты')
+      expect(NAV_ITEMS[4].to).toBe('/cohorts')
+      expect(NAV_ITEMS[4].label).toBe('Студенты')
     })
   })
 })

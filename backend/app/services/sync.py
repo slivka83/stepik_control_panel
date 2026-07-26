@@ -8,7 +8,7 @@ from sqlalchemy import select, text
 from app.config import get_settings
 from app.database import async_session
 from app.models import (
-    Course, StudentEnrollment, Submission, FinancialSnapshot, User, StepSyncState,
+    Course, StudentEnrollment, FinancialSnapshot, User, StepSyncState,
 )
 from app.services.stepik_api import _request, get_finance_token
 from app.services.crypto import decrypt_token
@@ -19,7 +19,6 @@ _sync_in_progress = False
 _sync_progress: int = 0
 _sync_step: str = ""
 _last_sync_completed_at: float = 0
-_community_cache: dict = {"reviews_count": 0, "average_rating": 0}
 
 MONTH_NAMES = {
     1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
@@ -30,7 +29,7 @@ MONTH_NAMES = {
 SYNC_COOLDOWN_SECONDS = 60  # 1 minute
 
 
-async def _paginated_get(path: str, token: str, params: dict | None = None, key: str | None = None) -> list:
+async def _paginated_get(path: str, token: str, params: dict | None = None, key: str | None = None, max_pages: int = 500, on_page=None) -> list:
     all_items = []
     page = 1
     while True:
@@ -39,27 +38,17 @@ async def _paginated_get(path: str, token: str, params: dict | None = None, key:
         items_key = key or path.lstrip("/")
         items = data.get(items_key, [])
         all_items.extend(items)
+        if on_page:
+            on_page(page, len(items))
         meta = data.get("meta", {})
         if not meta.get("has_next", False) or not items:
             break
         page += 1
+        if page > max_pages:
+            logger.warning("Pagination safety limit reached (%d pages) for %s", max_pages, path)
+            break
     return all_items
 
-
-async def _count_comments(course_ids: list[int], token: str) -> int:
-    total = 0
-    for cid in course_ids:
-        page = 1
-        while True:
-            data = await _request("GET", "/comments", token,
-                                  {"course": cid, "page": page, "page_size": 20})
-            items = data.get("comments", [])
-            total += len(items)
-            logger.info("Comments course=%d page=%d got=%d total_so_far=%d", cid, page, len(items), total)
-            if not data.get("meta", {}).get("has_next", False) or not items:
-                break
-            page += 1
-    return total
 
 
 def calculate_cohort_status(last_viewed_at: datetime | None, date_joined: datetime | None = None) -> str:
@@ -121,39 +110,78 @@ async def sync_courses_and_enrollments(user_id=None):
     _sync_progress = 10
     logger.info("Found %d courses", len(courses_data))
 
-    all_grades: dict[int, list] = {}
-    all_certs: dict[int, set] = {}
+    now = datetime.now(timezone.utc)
+
+    async with async_session() as session:
+        async with session.begin():
+            existing = (await session.execute(
+                select(Course).where(Course.user_id == user_id_db)
+            )).scalars().all()
+            existing_map = {c.stepik_course_id: c for c in existing}
+
+            seen_ids = set()
+            course_map = {}
+            for c in courses_data:
+                sid = c["id"]
+                seen_ids.add(sid)
+                if sid in existing_map:
+                    course = existing_map[sid]
+                    course.title = c.get("title", "Untitled")
+                    course.status = "Published" if c.get("is_public", False) else "Draft"
+                    course.health_score = 100.0
+                else:
+                    course = Course(
+                        id=uuid.uuid4(),
+                        user_id=user_id_db,
+                        stepik_course_id=sid,
+                        title=c.get("title", "Untitled"),
+                        status="Published" if c.get("is_public", False) else "Draft",
+                        health_score=100.0,
+                    )
+                    session.add(course)
+                await session.flush()
+                course_map[sid] = course
+
+            for sid, course in existing_map.items():
+                if sid not in seen_ids:
+                    await session.delete(course)
 
     num_courses = len(courses_data)
     for ci, c in enumerate(courses_data):
         sid = c["id"]
+
+        base = 10 + int(30 * ci / num_courses)
+        top = 10 + int(30 * (ci + 1) / num_courses)
+
+        def _on_page(page, n, _base=base, _top=top):
+            global _sync_progress, _sync_step
+            _sync_step = f"курсы: оценки {ci + 1}/{num_courses} (стр. {page})"
+            frac = min(page / 350, 1)
+            _sync_progress = _base + int((_top - _base) * frac)
+
         _sync_step = f"курсы: оценки {ci + 1}/{num_courses}"
         logger.info("  [%d] %s...", sid, c.get("title", "?")[:50])
 
         try:
             grades = await _paginated_get(
                 "/course-grades", token,
-                {"course": sid, "is_assistant": "true"}, "course-grades"
+                {"course": sid, "is_assistant": "true"}, "course-grades",
+                on_page=_on_page,
             )
-            all_grades[sid] = grades
         except Exception as e:
             logger.warning("  grades error: %s", e)
-            all_grades[sid] = []
+            grades = []
 
         _sync_step = f"курсы: сертификаты {ci + 1}/{num_courses}"
         try:
             certs = await _paginated_get("/certificates", token, {"course": sid}, "certificates")
-            all_certs[sid] = {cert["user"] for cert in certs}
+            cert_users = {cert["user"] for cert in certs}
         except Exception:
-            all_certs[sid] = set()
+            cert_users = set()
 
-        _sync_progress = 10 + int(30 * (ci + 1) / num_courses)
+        _sync_progress = top
 
-    now = datetime.now(timezone.utc)
-    enrollments_to_insert = []
-
-    for sid, grades in all_grades.items():
-        cert_users = all_certs.get(sid, set())
+        enrollments_to_insert = []
         for grade in grades:
             student_id = grade.get("user")
             if not student_id:
@@ -185,7 +213,6 @@ async def sync_courses_and_enrollments(user_id=None):
                 date_joined = None
 
             enrollments_to_insert.append({
-                "stepik_course_id": sid,
                 "student_id": student_id,
                 "cohort_status": calculate_cohort_status(last_viewed, date_joined),
                 "points_earned": int(score),
@@ -194,85 +221,35 @@ async def sync_courses_and_enrollments(user_id=None):
                 "date_joined": date_joined,
             })
 
-    async with async_session() as session:
-        async with session.begin():
-            await session.execute(text("DELETE FROM student_enrollments"))
-            await session.execute(text("DELETE FROM courses"))
-
-            course_map = {}
-            for c in courses_data:
-                course = Course(
-                    id=uuid.uuid4(),
-                    user_id=user_id_db,
-                    stepik_course_id=c["id"],
-                    title=c.get("title", "Untitled"),
-                    status="Published" if c.get("is_public", False) else "Draft",
-                    health_score=100.0,
+        async with async_session() as session:
+            async with session.begin():
+                await session.execute(
+                    text("DELETE FROM student_enrollments WHERE course_id = "
+                         "(SELECT id FROM courses WHERE stepik_course_id = :sid)"),
+                    {"sid": sid},
                 )
-                session.add(course)
-                await session.flush()
-                course_map[c["id"]] = course
 
-            total_enrollments = 0
-            for e in enrollments_to_insert:
-                local_course = course_map.get(e["stepik_course_id"])
-                if not local_course:
-                    continue
-                enrollment = StudentEnrollment(
-                    id=uuid.uuid4(),
-                    course_id=local_course.id,
-                    student_id=e["student_id"],
-                    cohort_status=e["cohort_status"],
-                    points_earned=e["points_earned"],
-                    certificate_issued=e["certificate_issued"],
-                    last_viewed_at=e["last_viewed_at"],
-                    date_joined=e["date_joined"],
-                )
-                session.add(enrollment)
-                total_enrollments += 1
+                total_enrollments = 0
+                for e in enrollments_to_insert:
+                    local_course = course_map.get(sid)
+                    if not local_course:
+                        continue
+                    enrollment = StudentEnrollment(
+                        id=uuid.uuid4(),
+                        course_id=local_course.id,
+                        student_id=e["student_id"],
+                        cohort_status=e["cohort_status"],
+                        points_earned=e["points_earned"],
+                        certificate_issued=e["certificate_issued"],
+                        last_viewed_at=e["last_viewed_at"],
+                        date_joined=e["date_joined"],
+                    )
+                    session.add(enrollment)
+                    total_enrollments += 1
 
-            logger.info("Synced: %d courses, %d enrollments",
-                       len(courses_data), total_enrollments)
+                logger.info("  [%d] synced %d enrollments", sid, total_enrollments)
 
-    rating_sum = 0.0
-    rating_count = 0
-    reviews_count = 0
-
-    review_ids = [c.get("review_summary") for c in courses_data if c.get("review_summary")]
-    if review_ids:
-        try:
-            ids_param = "&".join(f"ids[]={rid}" for rid in review_ids)
-            linked_data = await _request("GET", f"/course-review-summaries?{ids_param}", token)
-            summaries = linked_data.get("course-review-summaries", [])
-            logger.info("Got %d review summaries from Stepik", len(summaries))
-            for rs in summaries:
-                avg = rs.get("average")
-                cnt = rs.get("count", 0)
-                logger.info("Review summary ID %s: average=%s count=%s", rs.get("id"), avg, cnt)
-                if avg is not None and cnt > 0:
-                    rating_sum += float(avg)
-                    rating_count += 1
-                reviews_count += int(cnt or 0)
-        except Exception as e:
-            logger.warning("Failed to fetch review summaries: %s", e)
-
-    logger.info("Found review_summary on %d/%d courses, total reviews: %d",
-                rating_count, len(courses_data), reviews_count)
-
-    course_ids = [c["id"] for c in courses_data]
-    comments_count = 0
-    try:
-        comments_count = await _count_comments(course_ids, token)
-    except Exception as e:
-        logger.warning("Failed to count comments: %s", e)
-    logger.info("Total comments across %d courses: %d", len(course_ids), comments_count)
-
-    global _community_cache
-    _community_cache = {
-        "reviews_count": reviews_count,
-        "average_rating": round(rating_sum / rating_count, 2) if rating_count > 0 else 0,
-        "comments_count": comments_count,
-    }
+    logger.info("Synced: %d courses", len(courses_data))
 
 
 async def sync_submissions(user_id=None):
@@ -371,6 +348,17 @@ async def sync_submissions(user_id=None):
 
             _sync_step = f"решения: курс {i + 1}/{num_courses} ({len(code_step_ids)} шагов)"
 
+            author_sub_ids = set()
+            try:
+                author_subs = await _paginated_get(
+                    "/submissions", token,
+                    {"course": stepik_course_id}, "submissions"
+                )
+                author_sub_ids = {s["id"] for s in author_subs if s.get("id")}
+                logger.info("  course %d: %d author submissions", stepik_course_id, len(author_sub_ids))
+            except Exception as e:
+                logger.warning("  author submissions error for course %d: %s", stepik_course_id, e)
+
             async with async_session() as session:
                 result = await session.execute(
                     select(StepSyncState.step_id, StepSyncState.last_page)
@@ -384,6 +372,9 @@ async def sync_submissions(user_id=None):
                 if start_page == 0:
                     start_page = 1
 
+                base = 42 + int(43 * si / len(code_step_ids))
+                top = 42 + int(43 * (si + 1) / len(code_step_ids))
+
                 try:
                     page = start_page
                     while True:
@@ -394,6 +385,9 @@ async def sync_submissions(user_id=None):
                         subs = data.get("submissions", [])
                         meta = data.get("meta", {})
                         has_next = meta.get("has_next", False)
+
+                        _sync_step = f"решения: курс {i + 1}/{num_courses}, шаг {si + 1}/{len(code_step_ids)} (стр. {page})"
+                        _sync_progress = base + int((top - base) * min(page / 20, 1))
 
                         values = []
                         for s in subs:
@@ -421,6 +415,7 @@ async def sync_submissions(user_id=None):
                                 "attempt_id": s.get("attempt"),
                                 "eta": s.get("eta", 0) or 0,
                                 "submission_time": submission_time,
+                                "is_author": sub_id in author_sub_ids,
                             })
 
                         if values:
@@ -429,15 +424,16 @@ async def sync_submissions(user_id=None):
                                     await session.execute(
                                         text("""
                                             INSERT INTO submissions
-                                                (stepik_submission_id, stepik_step_id, course_id, status, score, language, attempt_id, eta, submission_time)
+                                                (stepik_submission_id, stepik_step_id, course_id, status, score, language, attempt_id, eta, submission_time, is_author)
                                             VALUES
-                                                (:stepik_submission_id, :stepik_step_id, :course_id, :status, :score, :language, :attempt_id, :eta, :submission_time)
+                                                (:stepik_submission_id, :stepik_step_id, :course_id, :status, :score, :language, :attempt_id, :eta, :submission_time, :is_author)
                                             ON CONFLICT (stepik_submission_id) DO UPDATE SET
                                                 status = EXCLUDED.status,
                                                 score = EXCLUDED.score,
                                                 language = EXCLUDED.language,
                                                 attempt_id = EXCLUDED.attempt_id,
-                                                eta = EXCLUDED.eta
+                                                eta = EXCLUDED.eta,
+                                                is_author = EXCLUDED.is_author
                                         """), values
                                     )
                                 course_upserted += len(values)
@@ -507,10 +503,12 @@ async def sync_financials(user_id=None):
     now = datetime.now(timezone.utc)
     current_month_turnover = 0.0
     current_month_income = 0.0
+    current_month_payments = 0
     for m in by_months:
         if m.get("year") == now.year and m.get("month") == now.month:
             current_month_turnover = float(m.get("total_turnover", 0) or 0)
             current_month_income = float(m.get("total_user_income", 0) or 0)
+            current_month_payments = int(m.get("count_payments", 0) or 0)
 
     months_data = []
     for m in sorted(by_months, key=lambda x: (x.get("year", 0), x.get("month", 0))):
@@ -549,6 +547,30 @@ async def sync_financials(user_id=None):
 
     course_list = sorted(course_stats.values(), key=lambda x: x["turnover"], reverse=True)
 
+    promo_stats: dict[str, dict] = {}
+    for b in benefits:
+        code = b.get("promo_code") or None
+        if code is None:
+            continue
+        if code not in promo_stats:
+            promo_stats[code] = {
+                "promo_code": code,
+                "payments": 0, "turnover": 0, "income": 0, "refunds": 0,
+                "last_used": b.get("time", ""),
+            }
+        ps = promo_stats[code]
+        ps["payments"] += 1
+        amount = float(b.get("amount", 0) or 0)
+        payment_amount = float(b.get("payment_amount", 0) or 0)
+        if b.get("status") == "refunded":
+            ps["refunds"] += amount
+        else:
+            ps["turnover"] += payment_amount
+            ps["income"] += amount
+        if b.get("time", "") > ps["last_used"]:
+            ps["last_used"] = b.get("time", "")
+    promos_list = sorted(promo_stats.values(), key=lambda x: x["last_used"], reverse=True)
+
     recent_payments = []
     for b in sorted(benefits, key=lambda x: x.get("time", ""), reverse=True)[:30]:
         recent_payments.append({
@@ -573,9 +595,11 @@ async def sync_financials(user_id=None):
             "net_income": total_income - total_refunds,
             "current_month_turnover": current_month_turnover,
             "current_month_income": current_month_income,
+            "current_month_payments": current_month_payments,
         },
         "months": months_data,
         "courses": course_list,
+        "promos": promos_list,
         "recent_payments": recent_payments,
     }
 
@@ -594,31 +618,117 @@ async def sync_financials(user_id=None):
 
 
 async def sync_community_stats(user_id=None):
-    """Write cached review/rating data to FinancialSnapshot.
+    """Fetch reviews, ratings and comments from Stepik API, writing to DB after each page."""
+    global _sync_progress, _sync_step
 
-    Reviews and ratings are extracted from courses data in sync_courses_and_enrollments.
-    No extra API calls needed - data comes from DB.
-    """
-    global _community_cache
+    async with async_session() as session:
+        if user_id:
+            result = await session.execute(select(User).where(User.id == user_id))
+        else:
+            result = await session.execute(select(User))
+        users = result.scalars().all()
+        if not users:
+            return
+        user_db = users[0]
+        token = decrypt_token(user_db.access_token)
+
+    courses_data = await _paginated_get("/courses", token, {"teacher": get_settings().stepik_user_id}, "courses")
+    course_ids_api = [c["id"] for c in courses_data]
+
+    _sync_step = "рейтинги"
+    _sync_progress = 96
+
+    rating_sum = 0.0
+    rating_count = 0
+    reviews_count = 0
+    review_ids = [c.get("review_summary") for c in courses_data if c.get("review_summary")]
+    if review_ids:
+        try:
+            ids_param = "&".join(f"ids[]={rid}" for rid in review_ids)
+            linked_data = await _request("GET", f"/course-review-summaries?{ids_param}", token)
+            summaries = linked_data.get("course-review-summaries", [])
+            for rs in summaries:
+                avg = rs.get("average")
+                cnt = rs.get("count", 0)
+                if avg is not None and cnt > 0:
+                    rating_sum += float(avg)
+                    rating_count += 1
+                reviews_count += int(cnt or 0)
+        except Exception as e:
+            logger.warning("Failed to fetch review summaries: %s", e)
+
+    avg_rating = round(rating_sum / rating_count, 2) if rating_count > 0 else 0
 
     async with async_session() as session:
         result = await session.execute(select(FinancialSnapshot).limit(1))
         snapshot = result.scalar_one_or_none()
         if snapshot:
-            snapshot.data = {
-                **snapshot.data,
-                "community": {
-                    "total_comments": _community_cache.get("comments_count", 0),
-                    "total_reviews": _community_cache.get("reviews_count", 0),
-                    "average_rating": _community_cache.get("average_rating", 0),
-                },
-            }
+            prev = snapshot.data.get("community", {})
+            snapshot.data = {**snapshot.data, "community": {
+                **prev,
+                "total_reviews": reviews_count,
+                "average_rating": avg_rating,
+            }}
             await session.commit()
 
+    _sync_step = "комментарии"
+
+    async with async_session() as session:
+        result = await session.execute(select(FinancialSnapshot).limit(1))
+        snapshot = result.scalar_one_or_none()
+        prev_community = snapshot.data.get("community", {}) if snapshot else {}
+        comments_total = prev_community.get("total_comments", 0)
+        comments_monthly: dict[str, int] = dict(prev_community.get("comments_monthly", {}))
+        last_comment_time = prev_community.get("last_comment_time", "")
+
+    new_total = 0
+    new_monthly: dict[str, int] = {}
+    max_time = last_comment_time
+
+    for cid in course_ids_api:
+        page = 1
+        while True:
+            data = await _request("GET", "/comments", token,
+                                  {"course": cid, "page": page, "page_size": 20})
+            items = data.get("comments", [])
+            if not items:
+                break
+
+            for c in items:
+                ts = c.get("time", "") or c.get("update_date", "")
+                if ts and ts > last_comment_time:
+                    new_total += 1
+                    if len(ts) >= 7:
+                        key = f"{ts[:4]}-{ts[5:7]}"
+                        new_monthly[key] = new_monthly.get(key, 0) + 1
+                    if ts > max_time:
+                        max_time = ts
+
+            if not data.get("meta", {}).get("has_next", False):
+                break
+            page += 1
+
+    if new_total > 0:
+        comments_total += new_total
+        for k, v in new_monthly.items():
+            comments_monthly[k] = comments_monthly.get(k, 0) + v
+        last_comment_time = max_time
+
+        async with async_session() as session:
+            result = await session.execute(select(FinancialSnapshot).limit(1))
+            snapshot = result.scalar_one_or_none()
+            if snapshot:
+                prev = snapshot.data.get("community", {})
+                snapshot.data = {**snapshot.data, "community": {
+                    **prev,
+                    "total_comments": comments_total,
+                    "comments_monthly": comments_monthly,
+                    "last_comment_time": last_comment_time,
+                }}
+                await session.commit()
+
     logger.info("Community stats: %d reviews, avg rating %.2f, %d comments",
-                _community_cache.get("reviews_count", 0),
-                _community_cache.get("average_rating", 0),
-                _community_cache.get("comments_count", 0))
+                reviews_count, avg_rating, comments_total)
 
 
 async def sync_all(force: bool = False, user_id=None):

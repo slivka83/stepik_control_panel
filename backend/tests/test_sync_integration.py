@@ -31,7 +31,7 @@ async def test_full_sync_flow(db_session):
     ]
     mock_certs = [{"user": 1001}]
 
-    async def fake_paginated_get(path, token, params=None, key=None):
+    async def fake_paginated_get(path, token, params=None, key=None, on_page=None, max_pages=500):
         if "courses" in path:
             return mock_courses
         if "course-grades" in path:
@@ -52,7 +52,7 @@ async def test_full_sync_flow(db_session):
     assert titles == {"Course A", "Course B"}
 
     enrollments = (await db_session.execute(__import__("sqlalchemy").select(StudentEnrollment))).scalars().all()
-    assert len(enrollments) == 2
+    assert len(enrollments) == 4
     assert any(e.points_earned == 50 for e in enrollments)
     assert any(e.certificate_issued is True for e in enrollments)
 

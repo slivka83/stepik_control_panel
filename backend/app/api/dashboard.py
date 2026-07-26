@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, timezone
 
 from app.database import get_db
-from app.models import Course, StudentEnrollment, FinancialSnapshot, User, Submission, Submission
+from app.models import Course, StudentEnrollment, FinancialSnapshot, User, Submission
 from app.api.auth import get_user
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -111,8 +111,94 @@ async def get_kpi(
     summary = snapshot.data.get("summary", {}) if snapshot else {}
     community = snapshot.data.get("community", {}) if snapshot else {}
 
+    revenue_change_pct = None
+    payments_change_pct = None
+    refunds_change_pct = None
+    current_month_payments = 0
+    current_month_refunds_count = 0
+    if snapshot:
+        months = snapshot.data.get("months", [])
+        current = summary.get("current_month_income", 0)
+        if months:
+            last = months[-1] if months else {}
+            current_month_payments = last.get("payments_count", 0)
+            current_month_refunds_count = last.get("refunds", 0)
+        if months:
+            prev = months[-2].get("income", 0) if len(months) >= 2 else 0
+            if prev:
+                revenue_change_pct = round((current - prev) / abs(prev) * 100)
+            else:
+                revenue_change_pct = 0 if current == 0 else None
+        if len(months) >= 2:
+            prev_payments = months[-2].get("payments_count", 0)
+            if prev_payments:
+                payments_change_pct = round((current_month_payments - prev_payments) / abs(prev_payments) * 100)
+            else:
+                payments_change_pct = 0 if current_month_payments == 0 else None
+            prev_refunds = months[-2].get("refunds", 0)
+            if prev_refunds:
+                refunds_change_pct = round((current_month_refunds_count - prev_refunds) / abs(prev_refunds) * 100)
+            else:
+                refunds_change_pct = 0 if current_month_refunds_count == 0 else None
+
+    now = datetime.now(timezone.utc)
+    cur_year, cur_month = now.year, now.month
+    if cur_month == 1:
+        prev_year, prev_month = cur_year - 1, 12
+    else:
+        prev_year, prev_month = cur_year, cur_month - 1
+
+    sub_result = await db.execute(
+        select(
+            extract("year", Submission.submission_time).label("y"),
+            extract("month", Submission.submission_time).label("m"),
+            func.count(Submission.id).label("cnt"),
+        )
+        .where(Submission.course_id.in_(course_ids), Submission.is_author == False)
+        .group_by("y", "m")
+    )
+    sub_by_month = {(int(r.y), int(r.m)): r.cnt for r in sub_result.all()}
+
+    enroll_result = await db.execute(
+        select(
+            extract("year", StudentEnrollment.date_joined).label("y"),
+            extract("month", StudentEnrollment.date_joined).label("m"),
+            func.count(StudentEnrollment.id).label("cnt"),
+        )
+        .where(StudentEnrollment.course_id.in_(course_ids))
+        .group_by("y", "m")
+    )
+    enroll_by_month = {(int(r.y), int(r.m)): r.cnt for r in enroll_result.all()}
+
+    cur_subs = sub_by_month.get((cur_year, cur_month), 0)
+    prev_subs = sub_by_month.get((prev_year, prev_month), 0)
+    cur_enroll = enroll_by_month.get((cur_year, cur_month), 0)
+    prev_enroll = enroll_by_month.get((prev_year, prev_month), 0)
+
+    comments_monthly = community.get("comments_monthly", {})
+    cur_comments_key = f"{cur_year}-{cur_month:02d}"
+    prev_comments_key = f"{prev_year}-{prev_month:02d}"
+    cur_comments = comments_monthly.get(cur_comments_key, 0)
+    prev_comments = comments_monthly.get(prev_comments_key, 0)
+
+    def pct(cur, prev):
+        if prev:
+            return round((cur - prev) / abs(prev) * 100)
+        return 0 if cur == 0 else None
+
     return {
         "total_revenue": summary.get("current_month_income", 0),
+        "revenue_change_pct": revenue_change_pct,
+        "current_month_payments": current_month_payments,
+        "payments_change_pct": payments_change_pct,
+        "current_month_refunds_count": current_month_refunds_count,
+        "refunds_change_pct": refunds_change_pct,
+        "current_month_submissions": cur_subs,
+        "submissions_change_pct": pct(cur_subs, prev_subs),
+        "current_month_students": cur_enroll,
+        "students_change_pct": pct(cur_enroll, prev_enroll),
+        "current_month_comments": cur_comments,
+        "comments_change_pct": pct(cur_comments, prev_comments),
         "total_students": total_students,
         "certificates_issued": certificates_issued,
         "courses_count": len(courses),
@@ -224,7 +310,7 @@ async def get_submissions(
             func.count(Submission.id).label("total"),
             func.count(Submission.id).filter(Submission.status == "correct").label("correct"),
         )
-        .where(Submission.course_id.in_(course_ids))
+        .where(Submission.course_id.in_(course_ids), Submission.is_author == False)
         .group_by("year", "month")
         .order_by("year", "month")
     )

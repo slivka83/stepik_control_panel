@@ -10,6 +10,7 @@ const COLOR_CLASSES = {
   'white': 'text-gray-300 border-gray-300/20',
   'dim-green': 'text-[#22763d] border-[#22763d]/20',
   'dim-blue': 'text-[#1a6a9e] border-[#1a6a9e]/20',
+  'dim-crimson': 'text-[#8b2040] border-[#8b2040]/20',
 }
 
 export default function KpiCard({ title, value, prefix = '', suffix = '', color = 'cyber-blue', trend = null, fractionDigits = 0, minimumFractionDigits = 0, noAnimate = false, secondValue = null, secondSuffix = '', ratingColor = false }) {
@@ -44,7 +45,14 @@ export default function KpiCard({ title, value, prefix = '', suffix = '', color 
 
   return (
     <div className="glass-panel glass-panel-hover p-4 transition-all duration-300">
-      <div className="text-gray-400 text-xs mb-2">{title}</div>
+      <div className="flex items-end justify-between mb-2">
+        <div className="text-gray-400 text-xs">{title}</div>
+        {trend !== null && (
+          <span className={`text-xs font-mono ${trend >= 0 ? 'text-neon-green' : 'text-crimson-alert'}`}>
+            {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}%
+          </span>
+        )}
+      </div>
       <div className={`font-mono text-xl lg:text-2xl font-bold whitespace-nowrap ${textColor || ''}`} style={getRatingStyle()}>
         {prefix}
         {noAnimate ? (
@@ -81,11 +89,6 @@ export default function KpiCard({ title, value, prefix = '', suffix = '', color 
           </>
         )}
       </div>
-      {trend !== null && (
-        <div className={`mt-2 text-xs font-mono ${trend >= 0 ? 'text-neon-green' : 'text-crimson-alert'}`}>
-          {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}%
-        </div>
-      )}
     </div>
   )
 }
@@ -95,7 +98,7 @@ KpiCard.propTypes = {
   value: PropTypes.number.isRequired,
   prefix: PropTypes.string,
   suffix: PropTypes.string,
-  color: PropTypes.oneOf(['cyber-blue', 'neon-green', 'amber-alert', 'crimson-alert', 'white', 'dim-green', 'dim-blue']),
+  color: PropTypes.oneOf(['cyber-blue', 'neon-green', 'amber-alert', 'crimson-alert', 'white', 'dim-green', 'dim-blue', 'dim-crimson']),
   trend: PropTypes.number,
   fractionDigits: PropTypes.number,
   secondValue: PropTypes.number,

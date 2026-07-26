@@ -25,11 +25,14 @@
 | `/api/courses?teacher=` | GET | Курсы автора |
 | `/api/course-grades?course=` | GET | Оценки студентов |
 | `/api/certificates?course=` | GET | Сертификаты студентов |
-| `/api/submissions?course=` | GET | Отправки решений (correct/wrong) |
+| `/api/submissions?step=` | GET | Отправки решений (по шагам, все студенты) |
 | `/api/course-benefit-by-months` | GET | Финансовые данные по месяцам |
 | `/api/course-benefits` | GET | Детали по курсам |
 | `/api/profiles` | GET | Профиль автора |
 | `/api/users` | GET | Данные пользователя |
+| `/api/course-review-summaries?ids[]=` | GET | Рейтинги и отзывы (side-loading по ID из `courses.review_summary`) |
+| `/api/comments?course=` | GET | Комментарии студентов (20 на страницу, `page_size` игнорируется) |
+| `/api/course-reviews?course=` | GET | Тексты отзывов (score, text, reply_text, translations) |
 
 **Доступные эндпоинты Stepik API (полный каталог):**
 
@@ -403,6 +406,19 @@ curl -H "Authorization: Bearer YOUR_TOKEN" https://stepik.org/api/courses
 - `page` - номер страницы (по умолчанию 1)
 - `page_size` - количество элементов на странице (по умолчанию 20, максимум 100)
 
+> **⚠️ ВАЖНО: `page_size` реально игнорируется многими эндпоинтами.** `/course-grades`, `/submissions?step=` и другие эндпоинты всегда возвращают **20 записей** на страницу, неважно что передано в `page_size`. Не рассчитывай на 500/1000 записей в одной странице.
+
+> **⚠️ `has_next` может возвращать `true` на страницах за пределами данных.** Обязательно ставь лимит `max_pages` (рекомендуется 500) чтобы избежать бесконечной пагинации. Наша функция `_paginated_get` принимает параметр `max_pages=500` и `on_page` callback для прогресса.
+
+### 2.1. **Критические особенности эндпоинтов**
+
+| Эндпоинт | Особенность |
+|---|---|
+| `/course-grades?course=X` | Возвращает **только 20 записей** на страницу (page_size игнорируется). `has_next=true` даже за пределами данных. ~350 страниц на курс с 7k студентов. |
+| `/submissions?course=X` | Возвращает **только submissions текущего автора**, а не всех студентов. Для всех студентов используй `GET /submissions?step=STEP_ID`. |
+| `/submissions?step=X` | Возвращает **все** submissions по шагу (все студенты). Поле `user` всегда `None` — это норма, API не отдаёт user ID в ответе. Поддерживает фильтр `order` (asc/desc). `has_next=true` может быть всегда true. Лимит `max_pages` обязателен. |
+| `/comments?course=X` | Максимум 20 комментариев на страницу (page_size > 20 игнорируется). Пагинация через `page`. |
+
 ### 3. **Фильтрация и сортировка**
 - `order` - сортировка (например, `-created_at` для убывания даты создания)
 - Различные параметры фильтрации в зависимости от команды
@@ -420,7 +436,82 @@ API имеет ограничения по количеству запросов
 
 Stepik REST API предоставляет comprehensive доступ ко всем функциям образовательной платформы. Для получения детальной информации о конкретной команде рекомендуется:
 
-1. Перейти к [официальной документации](https://stepik.org/api/docs) 【turn0fetch0】
+1. Перейти к [официальной документации](https://stepik.org/api/docs)
 2. Выбрать интересующую команду в списке
 3. Нажать "Expand Operations" для просмотра всех доступных методов
 4. Использовать "Raw" для получения спецификации в формате JSON
+
+## 🔍 Исследованные эндпоинты (поля и примеры)
+
+### `/api/profiles` — Профили пользователей
+
+**Поля:** `id`, `first_name`, `last_name`, `full_name`, `avatar` (URL), `short_bio`, `city`, `language`, `is_staff`, `is_creator`, `is_email_verified`
+
+**Запрос:** `GET /profiles?ids[]=123&ids[]=456` — пакетный, до 30 ID за раз
+
+**Пример ответа:**
+```json
+{
+  "id": 64381531,
+  "first_name": "Вячеслав",
+  "last_name": "Колосков",
+  "full_name": "Вячеслав Колосков",
+  "avatar": "https://cdn.stepik.net/media/users/64381531/avatar.png",
+  "short_bio": "Machine Learning Engineer",
+  "is_creator": true
+}
+```
+
+**Лимит:** Нет пагинации — работает через `ids[]`. 10k студентов = 334 запроса. Стоит использовать **ленивую загрузку** (по запросу при открытии профиля) или только для активных студентов.
+
+---
+
+### `/api/course-reviews` — Тексты отзывов
+
+**Поля:** `id`, `course`, `user`, `score` (1-5), `text`, `reply_text` (ответ автора), `create_date`, `update_date`, `translations.text.ru`, `epic_count`, `abuse_count`, `vote_delta`
+
+**Запрос:** `GET /course-reviews?course=58852&page_size=20` — пагинация по 20
+
+**Пример ответа:**
+```json
+{
+  "id": 542390,
+  "course": 58852,
+  "user": 1238806640,
+  "score": 1,
+  "text": "very difficcult",
+  "reply_text": "",
+  "create_date": "2026-07-26T12:46:58.798Z",
+  "translations": {"text": {"ru": "очень трудный"}}
+}
+```
+
+**Вердикт:** Данные лёгкие, мало отзывов (десятки, не тысячи). Открывает карточку «Отзывы» с реальными текстами. Можно показывать текст + ответ автора + дату.
+
+---
+
+### `/api/attempts` — Попытки решения
+
+**Поля:** `id`, `step`, `user`, `time`, `status` (active), `dataset` (входные данные), `time_left`
+
+**Вердикт:** Не нужно — `submissions` уже содержат статус, время, язык, оценку.
+
+---
+
+### `/api/progresses` — Прогресс по шагам
+
+**Поля:** `id`, `user`, `target`, `score`, `cost`, `time`, `is_passed`, `step`
+
+**Вердикт:** Не нужно — `course-grades` уже содержит агрегированный прогресс.
+
+---
+
+### `/api/announcements` — Рассылки
+
+**Вердикт:** Пусто / недоступно через read-only API.
+
+---
+
+### `/api/course-total-statistics` и `/api/course-period-statistics`
+
+**Вердикт:** Недоступно — требуют права автора/админа.

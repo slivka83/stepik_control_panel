@@ -2,7 +2,7 @@ import { COHORT_COLORS, COHORT_LABELS, COHORT_DAYS, COHORT_ORDER, CHART_COLORS }
 import { useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
-export default function CohortBar({ data = {} }) {
+export default function StudentsBar({ data = {} }) {
   const allEntries = Object.entries(data).filter(([, v]) => v > 0)
   const orderIndex = (key) => {
     const idx = COHORT_ORDER.indexOf(key)
@@ -12,19 +12,32 @@ export default function CohortBar({ data = {} }) {
   const total = entries.reduce((s, [, v]) => s + v, 0)
   const [hovered, setHovered] = useState(null)
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
+  const [hidden, setHidden] = useState(new Set())
 
   if (!total) return null
 
+  const visibleEntries = entries.filter(([k]) => !hidden.has(k))
+  const visibleTotal = visibleEntries.reduce((s, [, v]) => s + v, 0)
+
+  const toggleKey = (key) => {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
   const hoveredEntry = hovered !== null ? entries.find(([k]) => k === hovered) : null
-  const hoveredPct = hoveredEntry ? ((hoveredEntry[1] / total) * 100).toFixed(1) : 0
+  const hoveredPct = hoveredEntry ? ((hoveredEntry[1] / (visibleTotal || 1)) * 100).toFixed(1) : 0
 
   const sleepingHex = COHORT_COLORS.sleeping?.hex || '#6b7280'
 
   return (
-    <div className="glass-panel p-4 relative z-20" style={{ height: '7rem' }}>
+    <div className="glass-panel p-4 pb-5 relative z-20" style={{ height: '7.25rem' }}>
       <div className="flex items-end justify-between mb-5">
         <h3 className="text-white font-medium">Студенты</h3>
-        <span className="text-gray-500 text-xs font-mono">{total.toLocaleString('ru-RU')} студентов</span>
+        <span className="text-gray-500 text-xs font-mono">{visibleTotal.toLocaleString('ru-RU')} студентов</span>
       </div>
       <div
         className="relative"
@@ -32,8 +45,8 @@ export default function CohortBar({ data = {} }) {
         onMouseLeave={() => setHovered(null)}
       >
         <div className="flex gap-1 h-5 rounded-lg overflow-hidden">
-          {entries.map(([key, value]) => {
-            const pct = (value / total) * 100
+          {visibleEntries.map(([key, value]) => {
+            const pct = (value / (visibleTotal || 1)) * 100
             const isZombie = key === 'zombie'
             const color = COHORT_COLORS[key]?.hex || '#64748b'
             return (
@@ -77,9 +90,15 @@ export default function CohortBar({ data = {} }) {
         {entries.map(([key, value]) => {
           const isZombie = key === 'zombie'
           const color = COHORT_COLORS[key]?.hex || '#64748b'
-          const pct = ((value / total) * 100).toFixed(0)
+          const pct = ((value / (visibleTotal || 1)) * 100).toFixed(0)
+          const isHidden = hidden.has(key)
           return (
-            <div key={key} className="flex items-center gap-1.5">
+            <div
+              key={key}
+              className="flex items-center gap-1.5 cursor-pointer select-none transition-opacity"
+              style={{ opacity: isHidden ? 0.35 : 1 }}
+              onClick={() => toggleKey(key)}
+            >
               <div
                 className="w-2 h-2 rounded-full"
                 style={isZombie

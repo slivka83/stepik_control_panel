@@ -62,7 +62,7 @@ class TestRateLimitHandling:
     @pytest.mark.asyncio
     async def test_429_retries_with_sleep(self):
         with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('app.services.stepik_api.handle_rate_limit', new_callable=AsyncMock) as mock_handle:
+            with patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
                 with patch('httpx.AsyncClient') as mock_client:
                     mock_response_429 = MagicMock()
                     mock_response_429.status_code = 429
@@ -77,13 +77,14 @@ class TestRateLimitHandling:
                     mock_client.request = AsyncMock(side_effect=[mock_response_429, mock_response_200])
 
                     result = await _request("GET", "/test")
-                    mock_handle.assert_called_once_with(2.0)
+                    # retries=0: retry_after_header=2, retry_after=min(2, 2^0)=1
+                    mock_sleep.assert_called_once_with(1)
                     assert result == {"data": "ok"}
 
     @pytest.mark.asyncio
     async def test_429_default_retry_after(self):
         with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('app.services.stepik_api.handle_rate_limit', new_callable=AsyncMock) as mock_handle:
+            with patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
                 with patch('httpx.AsyncClient') as mock_client:
                     mock_response_429 = MagicMock()
                     mock_response_429.status_code = 429
@@ -98,7 +99,8 @@ class TestRateLimitHandling:
                     mock_client.request = AsyncMock(side_effect=[mock_response_429, mock_response_200])
 
                     await _request("GET", "/test")
-                    mock_handle.assert_called_once_with(5.0)
+                    # retries=0: retry_after_header=2^0=1, retry_after=min(1, 2^0)=1
+                    mock_sleep.assert_called_once_with(1)
 
 
 class TestErrorHandling:

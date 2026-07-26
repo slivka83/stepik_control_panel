@@ -38,7 +38,7 @@ function Sidebar() {
 
   return (
     <aside className="fixed top-0 left-0 h-screen w-16 bg-space-gray border-r border-cyber-blue/10 flex flex-col items-center py-6 z-40">
-      <nav role="navigation" aria-label="Основная навигация" className="flex flex-col gap-2 w-full px-2">
+      <nav role="navigation" aria-label="Основная навигация" className="flex flex-col w-full">
         {NAV_ITEMS.map((item) => (
           <NavLink
             key={item.to}
@@ -47,10 +47,10 @@ function Sidebar() {
             aria-label={item.label}
             title={item.label}
             className={({ isActive }) =>
-              `flex items-center justify-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 ${
+              `flex items-center justify-center gap-3 px-3 py-2.5 transition-all duration-200 border-l-2 ${
                 isActive
-                  ? 'bg-cyber-blue/20 text-cyber-blue border border-cyber-blue/30'
-                  : 'text-gray-400 hover:text-cyber-blue hover:bg-space-gray-light border border-transparent'
+                  ? 'text-cyber-blue border-l-cyber-blue bg-cyber-blue/10'
+                  : 'text-gray-400 border-l-transparent hover:text-gray-200 hover:bg-white/5'
               }`
             }
           >
@@ -73,8 +73,8 @@ function Sidebar() {
             >
               {syncing && (
                 <span
-                  className="absolute bottom-0 left-0 w-full bg-cyber-blue/25 transition-all duration-1000 ease-linear"
-                  style={{ height: `${progress}%` }}
+                  className="absolute bottom-0 left-0 w-full bg-cyber-blue/25"
+                  style={{ height: `${progress}%`, transition: 'height 1.5s ease-out' }}
                 />
               )}
               <span className={`relative z-10 inline-block text-cyber-blue transition-colors duration-300 ${syncing ? 'animate-spin' : 'group-hover:text-white'}`}>↻</span>

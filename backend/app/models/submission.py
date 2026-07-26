@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Integer, DateTime, Float, ForeignKey, Index, UniqueConstraint
+from sqlalchemy import String, Integer, DateTime, Float, Boolean, ForeignKey, Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -21,6 +21,7 @@ class Submission(Base):
     attempt_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     eta: Mapped[int] = mapped_column(Integer, default=0)
     submission_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_author: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     course: Mapped["Course"] = relationship(back_populates="submissions")
