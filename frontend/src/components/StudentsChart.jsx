@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
-import { COHORT_COLORS, COHORT_LABELS, CHART_COLORS } from '../constants'
+import { COHORT_COLORS, COHORT_LABELS, CHART_COLORS } from '../constants.jsx'
 
 export default function StudentsChart({ data = {} }) {
   const [hidden, setHidden] = useState(new Set())

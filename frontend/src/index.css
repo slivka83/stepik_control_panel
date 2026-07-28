@@ -46,6 +46,15 @@ body {
   background: #0284c7;
 }
 
+.fin-table td {
+  vertical-align: middle;
+  padding-top: 0.625rem;
+  padding-bottom: 0.375rem;
+}
+.fin-table th {
+  vertical-align: middle;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

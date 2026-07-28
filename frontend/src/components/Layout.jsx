@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { NAV_ITEMS } from '../constants'
+import { NAV_ITEMS } from '../constants.jsx'
 import api from '../api'
 
 function Sidebar() {
@@ -105,7 +105,7 @@ export default function Layout({ children }) {
   return (
     <div className="h-screen overflow-hidden bg-space-black">
       <Sidebar />
-      <main role="main" aria-label="Основной контент" className="ml-16 h-full overflow-y-auto p-4 flex flex-col">
+      <main role="main" aria-label="Основной контент" className="ml-16 h-full min-h-0 overflow-y-auto p-4 flex flex-col">
         {children}
       </main>
     </div>

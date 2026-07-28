@@ -303,7 +303,7 @@ async def get_submissions(
     if not course_ids:
         return {"months": []}
 
-    result = await db.execute(
+    month_result = await db.execute(
         select(
             extract("year", Submission.submission_time).label("year"),
             extract("month", Submission.submission_time).label("month"),
@@ -314,10 +314,10 @@ async def get_submissions(
         .group_by("year", "month")
         .order_by("year", "month")
     )
-    rows = result.all()
+    month_rows = month_result.all()
 
     months = []
-    for row in rows:
+    for row in month_rows:
         y, m = int(row.year), int(row.month)
         months.append({
             "month": f"{MONTH_LABELS_RU.get(m, str(m))} {y}",
@@ -325,4 +325,192 @@ async def get_submissions(
             "correct": row.correct,
         })
 
+    course_result = await db.execute(
+        select(
+            Submission.course_id,
+            func.count(Submission.id).label("total"),
+            func.count(Submission.id).filter(Submission.status == "correct").label("correct"),
+        )
+        .where(Submission.course_id.in_(course_ids), Submission.is_author == False)
+        .group_by(Submission.course_id)
+    )
+    course_rows = course_result.all()
+
+    course_id_to_title = {c.id: c.stepik_course_id for c in courses}
+
+    by_course = []
+    for row in course_rows:
+        course_obj = None
+        for c in courses:
+            if c.id == row.course_id:
+                course_obj = c
+                break
+        by_course.append({
+            "course_id": row.course_id,
+            "stepik_course_id": course_obj.stepik_course_id if course_obj else 0,
+            "title": course_obj.title if course_obj else "Unknown",
+            "total": row.total,
+            "correct": row.correct,
+        })
+
+    return {"months": months, "by_course": by_course}
+
+
+@router.get("/active-students")
+async def get_active_students(
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+):
+    courses_result = await db.execute(
+        select(Course).where(Course.user_id == user.id)
+    )
+    courses = courses_result.scalars().all()
+    course_ids = [c.id for c in courses]
+
+    if not course_ids:
+        return {"months": []}
+
+    per_course = await db.execute(
+        select(
+            extract("year", Submission.submission_time).label("year"),
+            extract("month", Submission.submission_time).label("month"),
+            Submission.course_id,
+            func.count(func.distinct(Submission.user_id)).label("cnt"),
+        )
+        .where(
+            Submission.course_id.in_(course_ids),
+            Submission.is_author == False,
+            Submission.user_id.isnot(None),
+        )
+        .group_by("year", "month", Submission.course_id)
+        .order_by("year", "month")
+    )
+    per_course_rows = per_course.all()
+
+    course_map = {c.id: c.title for c in courses}
+
+    monthly: dict[tuple[int, int], dict] = {}
+    for row in per_course_rows:
+        y, m = int(row.year), int(row.month)
+        key = (y, m)
+        if key not in monthly:
+            monthly[key] = {"per_course_sum": 0, "user_ids": set()}
+        monthly[key]["per_course_sum"] += row.cnt
+        monthly[key]["user_ids"].add(row.course_id)
+
+    all_unique = await db.execute(
+        select(
+            extract("year", Submission.submission_time).label("year"),
+            extract("month", Submission.submission_time).label("month"),
+            func.count(func.distinct(Submission.user_id)).label("cnt"),
+        )
+        .where(
+            Submission.course_id.in_(course_ids),
+            Submission.is_author == False,
+            Submission.user_id.isnot(None),
+        )
+        .group_by("year", "month")
+        .order_by("year", "month")
+    )
+    all_unique_rows = all_unique.all()
+    unique_map = {(int(r.year), int(r.month)): r.cnt for r in all_unique_rows}
+
+    months = []
+    for (y, m) in sorted(monthly.keys()):
+        months.append({
+            "month": f"{MONTH_LABELS_RU.get(m, str(m))} {y}",
+            "dark": monthly[(y, m)]["per_course_sum"],
+            "light": unique_map.get((y, m), 0),
+        })
+
     return {"months": months}
+
+
+@router.get("/active-enrolled-students")
+async def get_active_enrolled_students(
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+):
+    courses_result = await db.execute(
+        select(Course).where(Course.user_id == user.id)
+    )
+    courses = courses_result.scalars().all()
+    course_ids = [c.id for c in courses]
+
+    if not course_ids:
+        return {"months": []}
+
+    per_course = await db.execute(
+        select(
+            extract("year", StudentEnrollment.last_viewed_at).label("year"),
+            extract("month", StudentEnrollment.last_viewed_at).label("month"),
+            StudentEnrollment.course_id,
+            func.count(func.distinct(StudentEnrollment.student_id)).label("cnt"),
+        )
+        .where(
+            StudentEnrollment.course_id.in_(course_ids),
+            StudentEnrollment.last_viewed_at.isnot(None),
+        )
+        .group_by("year", "month", StudentEnrollment.course_id)
+        .order_by("year", "month")
+    )
+    per_course_rows = per_course.all()
+
+    monthly: dict[tuple[int, int], dict] = {}
+    for row in per_course_rows:
+        y, m = int(row.year), int(row.month)
+        key = (y, m)
+        if key not in monthly:
+            monthly[key] = {"per_course_sum": 0, "student_ids": set()}
+        monthly[key]["per_course_sum"] += row.cnt
+
+    all_unique = await db.execute(
+        select(
+            extract("year", StudentEnrollment.last_viewed_at).label("year"),
+            extract("month", StudentEnrollment.last_viewed_at).label("month"),
+            func.count(func.distinct(StudentEnrollment.student_id)).label("cnt"),
+        )
+        .where(
+            StudentEnrollment.course_id.in_(course_ids),
+            StudentEnrollment.last_viewed_at.isnot(None),
+        )
+        .group_by("year", "month")
+        .order_by("year", "month")
+    )
+    all_unique_rows = all_unique.all()
+    unique_map = {(int(r.year), int(r.month)): r.cnt for r in all_unique_rows}
+
+    months = []
+    for (y, m) in sorted(monthly.keys()):
+        months.append({
+            "month": f"{MONTH_LABELS_RU.get(m, str(m))} {y}",
+            "dark": monthly[(y, m)]["per_course_sum"],
+            "light": unique_map.get((y, m), 0),
+        })
+
+    return {"months": months}
+
+
+@router.get("/published-solutions")
+async def get_published_solutions(
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(FinancialSnapshot).limit(1))
+    snapshot = result.scalar_one_or_none()
+    if not snapshot:
+        return {"months": []}
+    community = snapshot.data.get("community", {})
+
+    monthly = community.get("solutions_monthly", {})
+    months_res = []
+    for key in sorted(monthly.keys()):
+        y_str, m_str = key.split("-")
+        y, m = int(y_str), int(m_str)
+        val = monthly[key]
+        months_res.append({
+            "month": f"{MONTH_LABELS_RU.get(m, str(m))} {y}",
+            "dark": val,
+            "light": val,
+        })
+    return {"months": months_res}

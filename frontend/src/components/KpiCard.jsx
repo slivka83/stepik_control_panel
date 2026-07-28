@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import CountUp from 'react-countup'
 import PropTypes from 'prop-types'
 import { formatNumber } from '../utils/formatNumber'
@@ -13,7 +14,7 @@ const COLOR_CLASSES = {
   'dim-crimson': 'text-[#8b2040] border-[#8b2040]/20',
 }
 
-export default function KpiCard({ title, value, prefix = '', suffix = '', color = 'cyber-blue', trend = null, fractionDigits = 0, minimumFractionDigits = 0, noAnimate = false, secondValue = null, secondSuffix = '', ratingColor = false }) {
+function KpiCard({ title, value, prefix = '', suffix = '', color = 'cyber-blue', trend = null, fractionDigits = 0, minimumFractionDigits = 0, noAnimate = false, secondValue = null, secondSuffix = '', ratingColor = false }) {
   const dp = Math.max(fractionDigits, minimumFractionDigits)
   const fmt = (val) => formatNumber(val, { minimumFractionDigits, maximumFractionDigits: fractionDigits })
   const textColor = ratingColor
@@ -92,6 +93,8 @@ export default function KpiCard({ title, value, prefix = '', suffix = '', color 
     </div>
   )
 }
+
+export default memo(KpiCard)
 
 KpiCard.propTypes = {
   title: PropTypes.string.isRequired,

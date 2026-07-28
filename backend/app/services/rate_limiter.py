@@ -6,6 +6,7 @@ Fails open (allows requests) when Redis is unavailable.
 import asyncio
 import logging
 import time
+import threading
 
 import redis.asyncio as redis
 from redis.exceptions import RedisError, ConnectionError
@@ -16,6 +17,8 @@ logger = logging.getLogger(__name__)
 settings = get_settings()
 
 redis_client = redis.from_url(settings.redis_url, decode_responses=True)
+
+_sync_thread_local = threading.local()
 
 TOKEN_BUCKET_KEY_PREFIX = "rate_limit:stepik:"
 TOKEN_BUCKET_CAPACITY = 10
@@ -55,6 +58,9 @@ _token_bucket_script = redis_client.register_script(LUA_TOKEN_BUCKET)
 
 async def acquire_token() -> bool:
     """Try to acquire a token from the bucket. Fails open if Redis is down."""
+    if getattr(_sync_thread_local, "skip_rate_limit", False):
+        return True
+
     key = f"{TOKEN_BUCKET_KEY_PREFIX}tokens"
     last_refill_key = f"{TOKEN_BUCKET_KEY_PREFIX}last_refill"
     now = time.time()

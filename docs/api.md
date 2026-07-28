@@ -31,8 +31,9 @@
 | `/api/profiles` | GET | Профиль автора |
 | `/api/users` | GET | Данные пользователя |
 | `/api/course-review-summaries?ids[]=` | GET | Рейтинги и отзывы (side-loading по ID из `courses.review_summary`) |
-| `/api/comments?course=` | GET | Комментарии студентов (20 на страницу, `page_size` игнорируется) |
+| `/api/comments?course=` | GET | Комментарии студентов (20 на страницу, `page_size` игнорируется). `thread="solutions"` = опубликованные решения |
 | `/api/course-reviews?course=` | GET | Тексты отзывов (score, text, reply_text, translations) |
+| `/api/attempts?ids[]=` | GET | Пакетная загрузка попыток (batch до 300 IDs). Используется для получения `user_id` для submissions |
 
 **Доступные эндпоинты Stepik API (полный каталог):**
 
@@ -463,6 +464,58 @@ Stepik REST API предоставляет comprehensive доступ ко вс�
 ```
 
 **Лимит:** Нет пагинации — работает через `ids[]`. 10k студентов = 334 запроса. Стоит использовать **ленивую загрузку** (по запросу при открытии профиля) или только для активных студентов.
+
+---
+
+### `/api/course-reviews` — Тексты отзывов
+
+**Поля:** `id`, `course`, `user`, `score` (1-5), `text`, `reply_text` (ответ автора), `create_date`, `update_date`, `translations.text.ru`, `epic_count`, `abuse_count`, `vote_delta`
+
+**Запрос:** `GET /course-reviews?course=58852&page_size=20` — пагинация по 20
+
+**Пример ответа:**
+```json
+{
+  "id": 542390,
+  "course": 58852,
+  "user": 1238806640,
+  "score": 1,
+  "text": "very difficcult",
+  "reply_text": "",
+  "create_date": "2026-07-26T12:46:58.798Z",
+  "translations": {"text": {"ru": "очень трудный"}}
+}
+```
+
+**Вердикт:** Данные лёгкие, мало отзывов (десятки, не тысячи). Открывает карточку «Отзывы» с реальными текстами. Можно показывать текст + ответ автора + дату.
+
+---
+
+### `/api/comments` — Комментарии и опубликованные решения
+
+**Поля:** `id`, `course`, `user`, `thread` ("solutions" | "default"), `submission` (ID решения, если thread="solutions"), `text`, `time`, `update_date`, `is_deleted`, `is_approved`, `parent`
+
+**Запрос:** `GET /comments?course=58852&page=1&page_size=20` — пагинация по 20 (page_size > 20 игнорируется)
+
+**Пример ответа:**
+```json
+{
+  "id": 93847817,
+  "course": 167495,
+  "user": "64381531",
+  "thread": "solutions",
+  "submission": 65875961,
+  "text": "```python\nprint('Hello')\n```",
+  "time": "2026-07-19T13:28:45.640Z",
+  "parent": null
+}
+```
+
+**Важно:** Поле `thread` определяет тип комментария:
+- `"solutions"` — опубликованное студентом решение (содержит `submission` ID)
+- `"default"` — обычный комментарий
+
+**Использование:** В `sync_community_stats` комментарии с `thread="solutions"` считаются отдельно как опубликованные решения (`solutions_monthly`, `total_solutions`) и отображаются на странице Активности.
 
 ---
 

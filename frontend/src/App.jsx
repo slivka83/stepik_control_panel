@@ -6,7 +6,8 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Courses = lazy(() => import('./pages/Courses'))
 const Solutions = lazy(() => import('./pages/Solutions'))
 const Financials = lazy(() => import('./pages/Financials'))
-const Cohorts = lazy(() => import('./pages/Cohorts'))
+const Students = lazy(() => import('./pages/Students'))
+const Activities = lazy(() => import('./pages/Activities'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 
 function PageSkeleton() {
@@ -33,7 +34,8 @@ function App() {
             <Route path="/courses" element={<Courses />} />
             <Route path="/solutions" element={<Solutions />} />
             <Route path="/financials" element={<Financials />} />
-            <Route path="/cohorts" element={<Cohorts />} />
+            <Route path="/students" element={<Students />} />
+            <Route path="/activities" element={<Activities />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

@@ -2,6 +2,7 @@ import httpx
 import asyncio
 import logging
 import time
+from contextvars import ContextVar
 from typing import Any
 
 from app.services.rate_limiter import acquire_token, handle_rate_limit
@@ -22,6 +23,18 @@ class StepikAPIError(Exception):
 class StepikRateLimitError(StepikAPIError):
     def __init__(self, detail: str = ""):
         super().__init__(429, detail)
+
+
+_client_var: ContextVar[httpx.AsyncClient | None] = ContextVar("_client_var", default=None)
+
+
+async def _get_client() -> httpx.AsyncClient:
+    client = _client_var.get()
+    if client is None:
+        limits = httpx.Limits(max_keepalive_connections=20, max_connections=50)
+        client = httpx.AsyncClient(limits=limits, timeout=30.0)
+        _client_var.set(client)
+    return client
 
 
 async def _request(
@@ -50,35 +63,34 @@ async def _request(
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
-    async with httpx.AsyncClient() as client:
-        response = await client.request(
-            method=method,
-            url=f"{STEPIK_API_BASE}{path}",
-            headers=headers,
-            params=params,
-            timeout=30.0,
-        )
+    client = await _get_client()
+    response = await client.request(
+        method=method,
+        url=f"{STEPIK_API_BASE}{path}",
+        headers=headers,
+        params=params,
+    )
 
-        if response.status_code == 429:
-            if retries >= MAX_RETRIES:
-                raise StepikRateLimitError(f"Exceeded {MAX_RETRIES} retries for {path}")
-            retry_after_header = int(response.headers.get("Retry-After", 2 ** retries))
-            retry_after = min(retry_after_header, 2 ** retries)
-            logger.warning("Rate limited on %s, retry %d/%d after %ds", path, retries + 1, MAX_RETRIES, retry_after)
-            await asyncio.sleep(retry_after)
+    if response.status_code == 429:
+        if retries >= MAX_RETRIES:
+            raise StepikRateLimitError(f"Exceeded {MAX_RETRIES} retries for {path}")
+        retry_after_header = int(response.headers.get("Retry-After", 2 ** retries))
+        retry_after = min(retry_after_header, 2 ** retries)
+        logger.warning("Rate limited on %s, retry %d/%d after %ds", path, retries + 1, MAX_RETRIES, retry_after)
+        await asyncio.sleep(retry_after)
+        return await _request(method, path, token, params, retries + 1)
+
+    if response.status_code >= 500:
+        if retries < MAX_RETRIES:
+            wait = 2 ** retries
+            logger.warning("Server error %d on %s, retry %d/%d after %ds", response.status_code, path, retries + 1, MAX_RETRIES, wait)
+            await asyncio.sleep(wait)
             return await _request(method, path, token, params, retries + 1)
 
-        if response.status_code >= 500:
-            if retries < MAX_RETRIES:
-                wait = 2 ** retries
-                logger.warning("Server error %d on %s, retry %d/%d after %ds", response.status_code, path, retries + 1, MAX_RETRIES, wait)
-                await asyncio.sleep(wait)
-                return await _request(method, path, token, params, retries + 1)
+    if response.status_code >= 400:
+        raise StepikAPIError(response.status_code, response.text)
 
-        if response.status_code >= 400:
-            raise StepikAPIError(response.status_code, response.text)
-
-        return response.json()
+    return response.json()
 
 
 async def get_user_profile(token: str) -> dict:

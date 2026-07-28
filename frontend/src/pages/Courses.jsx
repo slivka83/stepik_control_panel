@@ -1,6 +1,6 @@
 import { useSync } from '../contexts/SyncContext'
 import ErrorBanner from '../components/ErrorBanner'
-import { STEPIK_URLS } from '../constants'
+import { STEPIK_URLS } from '../constants.jsx'
 import { pluralize } from '../utils/pluralize'
 
 export default function Courses() {

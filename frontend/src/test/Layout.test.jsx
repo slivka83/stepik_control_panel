@@ -41,6 +41,7 @@ describe('Layout', () => {
       expect(screen.getByText('Решения')).toBeInTheDocument()
       expect(screen.getByText('Финансы')).toBeInTheDocument()
       expect(screen.getByText('Студенты')).toBeInTheDocument()
+      expect(screen.getByText('Активности')).toBeInTheDocument()
     })
   })
 
@@ -158,7 +159,9 @@ describe('Layout', () => {
       const finLink = screen.getByText('Финансы').closest('a')
       expect(finLink).toHaveAttribute('href', '/financials')
       const cohortLink = screen.getByText('Студенты').closest('a')
-      expect(cohortLink).toHaveAttribute('href', '/cohorts')
+      expect(cohortLink).toHaveAttribute('href', '/students')
+      const activitiesLink = screen.getByText('Активности').closest('a')
+      expect(activitiesLink).toHaveAttribute('href', '/activities')
     })
   })
 })

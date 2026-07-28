@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts'
-import { CHART_COLORS } from '../constants'
+import { CHART_COLORS } from '../constants.jsx'
 
 const COLOR = '#4ade80'
 

@@ -2,7 +2,6 @@ import { useSync } from '../contexts/SyncContext'
 import KpiCard from '../components/KpiCard'
 import RevenueChart from '../components/RevenueChart'
 import SubmissionsChart from '../components/SubmissionsChart'
-import StudentsChart from '../components/StudentsChart'
 import StudentsBar from '../components/StudentsBar'
 import ErrorBanner from '../components/ErrorBanner'
 

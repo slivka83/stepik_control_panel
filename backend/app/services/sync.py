@@ -1,12 +1,15 @@
 import logging
 import uuid
 import time
+import asyncio
+import threading
 from datetime import datetime, timezone
 
 from sqlalchemy import select, text
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker as _sessionmaker
 
 from app.config import get_settings
-from app.database import async_session
+import app.database as _db
 from app.models import (
     Course, StudentEnrollment, FinancialSnapshot, User, StepSyncState,
 )
@@ -15,6 +18,10 @@ from app.services.crypto import decrypt_token
 
 logger = logging.getLogger(__name__)
 
+# Local reference to the default DB session (can be overridden by sync_all_sync in a thread)
+async_session = _db.async_session
+
+_sync_lock = threading.Lock()
 _sync_in_progress = False
 _sync_progress: int = 0
 _sync_step: str = ""
@@ -73,11 +80,12 @@ def calculate_cohort_status(last_viewed_at: datetime | None, date_joined: dateti
 
 
 def can_sync() -> bool:
-    if _sync_in_progress:
-        return False
-    if _last_sync_completed_at == 0:
-        return True
-    return (time.time() - _last_sync_completed_at) >= SYNC_COOLDOWN_SECONDS
+    with _sync_lock:
+        if _sync_in_progress:
+            return False
+        if _last_sync_completed_at == 0:
+            return True
+        return (time.time() - _last_sync_completed_at) >= SYNC_COOLDOWN_SECONDS
 
 
 async def sync_courses_and_enrollments(user_id=None):
@@ -315,8 +323,8 @@ async def sync_submissions(user_id=None):
                 unit_ids.extend(sec.get("units", []))
 
             all_step_ids = []
-            for batch_start in range(0, len(unit_ids), 50):
-                batch = unit_ids[batch_start:batch_start + 50]
+            for batch_start in range(0, len(unit_ids), 300):
+                batch = unit_ids[batch_start:batch_start + 300]
                 units = await _paginated_get(
                     "/units", token, {"ids[]": batch}, "units"
                 )
@@ -329,8 +337,8 @@ async def sync_submissions(user_id=None):
                         all_step_ids.extend(l.get("steps", []))
 
             code_step_ids = []
-            for batch_start in range(0, len(all_step_ids), 50):
-                batch = all_step_ids[batch_start:batch_start + 50]
+            for batch_start in range(0, len(all_step_ids), 300):
+                batch = all_step_ids[batch_start:batch_start + 300]
                 steps_detail = await _paginated_get(
                     "/steps", token, {"ids[]": batch}, "steps"
                 )
@@ -467,6 +475,42 @@ async def sync_submissions(user_id=None):
 
     logger.info("Synced: %d submissions total", total_upserted)
 
+    _sync_step = "решения: привязка пользователей (attempts)"
+    _sync_progress = 85
+
+    try:
+        async with async_session() as session:
+            result = await session.execute(
+                text("SELECT DISTINCT attempt_id FROM submissions WHERE attempt_id IS NOT NULL AND user_id IS NULL")
+            )
+            attempt_ids = [row[0] for row in result.all()]
+    except Exception as e:
+        logger.warning("  error querying attempt_ids: %s", e)
+        attempt_ids = []
+
+    if attempt_ids:
+        attempt_to_user = {}
+        for batch_start in range(0, len(attempt_ids), 300):
+            batch = attempt_ids[batch_start:batch_start + 300]
+            try:
+                attempts = await _paginated_get("/attempts", token, {"ids[]": batch}, "attempts")
+                for a in attempts:
+                    uid = a.get("user")
+                    if uid:
+                        attempt_to_user[a["id"]] = uid
+            except Exception as e:
+                logger.warning("  error fetching attempts batch: %s", e)
+
+        if attempt_to_user:
+            async with async_session() as session:
+                async with session.begin():
+                    for aid, uid in attempt_to_user.items():
+                        await session.execute(
+                            text("UPDATE submissions SET user_id = :uid WHERE attempt_id = :aid AND user_id IS NULL"),
+                            {"uid": uid, "aid": aid},
+                        )
+            logger.info("  %d attempts → user_id applied", len(attempt_to_user))
+
 
 async def sync_financials(user_id=None):
     """Sync financial data from Stepik API to FinancialSnapshot (fetch-then-replace)."""
@@ -489,10 +533,30 @@ async def sync_financials(user_id=None):
 
     async with async_session() as session:
         if user_id:
-            courses = (await session.execute(select(Course).where(Course.user_id == user_id))).scalars().all()
+            user = (await session.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
         else:
-            courses = (await session.execute(select(Course))).scalars().all()
+            user = (await session.execute(select(User))).scalar_one_or_none()
+        if not user:
+            logger.warning("No user found, skipping financial sync")
+            return
+        courses = (
+            await session.execute(select(Course).where(Course.user_id == user.id))
+        ).scalars().all()
         course_map = {c.stepik_course_id: c.title for c in courses}
+
+    # fetch course prices from Stepik API
+    try:
+        stepik_user_id = get_settings().stepik_user_id
+        user_token = decrypt_token(user.access_token)
+        courses_api = await _paginated_get("/courses", user_token, {"teacher": stepik_user_id}, "courses")
+        course_price_map = {}
+        for c in courses_api:
+            cprice = c.get("price")
+            if cprice is not None:
+                course_price_map[c["id"]] = float(cprice)
+    except Exception as e:
+        logger.warning("Failed to fetch course prices: %s", e)
+        course_price_map = {}
 
     total_turnover = sum(float(m.get("total_turnover", 0) or 0) for m in by_months)
     total_income = sum(float(m.get("total_user_income", 0) or 0) for m in by_months)
@@ -532,6 +596,7 @@ async def sync_financials(user_id=None):
             course_stats[cid] = {
                 "course_id": cid,
                 "title": course_map.get(cid, f"Курс #{cid}"),
+                "price": course_price_map.get(cid),
                 "turnover": 0, "income": 0, "refunds": 0, "payments": 0,
             }
         status = b.get("status", "")
@@ -680,10 +745,16 @@ async def sync_community_stats(user_id=None):
         comments_total = prev_community.get("total_comments", 0)
         comments_monthly: dict[str, int] = dict(prev_community.get("comments_monthly", {}))
         last_comment_time = prev_community.get("last_comment_time", "")
+        solutions_total = prev_community.get("total_solutions", 0)
+        solutions_monthly: dict[str, int] = dict(prev_community.get("solutions_monthly", {}))
+        last_solution_time = prev_community.get("last_solution_time", "")
 
     new_total = 0
     new_monthly: dict[str, int] = {}
     max_time = last_comment_time
+    new_solutions = 0
+    new_solutions_monthly: dict[str, int] = {}
+    max_solution_time = last_solution_time
 
     for cid in course_ids_api:
         page = 1
@@ -704,6 +775,15 @@ async def sync_community_stats(user_id=None):
                     if ts > max_time:
                         max_time = ts
 
+                if c.get("thread") == "solutions":
+                    if ts and ts > last_solution_time:
+                        new_solutions += 1
+                        if len(ts) >= 7:
+                            key = f"{ts[:4]}-{ts[5:7]}"
+                            new_solutions_monthly[key] = new_solutions_monthly.get(key, 0) + 1
+                        if ts > max_solution_time:
+                            max_solution_time = ts
+
             if not data.get("meta", {}).get("has_next", False):
                 break
             page += 1
@@ -714,6 +794,13 @@ async def sync_community_stats(user_id=None):
             comments_monthly[k] = comments_monthly.get(k, 0) + v
         last_comment_time = max_time
 
+    if new_solutions > 0:
+        solutions_total += new_solutions
+        for k, v in new_solutions_monthly.items():
+            solutions_monthly[k] = solutions_monthly.get(k, 0) + v
+        last_solution_time = max_solution_time
+
+    if new_total > 0 or new_solutions > 0:
         async with async_session() as session:
             result = await session.execute(select(FinancialSnapshot).limit(1))
             snapshot = result.scalar_one_or_none()
@@ -724,6 +811,9 @@ async def sync_community_stats(user_id=None):
                     "total_comments": comments_total,
                     "comments_monthly": comments_monthly,
                     "last_comment_time": last_comment_time,
+                    "total_solutions": solutions_total,
+                    "solutions_monthly": solutions_monthly,
+                    "last_solution_time": last_solution_time,
                 }}
                 await session.commit()
 
@@ -738,41 +828,75 @@ async def sync_all(force: bool = False, user_id=None):
     """
     global _sync_in_progress, _sync_progress, _sync_step, _last_sync_completed_at
 
-    if _sync_in_progress:
-        logger.info("Sync already in progress, skipping")
-        return {"status": "skipped", "reason": "already_in_progress"}
+    with _sync_lock:
+        if _sync_in_progress:
+            logger.info("Sync already in progress, skipping")
+            return {"status": "skipped", "reason": "already_in_progress"}
+        if not force and _last_sync_completed_at > 0:
+            remaining = SYNC_COOLDOWN_SECONDS - (time.time() - _last_sync_completed_at)
+            if remaining > 0:
+                logger.info("Sync skipped, cooldown remaining: %ds", int(remaining))
+                return {"status": "skipped", "reason": "cooldown", "remaining_seconds": int(remaining)}
+        _sync_in_progress = True
+        _sync_progress = 0
+        _sync_step = "курсы"
 
-    if not force and not can_sync():
-        remaining = int(SYNC_COOLDOWN_SECONDS - (time.time() - _last_sync_completed_at))
-        logger.info("Sync skipped, cooldown remaining: %ds", remaining)
-        return {"status": "skipped", "reason": "cooldown", "remaining_seconds": remaining}
-
-    _sync_in_progress = True
-    _sync_progress = 0
-    _sync_step = "курсы"
     logger.info("=== Full sync started ===")
     try:
         _sync_step = "курсы и студенты"
         await sync_courses_and_enrollments(user_id)
-        _sync_progress = 40
+        with _sync_lock:
+            _sync_progress = 40
         _sync_step = "отправленные решения"
         await sync_submissions(user_id)
-        _sync_progress = 85
+        with _sync_lock:
+            _sync_progress = 85
         _sync_step = "финансы"
         await sync_financials(user_id)
-        _sync_progress = 95
+        with _sync_lock:
+            _sync_progress = 95
         _sync_step = "рейтинги"
         await sync_community_stats(user_id)
-        _sync_progress = 100
+        with _sync_lock:
+            _sync_progress = 100
         _sync_step = "готово"
-        _last_sync_completed_at = time.time()
+        with _sync_lock:
+            _last_sync_completed_at = time.time()
         logger.info("=== Full sync completed ===")
         return {"status": "ok"}
     except Exception as e:
         logger.error("Sync failed: %s", e, exc_info=True)
         return {"status": "error", "detail": str(e)}
     finally:
-        _sync_in_progress = False
-        _sync_progress = 0
-        _sync_step = ""
-        _sync_progress = 0
+        with _sync_lock:
+            _sync_in_progress = False
+            _sync_progress = 0
+            _sync_step = ""
+
+
+def sync_all_sync(force: bool = False, user_id=None) -> dict:
+    """Synchronous wrapper for sync_all, runs in its own event loop in a thread.
+    Creates a separate DB engine to avoid "attached to a different loop" errors.
+    Skips Redis rate limiter (sync thread uses its own loop, Redis client is bound to main loop).
+    """
+    global async_session
+
+    from app.services import rate_limiter
+
+    rate_limiter._sync_thread_local.skip_rate_limit = True
+
+    engine = create_async_engine(get_settings().database_url, pool_size=5, max_overflow=2)
+    thread_session = _sessionmaker(engine, expire_on_commit=False)
+
+    old_session = async_session
+    async_session = thread_session
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(sync_all(force=force, user_id=user_id))
+    finally:
+        async_session = old_session
+        rate_limiter._sync_thread_local.skip_rate_limit = False
+        engine.dispose()
+        loop.close()

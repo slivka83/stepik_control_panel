@@ -1,4 +1,4 @@
-import { COHORT_COLORS, COHORT_LABELS, COHORT_DAYS, COHORT_ORDER, CHART_COLORS } from '../constants'
+import { COHORT_COLORS, COHORT_LABELS, COHORT_DAYS, COHORT_ORDER, CHART_COLORS } from '../constants.jsx'
 import { useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 
@@ -14,7 +14,18 @@ export default function StudentsBar({ data = {} }) {
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 })
   const [hidden, setHidden] = useState(new Set())
 
-  if (!total) return null
+  if (!total) {
+    return (
+      <div className="glass-panel p-4 relative z-20" style={{ height: '7.25rem' }}>
+        <div className="flex items-end justify-between mb-5">
+          <h3 className="text-white font-medium">Студенты</h3>
+        </div>
+        <div className="flex items-center justify-center h-5 text-gray-500 text-xs">
+          Нет данных для отображения
+        </div>
+      </div>
+    )
+  }
 
   const visibleEntries = entries.filter(([k]) => !hidden.has(k))
   const visibleTotal = visibleEntries.reduce((s, [, v]) => s + v, 0)

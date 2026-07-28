@@ -8,7 +8,7 @@ import {
   STATUS_LABELS,
   STATUS_COLORS,
   NAV_ITEMS,
-} from '../constants'
+} from '../constants.jsx'
 
 describe('Constants', () => {
   describe('CHART_COLORS', () => {
@@ -90,8 +90,8 @@ describe('Constants', () => {
   })
 
   describe('NAV_ITEMS', () => {
-    it('has five navigation items', () => {
-      expect(NAV_ITEMS).toHaveLength(5)
+    it('has six navigation items', () => {
+      expect(NAV_ITEMS).toHaveLength(6)
     })
 
     it('each item has to, label, and icon', () => {
@@ -107,9 +107,9 @@ describe('Constants', () => {
       expect(NAV_ITEMS[0].label).toBe('Дашборд')
     })
 
-    it('last item is cohorts', () => {
-      expect(NAV_ITEMS[4].to).toBe('/cohorts')
-      expect(NAV_ITEMS[4].label).toBe('Студенты')
+    it('last item is activities', () => {
+      expect(NAV_ITEMS[5].to).toBe('/activities')
+      expect(NAV_ITEMS[5].label).toBe('Активности')
     })
   })
 })

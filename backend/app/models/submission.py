@@ -19,6 +19,7 @@ class Submission(Base):
     score: Mapped[float] = mapped_column(Float, default=0.0)
     language: Mapped[str | None] = mapped_column(String, nullable=True)
     attempt_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     eta: Mapped[int] = mapped_column(Integer, default=0)
     submission_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     is_author: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

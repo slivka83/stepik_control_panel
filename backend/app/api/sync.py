@@ -1,6 +1,7 @@
 import time as time_mod
+import asyncio
 
-from fastapi import APIRouter, Depends, BackgroundTasks
+from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,7 +38,6 @@ async def sync_status(
 
 @router.post("")
 async def trigger_sync(
-    background_tasks: BackgroundTasks,
     force: bool = False,
     user: User = Depends(get_user),
 ):
@@ -46,5 +46,6 @@ async def trigger_sync(
     if not force and not sync_mod.can_sync():
         remaining = int(sync_mod.SYNC_COOLDOWN_SECONDS - (time_mod.time() - sync_mod._last_sync_completed_at))
         return {"status": "cooldown", "cooldown_remaining_seconds": max(0, remaining)}
-    background_tasks.add_task(sync_mod.sync_all, force, user.id)
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, sync_mod.sync_all_sync, force, user.id)
     return {"status": "sync_started"}

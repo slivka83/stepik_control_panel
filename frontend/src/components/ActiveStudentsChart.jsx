@@ -3,8 +3,8 @@ import { createPortal } from 'react-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts'
 import { CHART_COLORS } from '../constants.jsx'
 
-const COLOR_BRIGHT = '#38bdf8'
-const COLOR_DIM = '#1a6a9e'
+const COLOR_BRIGHT = '#dc2626'
+const COLOR_DIM = '#8b2040'
 
 function BarShape({ activeMonth, onBarEnter, onBarLeave, ...props }) {
   const { x, y, width, height, fill, fillOpacity, payload } = props
@@ -30,26 +30,31 @@ function BarShape({ activeMonth, onBarEnter, onBarLeave, ...props }) {
   )
 }
 
-export default function SubmissionsChart({
+export default function ActiveStudentsChart({
   data = {},
+  title = 'Активные студенты',
   showTitle = true,
-  title,
+  hatched,
   primaryColor,
   secondaryColor,
-  hideCorrectLegend,
-  hideTotalLegend,
+  hideLightLegend,
+  hideDarkLegend,
+  lightLabel,
   tooltipRight,
 }) {
   const [activeMonth, setActiveMonth] = useState(null)
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
   const uid = useId()
 
+  const bright = primaryColor || COLOR_BRIGHT
+  const dim = secondaryColor || COLOR_DIM
+
   const months = (data.months || []).slice(-18)
 
   if (!months.length) {
     return (
       <div className="glass-panel p-4 flex flex-col min-h-0">
-        <h3 className="text-white font-medium mb-3">{title || 'Отправленные решения'}</h3>
+        <h3 className="text-white font-medium mb-3">{title}</h3>
         <div className="flex-1 flex items-center justify-center text-gray-500">
           Нет данных для отображения
         </div>
@@ -57,15 +62,12 @@ export default function SubmissionsChart({
     )
   }
 
-  const bright = primaryColor || COLOR_BRIGHT
-  const dim = secondaryColor || COLOR_DIM
-
   const chartData = months.map(d => ({
     ...d,
-    wrong: Math.max((d.total || 0) - (d.correct || 0), 0),
+    overlap: Math.max((d.dark || 0) - (d.light || 0), 0),
   }))
 
-  const maxVal = Math.max(...chartData.map(d => Math.max(d.total || 0, d.correct || 0)))
+  const maxVal = Math.max(...chartData.map(d => Math.max(d.dark || 0, d.light || 0)))
   const yAxisCompact = maxVal >= 1000
 
   const handleBarEnter = (month, cx, cy) => {
@@ -76,21 +78,21 @@ export default function SubmissionsChart({
   const activeEntry = activeMonth ? chartData.find(d => d.month === activeMonth) : null
 
   return (
-    <figure role="img" aria-label={title ? `Диаграмма ${title}` : 'Диаграмма решений по месяцам'} className="glass-panel p-4 flex flex-col min-h-0">
-      <figcaption className="sr-only">{title || 'Отправленные решения'} за {months.length} месяцев</figcaption>
+    <figure role="img" aria-label={`Диаграмма ${title}`} className="glass-panel p-4 flex flex-col min-h-0">
+      <figcaption className="sr-only">{title} за {months.length} месяцев</figcaption>
       <div className="flex items-center justify-between mb-2 shrink-0">
-        {showTitle && <h3 className="text-white font-medium">{title || 'Отправленные решения'}</h3>}
+        {showTitle && <h3 className="text-white font-medium">{title}</h3>}
         <div className="flex items-center gap-4">
-          {!hideCorrectLegend && (
+          {!hideLightLegend && (
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: bright }}></div>
-              <span className="text-xs text-gray-400">Правильные</span>
+              <span className="text-xs text-gray-400">Уникальные</span>
             </div>
           )}
-          {!hideTotalLegend && (
+          {!hideDarkLegend && (
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: dim }}></div>
-              <span className="text-xs text-gray-400">Всего</span>
+              <span className="text-xs text-gray-400">Уникальные по курсам</span>
             </div>
           )}
           <div className="flex items-center gap-2">
@@ -109,16 +111,18 @@ export default function SubmissionsChart({
             data={chartData}
             margin={{ top: 15, right: 10, left: 0, bottom: 0 }}
           >
+            {hatched && (
             <defs>
-              <pattern id={`hc-${uid}`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                <rect width="6" height="6" fill={bright} />
-                <line x1="0" y1="0" x2="0" y2="6" stroke={dim} strokeWidth="2" />
-              </pattern>
-              <pattern id={`hw-${uid}`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <pattern id={`ha-${uid}`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
                 <rect width="6" height="6" fill={dim} fillOpacity="0.5" />
-                <line x1="0" y1="0" x2="0" y2="6" stroke={bright} strokeWidth="2" strokeOpacity="0.4" />
+                <line x1="0" y1="0" x2="0" y2="6" stroke={bright} strokeWidth="2" />
+              </pattern>
+              <pattern id={`hl-${uid}`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <rect width="6" height="6" fill={bright} />
+                <line x1="0" y1="0" x2="0" y2="6" stroke={dim} strokeWidth="2" strokeOpacity="0.4" />
               </pattern>
             </defs>
+            )}
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.gridLine} />
             <XAxis
               dataKey="month"
@@ -147,7 +151,7 @@ export default function SubmissionsChart({
               }}
             />
             <Bar
-              dataKey="correct"
+              dataKey="light"
               stackId="a"
               shape={(props) => (
                 <BarShape
@@ -160,13 +164,13 @@ export default function SubmissionsChart({
             >
               {chartData.map((entry, i) => (
                 <Cell
-                  key={`cell-correct-${entry.month}`}
-                  fill={i === chartData.length - 1 ? `url(#hc-${uid})` : bright}
+                  key={`cell-light-${entry.month}`}
+                  fill={hatched && i === chartData.length - 1 ? `url(#hl-${uid})` : bright}
                 />
               ))}
             </Bar>
             <Bar
-              dataKey="wrong"
+              dataKey="overlap"
               stackId="a"
               radius={[4, 4, 0, 0]}
               shape={(props) => (
@@ -180,9 +184,9 @@ export default function SubmissionsChart({
             >
               {chartData.map((entry, i) => (
                 <Cell
-                  key={`cell-wrong-${entry.month}`}
-                  fill={i === chartData.length - 1 ? `url(#hw-${uid})` : dim}
-                  fillOpacity={i === chartData.length - 1 ? 1 : 0.5}
+                  key={`cell-overlap-${entry.month}`}
+                  fill={hatched && i === chartData.length - 1 ? `url(#ha-${uid})` : dim}
+                  fillOpacity={hatched && i === chartData.length - 1 ? 1 : 0.5}
                 />
               ))}
             </Bar>
@@ -203,11 +207,11 @@ export default function SubmissionsChart({
         >
           <div style={{ color: '#ffffff', fontSize: 13, marginBottom: 4 }}>{activeEntry.month}</div>
           <div style={{ color: bright, fontSize: 12 }}>
-            {title || 'Правильные'}: {(activeEntry.correct ?? 0).toLocaleString('ru-RU')}
+            {lightLabel || title || 'Уникальные'}: {(activeEntry.light ?? 0).toLocaleString('ru-RU')}
           </div>
-          {!hideTotalLegend && (
+          {!hideDarkLegend && (
             <div style={{ color: dim, fontSize: 12 }}>
-              {title ? 'Комментариев' : 'Всего'}: {(activeEntry.total ?? 0).toLocaleString('ru-RU')}
+              Уникальные по курсам: {(activeEntry.dark ?? 0).toLocaleString('ru-RU')}
             </div>
           )}
         </div>,
