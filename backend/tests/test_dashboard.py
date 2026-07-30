@@ -31,7 +31,7 @@ class TestDashboardKPI:
         user = await _seed_db(db_session)
         course = Course(
             id=uuid.uuid4(), user_id=user.id, stepik_course_id=100,
-            title="Python", status="Published", health_score=95.0,
+            title="Python", status="Published",
         )
         db_session.add(course)
         await db_session.flush()
@@ -103,7 +103,7 @@ class TestDashboardCohorts:
         user = await _seed_db(db_session)
         course = Course(
             id=uuid.uuid4(), user_id=user.id, stepik_course_id=100,
-            title="Python", status="Published", health_score=95.0,
+            title="Python", status="Published",
         )
         db_session.add(course)
         await db_session.flush()
@@ -198,7 +198,7 @@ class TestDashboardAlerts:
         user = await _seed_db(db_session)
         course = Course(
             id=uuid.uuid4(), user_id=user.id, stepik_course_id=123,
-            title="ML", status="Published", health_score=90.0,
+            title="ML", status="Published",
         )
         db_session.add(course)
         await db_session.flush()
@@ -230,7 +230,7 @@ class TestDashboardAlerts:
         user = await _seed_db(db_session)
         course = Course(
             id=uuid.uuid4(), user_id=user.id, stepik_course_id=456,
-            title="JS", status="Published", health_score=90.0,
+            title="JS", status="Published",
         )
         db_session.add(course)
         await db_session.flush()

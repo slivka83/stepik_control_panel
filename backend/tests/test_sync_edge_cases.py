@@ -35,7 +35,6 @@ def _make_course(session, user_id, stepik_course_id=100, title="Python Course"):
         stepik_course_id=stepik_course_id,
         title=title,
         status="Published",
-        health_score=100.0,
     )
     session.add(course)
     return course

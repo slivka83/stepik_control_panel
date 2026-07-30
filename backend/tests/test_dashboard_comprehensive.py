@@ -30,7 +30,6 @@ def _make_course_in_db(session, user_id, stepik_course_id=100, title="Test Cours
         stepik_course_id=stepik_course_id,
         title=title,
         status=status,
-        health_score=100.0,
     )
     session.add(course)
     return course

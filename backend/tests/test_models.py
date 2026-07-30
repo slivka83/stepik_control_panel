@@ -52,7 +52,7 @@ async def test_course_creation(db_session):
     assert result is not None
     assert result.title == "Test Course"
     assert result.status == "Draft"
-    assert result.health_score == 100.0
+
 
 
 @pytest.mark.asyncio

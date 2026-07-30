@@ -5,7 +5,7 @@ from alembic import context
 
 from app.config import get_settings
 from app.database import Base
-from app.models import User, Course, StudentEnrollment, Submission, FinancialSnapshot  # noqa: F401
+from app.models import User, Course, StudentEnrollment, Submission, FinancialSnapshot, MetaEndpoint, MetaFieldMapping  # noqa: F401
 
 config = context.config
 

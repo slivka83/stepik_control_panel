@@ -52,9 +52,9 @@ class TestCoursesList:
     async def test_list_courses_returns_data(self, db_session):
         user = await _seed_db(db_session)
         c1 = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=100,
-                     title="Python", status="Published", health_score=95.0)
+                     title="Python", status="Published")
         c2 = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=200,
-                     title="JS", status="Draft", health_score=80.0)
+                     title="JS", status="Draft")
         db_session.add_all([c1, c2])
         await db_session.flush()
         db_session.add(StudentEnrollment(
@@ -81,7 +81,7 @@ class TestCoursesGet:
     async def test_get_course_found(self, db_session):
         user = await _seed_db(db_session)
         course = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=100,
-                        title="Python", status="Published", health_score=95.0)
+                        title="Python", status="Published")
         db_session.add(course)
         await db_session.commit()
         course_id = str(course.id)

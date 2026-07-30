@@ -3,11 +3,13 @@ import { useSearchParams } from 'react-router-dom'
 import { useSync } from '../contexts/SyncContext'
 import KpiCard from '../components/KpiCard'
 import ErrorBanner from '../components/ErrorBanner'
+import api from '../api'
 
 const ROW_HEIGHT = 35
 const TABS = [
   { key: 'months', label: 'По месяцам' },
   { key: 'courses', label: 'По курсам' },
+  { key: 'hardest', label: 'Самые сложные' },
 ]
 
 function Pagination({ page, totalPages, setPage }) {
@@ -88,6 +90,18 @@ export default function Solutions() {
   const submissions = data.submissions || {}
   const months = submissions.months || []
   const byCourse = submissions.by_course || []
+
+  const [hardestSteps, setHardestSteps] = useState([])
+  const [hardestLoading, setHardestLoading] = useState(false)
+
+  useEffect(() => {
+    if (activeTab !== 'hardest') return
+    setHardestLoading(true)
+    api.get('/dashboard/hardest-steps?limit=200&min_submissions=1')
+      .then((res) => setHardestSteps(res.data.steps || []))
+      .catch(() => {})
+      .finally(() => setHardestLoading(false))
+  }, [activeTab])
 
   const totalSubmissions = months.reduce((s, m) => s + (m.total || 0), 0)
   const totalCorrect = months.reduce((s, m) => s + (m.correct || 0), 0)
@@ -223,6 +237,43 @@ export default function Solutions() {
                 </table>
               </div>
               <Pagination page={page} totalPages={coursesTotalPages} setPage={setPage} />
+            </div>
+          )}
+
+          {activeTab === 'hardest' && (
+            <div className="glass-panel p-4 flex flex-col flex-1 min-h-0">
+              <div ref={tableRef} className="overflow-hidden flex-1 min-h-0">
+                {hardestLoading ? (
+                  <div className="flex items-center justify-center h-full text-gray-500 text-sm">Загрузка...</div>
+                ) : hardestSteps.length === 0 ? (
+                  <div className="flex items-center justify-center h-full text-gray-500 text-sm">Нет данных</div>
+                ) : (
+                  <table className="w-full text-sm table-fixed fin-table">
+                    <thead>
+                      <tr className="border-b border-gray-700">
+                        <th className="text-left text-gray-400 py-2 font-normal w-[12%]">Step ID</th>
+                        <th className="text-left text-gray-400 py-2 font-normal w-[34%]">Курс</th>
+                        <th className="text-right text-gray-400 py-2 font-normal w-[12%]">Всего</th>
+                        <th className="text-right text-gray-400 py-2 font-normal w-[14%]">Правильно</th>
+                        <th className="text-right text-gray-400 py-2 font-normal w-[14%]">Неверно</th>
+                        <th className="text-right text-gray-400 py-2 font-normal w-[14%]">Успех</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hardestSteps.map((s) => (
+                        <tr key={s.stepik_step_id} className="border-b border-gray-800">
+                          <td className="text-cyber-blue font-mono text-xs">{s.stepik_step_id}</td>
+                          <td className="text-white truncate text-xs" title={s.course_title}>{s.course_title}</td>
+                          <td className="text-right text-gray-300 font-mono text-xs">{(s.total || 0).toLocaleString('ru-RU')}</td>
+                          <td className="text-right text-neon-green font-mono text-xs">{(s.correct || 0).toLocaleString('ru-RU')}</td>
+                          <td className="text-right text-crimson-alert font-mono text-xs">{(s.wrong || 0).toLocaleString('ru-RU')}</td>
+                          <td className="text-right font-mono text-xs font-bold" style={{ color: s.success_pct >= 50 ? '#4ade80' : '#f43f5e' }}>{s.success_pct}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </div>
           )}
         </>

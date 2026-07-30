@@ -132,11 +132,23 @@ async def sync_courses_and_enrollments(user_id=None):
             for c in courses_data:
                 sid = c["id"]
                 seen_ids.add(sid)
+                pub_raw = c.get("time") or c.get("update_date") or c.get("course_publish") or c.get("start_date")
+                pub_dt = None
+                if pub_raw:
+                    if isinstance(pub_raw, (int, float)):
+                        pub_dt = datetime.fromtimestamp(int(pub_raw), tz=timezone.utc)
+                    else:
+                        try:
+                            pub_dt = datetime.fromisoformat(str(pub_raw).replace("Z", "+00:00"))
+                        except (ValueError, TypeError):
+                            pub_dt = None
+                if not pub_dt:
+                    pub_dt = datetime.now(timezone.utc)
                 if sid in existing_map:
                     course = existing_map[sid]
                     course.title = c.get("title", "Untitled")
                     course.status = "Published" if c.get("is_public", False) else "Draft"
-                    course.health_score = 100.0
+                    course.published_at = pub_dt
                 else:
                     course = Course(
                         id=uuid.uuid4(),
@@ -144,7 +156,7 @@ async def sync_courses_and_enrollments(user_id=None):
                         stepik_course_id=sid,
                         title=c.get("title", "Untitled"),
                         status="Published" if c.get("is_public", False) else "Draft",
-                        health_score=100.0,
+                        published_at=pub_dt,
                     )
                     session.add(course)
                 await session.flush()
@@ -706,7 +718,14 @@ async def sync_community_stats(user_id=None):
     rating_sum = 0.0
     rating_count = 0
     reviews_count = 0
-    review_ids = [c.get("review_summary") for c in courses_data if c.get("review_summary")]
+    per_course_ratings: dict[int, dict] = {}
+    course_review_map = {}
+    for c in courses_data:
+        rid = c.get("review_summary")
+        if rid:
+            course_review_map[rid] = c["id"]
+
+    review_ids = list(course_review_map.keys())
     if review_ids:
         try:
             ids_param = "&".join(f"ids[]={rid}" for rid in review_ids)
@@ -715,9 +734,15 @@ async def sync_community_stats(user_id=None):
             for rs in summaries:
                 avg = rs.get("average")
                 cnt = rs.get("count", 0)
+                sid = course_review_map.get(rs.get("id"))
                 if avg is not None and cnt > 0:
                     rating_sum += float(avg)
                     rating_count += 1
+                    if sid:
+                        per_course_ratings[sid] = {
+                            "average_rating": float(avg),
+                            "reviews_count": int(cnt or 0),
+                        }
                 reviews_count += int(cnt or 0)
         except Exception as e:
             logger.warning("Failed to fetch review summaries: %s", e)
@@ -756,8 +781,14 @@ async def sync_community_stats(user_id=None):
     new_solutions_monthly: dict[str, int] = {}
     max_solution_time = last_solution_time
 
+    per_course_comments: dict[int, int] = {}
+    per_course_comments_monthly: dict[int, dict] = {}
+    per_course_solutions: dict[int, int] = {}
+
     for cid in course_ids_api:
         page = 1
+        pc_comments = 0
+        pc_solutions = 0
         while True:
             data = await _request("GET", "/comments", token,
                                   {"course": cid, "page": page, "page_size": 20})
@@ -769,15 +800,21 @@ async def sync_community_stats(user_id=None):
                 ts = c.get("time", "") or c.get("update_date", "")
                 if ts and ts > last_comment_time:
                     new_total += 1
+                    pc_comments += 1
                     if len(ts) >= 7:
                         key = f"{ts[:4]}-{ts[5:7]}"
                         new_monthly[key] = new_monthly.get(key, 0) + 1
+                        pc_key = key
+                        if cid not in per_course_comments_monthly:
+                            per_course_comments_monthly[cid] = {}
+                        per_course_comments_monthly[cid][pc_key] = per_course_comments_monthly[cid].get(pc_key, 0) + 1
                     if ts > max_time:
                         max_time = ts
 
                 if c.get("thread") == "solutions":
                     if ts and ts > last_solution_time:
                         new_solutions += 1
+                        pc_solutions += 1
                         if len(ts) >= 7:
                             key = f"{ts[:4]}-{ts[5:7]}"
                             new_solutions_monthly[key] = new_solutions_monthly.get(key, 0) + 1
@@ -787,6 +824,11 @@ async def sync_community_stats(user_id=None):
             if not data.get("meta", {}).get("has_next", False):
                 break
             page += 1
+
+        if pc_comments > 0:
+            per_course_comments[cid] = pc_comments
+        if pc_solutions > 0:
+            per_course_solutions[cid] = pc_solutions
 
     if new_total > 0:
         comments_total += new_total
@@ -800,22 +842,36 @@ async def sync_community_stats(user_id=None):
             solutions_monthly[k] = solutions_monthly.get(k, 0) + v
         last_solution_time = max_solution_time
 
-    if new_total > 0 or new_solutions > 0:
-        async with async_session() as session:
-            result = await session.execute(select(FinancialSnapshot).limit(1))
-            snapshot = result.scalar_one_or_none()
-            if snapshot:
-                prev = snapshot.data.get("community", {})
-                snapshot.data = {**snapshot.data, "community": {
-                    **prev,
-                    "total_comments": comments_total,
-                    "comments_monthly": comments_monthly,
-                    "last_comment_time": last_comment_time,
-                    "total_solutions": solutions_total,
-                    "solutions_monthly": solutions_monthly,
-                    "last_solution_time": last_solution_time,
-                }}
-                await session.commit()
+    per_course_data: dict[int, dict] = {}
+    for cid in course_ids_api:
+        entry = {}
+        if cid in per_course_comments:
+            entry["comments"] = per_course_comments[cid]
+        if cid in per_course_comments_monthly:
+            entry["comments_monthly"] = per_course_comments_monthly[cid]
+        if cid in per_course_solutions:
+            entry["solutions"] = per_course_solutions[cid]
+        if cid in per_course_ratings:
+            entry.update(per_course_ratings[cid])
+        if entry:
+            per_course_data[str(cid)] = entry
+
+    async with async_session() as session:
+        result = await session.execute(select(FinancialSnapshot).limit(1))
+        snapshot = result.scalar_one_or_none()
+        if snapshot:
+            prev = snapshot.data.get("community", {})
+            snapshot.data = {**snapshot.data, "community": {
+                **prev,
+                "total_comments": comments_total,
+                "comments_monthly": comments_monthly,
+                "last_comment_time": last_comment_time,
+                "total_solutions": solutions_total,
+                "solutions_monthly": solutions_monthly,
+                "last_solution_time": last_solution_time,
+                "per_course": per_course_data,
+            }}
+            await session.commit()
 
     logger.info("Community stats: %d reviews, avg rating %.2f, %d comments",
                 reviews_count, avg_rating, comments_total)

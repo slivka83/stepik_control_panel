@@ -22,13 +22,14 @@ export function SyncProvider({ children }) {
     activeStudents: { months: [] },
     activeEnrolled: { months: [] },
     publishedSolutions: { months: [] },
+    students: { students: [], total: 0 },
   })
   const abortRef = useRef(null)
   const pollIntervalRef = useRef(30000)
 
   const fetchAll = useCallback(async (signal) => {
     try {
-      const [kpiRes, cohortsRes, revenueRes, alertsRes, coursesRes, financialsRes, submissionsRes, activeStudentsRes, activeEnrolledRes, publishedSolutionsRes] =
+      const [kpiRes, cohortsRes, revenueRes, alertsRes, coursesRes, financialsRes, submissionsRes, activeStudentsRes, activeEnrolledRes, publishedSolutionsRes, studentsRes] =
         await Promise.allSettled([
           api.get('/dashboard/kpi', { signal }),
           api.get('/dashboard/cohorts', { signal }),
@@ -40,6 +41,7 @@ export function SyncProvider({ children }) {
           api.get('/dashboard/active-students', { signal }),
           api.get('/dashboard/active-enrolled-students', { signal }),
           api.get('/dashboard/published-solutions', { signal }),
+          api.get('/dashboard/students?limit=200', { signal }),
         ])
 
       setData(prev => {
@@ -59,12 +61,13 @@ export function SyncProvider({ children }) {
           activeStudents: activeStudentsRes.status === 'fulfilled' ? activeStudentsRes.value.data : prev.activeStudents,
           activeEnrolled: activeEnrolledRes.status === 'fulfilled' ? activeEnrolledRes.value.data : prev.activeEnrolled,
           publishedSolutions: publishedSolutionsRes.status === 'fulfilled' ? publishedSolutionsRes.value.data : prev.publishedSolutions,
+          students: studentsRes.status === 'fulfilled' ? studentsRes.value.data : prev.students,
         }
         if (JSON.stringify(prev) === JSON.stringify(next)) return prev
         return next
       })
 
-      const failures = [kpiRes, cohortsRes, revenueRes, alertsRes, coursesRes, financialsRes, submissionsRes, activeStudentsRes, activeEnrolledRes, publishedSolutionsRes]
+      const failures = [kpiRes, cohortsRes, revenueRes, alertsRes, coursesRes, financialsRes, submissionsRes, activeStudentsRes, activeEnrolledRes, publishedSolutionsRes, studentsRes]
         .filter(r => r.status === 'rejected')
       if (failures.length > 0) {
         setError(`${failures.length} endpoint(s) failed to load`)

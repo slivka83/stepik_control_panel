@@ -1,39 +1,125 @@
+import { memo } from 'react'
 import { useSync } from '../contexts/SyncContext'
 import ErrorBanner from '../components/ErrorBanner'
+import KpiCard from '../components/KpiCard'
 import { STEPIK_URLS } from '../constants.jsx'
-import { pluralize } from '../utils/pluralize'
+
+function getRatingColor(rating) {
+  const r = Math.max(1, Math.min(5, rating))
+  const stops = [
+    [1.0, 239, 68, 68],
+    [2.0, 249, 115, 22],
+    [3.0, 234, 179, 8],
+    [4.0, 132, 204, 22],
+    [4.5, 100, 214, 81],
+    [4.9, 74, 222, 128],
+  ]
+  let i = 0
+  while (i < stops.length - 1 && stops[i + 1][0] < r) i++
+  if (i >= stops.length - 1) {
+    const [, cr, cg, cb] = stops[stops.length - 1]
+    return `rgb(${cr}, ${cg}, ${cb})`
+  }
+  const [r0, r1, g1, b1] = stops[i]
+  const [r1v, r2, g2, b2] = stops[i + 1]
+  const t = (r - r0) / (r1v - r0)
+  return `rgb(${Math.round(r1 + (r2 - r1) * t)}, ${Math.round(g1 + (g2 - g1) * t)}, ${Math.round(b1 + (b2 - b1) * t)})`
+}
+
+function pctStr(total, correct) {
+  if (!total) return '—'
+  return `${Math.round((correct / total) * 100)}%`
+}
+
+const RatingCell = memo(function RatingCell({ rating }) {
+  if (!rating) return <span className="text-gray-500">—</span>
+  return <span className="font-mono font-bold" style={{ color: getRatingColor(rating) }}>{rating.toFixed(2)}</span>
+})
+
+function fmtDate(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
+}
+
+const CourseRow = memo(function CourseRow({ course }) {
+  const isPublished = course.status?.toLowerCase() === 'published'
+  const totalSubs = course.submissions_total || 0
+  const correctSubs = course.submissions_correct || 0
+  const price = course.price
+  return (
+    <tr className="border-b border-space-gray/30 hover:bg-space-gray/40 transition-colors">
+      <td className="py-2.5 pr-3">
+        <a
+          href={STEPIK_URLS.course(course.stepik_course_id)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-cyber-blue text-sm font-medium hover:underline truncate max-w-[200px] block"
+          title={course.title}
+        >
+          {course.title}
+        </a>
+      </td>
+      <td className="py-2.5 pr-3">
+        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${
+          isPublished
+            ? 'bg-neon-green/20 text-neon-green'
+            : 'bg-gray-500/20 text-gray-400'
+        }`}>
+          {isPublished ? 'Опубликован' : 'Черновик'}
+        </span>
+      </td>
+      <td className="py-2.5 pr-3 font-mono text-sm text-gray-300 text-right">{course.enrollment_count || 0}</td>
+      <td className="py-2.5 pr-3 font-mono text-sm text-gray-300 text-right">
+        {totalSubs > 0 ? `${totalSubs} (${pctStr(totalSubs, correctSubs)})` : '—'}
+      </td>
+      <td className="py-2.5 pr-3 font-mono text-sm text-gray-300 text-right">{course.comments_count || 0}</td>
+      <td className="py-2.5 pr-3 font-mono text-sm text-gray-300 text-right">{course.reviews_count || 0}</td>
+      <td className="py-2.5 pr-3 text-right"><RatingCell rating={course.average_rating} /></td>
+      <td className="py-2.5 pr-3 font-mono text-sm text-right">
+        {price != null ? `${price.toLocaleString('ru-RU')}\u00A0₽` : '—'}
+      </td>
+      <td className="py-2.5 font-mono text-xs text-gray-400 whitespace-nowrap">{fmtDate(course.published_at)}</td>
+    </tr>
+  )
+})
 
 export default function Courses() {
   const { data, loading, error, refresh } = useSync()
-  const courses = data.courses
+  const courses = data.courses || []
+  const kpi = data.kpi || {}
 
   if (loading) {
     return (
-      <div className="space-y-4">
-        <h1 className="text-xl font-bold text-white">Курсы</h1>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={`skeleton-course-${i}`} className="glass-panel p-4 animate-pulse">
-              <div className="h-4 bg-gray-700 rounded w-3/4 mb-2"></div>
-              <div className="h-3 bg-gray-700 rounded w-1/2 mb-3"></div>
-              <div className="h-6 bg-gray-700 rounded"></div>
+      <div className="flex flex-col flex-1 gap-4 min-h-0">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={`sk-${i}`} className="glass-panel p-4 animate-pulse">
+              <div className="h-3 bg-gray-700 rounded w-20 mb-2"></div>
+              <div className="h-6 bg-gray-700 rounded w-24"></div>
             </div>
           ))}
+        </div>
+        <div className="glass-panel p-4 animate-pulse flex-1">
+          <div className="h-3 bg-gray-700 rounded w-28 mb-3"></div>
+          <div className="h-5 bg-gray-700 rounded w-full"></div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-white">Курсы</h1>
-        <span className="text-xs text-gray-500 font-mono">
-          {courses.length} {pluralize(courses.length, ['курс', 'курса', 'курсов'])}
-        </span>
-      </div>
-
+    <div className="flex flex-col flex-1 gap-4 min-h-0">
       {error && <ErrorBanner message={error} onRetry={refresh} />}
+
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <KpiCard title="Всего курсов" value={kpi?.courses_count || 0} color="white" />
+        <KpiCard title="Опубликовано" value={kpi?.courses_published || 0} color="neon-green" />
+        <KpiCard title="Черновиков" value={kpi?.courses_unpublished || 0} color="amber-alert" />
+        <KpiCard title="Всего студентов" value={kpi?.total_students || 0} color="white" />
+        <KpiCard title="Средний рейтинг" value={kpi?.average_rating || 0} ratingColor fractionDigits={2} minimumFractionDigits={2} />
+        <KpiCard title="Всего комментариев" value={kpi?.total_comments || 0} color="white" />
+      </div>
 
       {courses.length === 0 ? (
         <div className="glass-panel p-8 text-center">
@@ -50,40 +136,29 @@ export default function Courses() {
           </a>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {courses.map((course) => {
-            const isPublished = course.status?.toLowerCase() === 'published'
-            return (
-              <div key={course.id} className="glass-panel glass-panel-hover p-4 transition-all duration-300">
-                <div className="flex items-start justify-between mb-2">
-                  <h3 className="text-white font-medium text-sm">{course.title}</h3>
-                  <span className={`text-xs px-2 py-0.5 rounded ${
-                    isPublished
-                      ? 'bg-neon-green/20 text-neon-green'
-                      : 'bg-gray-500/20 text-gray-400'
-                  }`}>
-                    {course.status || 'Draft'}
-                  </span>
-                </div>
-                <div className="flex items-center gap-3 text-xs text-gray-400">
-                  <span className="font-mono">
-                    {course.enrollment_count || 0} {pluralize(course.enrollment_count || 0, ['студент', 'студента', 'студентов'])}
-                  </span>
-                  <span className="font-mono">Score: {course.health_score}</span>
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <a
-                    href={STEPIK_URLS.course(course.stepik_course_id)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-1 text-center text-xs text-cyber-blue border border-cyber-blue/30 rounded-lg py-2 hover:bg-cyber-blue/10 transition-colors"
-                  >
-                    Открыть на Stepik
-                  </a>
-                </div>
-              </div>
-            )
-          })}
+        <div className="glass-panel p-4 flex-1 flex flex-col min-h-0 overflow-hidden">
+          <div className="overflow-auto flex-1 min-h-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 text-xs uppercase tracking-wider border-b border-space-gray/50">
+                  <th className="pb-2 pr-3 font-medium">Название</th>
+                  <th className="pb-2 pr-3 font-medium">Статус</th>
+                  <th className="pb-2 pr-3 font-medium text-right">Студенты</th>
+                  <th className="pb-2 pr-3 font-medium text-right">Решения</th>
+                  <th className="pb-2 pr-3 font-medium text-right">Комментарии</th>
+                  <th className="pb-2 pr-3 font-medium text-right">Отзывы</th>
+                  <th className="pb-2 pr-3 font-medium text-right">Рейтинг</th>
+                  <th className="pb-2 pr-3 font-medium text-right">Стоимость</th>
+                  <th className="pb-2 font-medium">Опубликован</th>
+                </tr>
+              </thead>
+              <tbody>
+                {courses.map((course) => (
+                  <CourseRow key={course.id} course={course} />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

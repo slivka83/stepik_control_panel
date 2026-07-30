@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Integer, DateTime, Float, ForeignKey, Index
+from sqlalchemy import String, Integer, DateTime, ForeignKey, Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,7 +16,7 @@ class Course(Base):
     stepik_course_id: Mapped[int] = mapped_column(Integer, unique=True, nullable=False)
     title: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str | None] = mapped_column(String, default="Draft")
-    health_score: Mapped[float] = mapped_column(Float, default=100.0)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user: Mapped["User"] = relationship(back_populates="courses")

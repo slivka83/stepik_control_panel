@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy import select, func, extract
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import select, func, extract, case
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, timezone
 
@@ -514,3 +514,108 @@ async def get_published_solutions(
             "light": val,
         })
     return {"months": months_res}
+
+
+@router.get("/students")
+async def get_students(
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+):
+    courses_result = await db.execute(
+        select(Course).where(Course.user_id == user.id)
+    )
+    courses = courses_result.scalars().all()
+    course_ids = [c.id for c in courses]
+    course_map = {c.id: c.title for c in courses}
+
+    if not course_ids:
+        return {"students": [], "total": 0}
+
+    total_result = await db.execute(
+        select(func.count(StudentEnrollment.id))
+        .where(StudentEnrollment.course_id.in_(course_ids))
+    )
+    total = total_result.scalar() or 0
+
+    result = await db.execute(
+        select(StudentEnrollment)
+        .where(StudentEnrollment.course_id.in_(course_ids))
+        .order_by(StudentEnrollment.last_viewed_at.desc().nullslast())
+        .offset(skip)
+        .limit(limit)
+    )
+    enrollments = result.scalars().all()
+
+    students = []
+    for e in enrollments:
+        students.append({
+            "student_id": e.student_id,
+            "course_id": str(e.course_id),
+            "course_title": course_map.get(e.course_id, "Unknown"),
+            "cohort_status": e.cohort_status,
+            "points_earned": e.points_earned,
+            "certificate_issued": e.certificate_issued,
+            "last_viewed_at": e.last_viewed_at.isoformat() if e.last_viewed_at else None,
+            "date_joined": e.date_joined.isoformat() if e.date_joined else None,
+        })
+
+    return {"students": students, "total": total}
+
+
+@router.get("/hardest-steps")
+async def get_hardest_steps(
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(100, ge=1, le=500),
+    min_submissions: int = Query(10, ge=1),
+):
+    course_ids_result = await db.execute(
+        select(Course.id).where(Course.user_id == user.id)
+    )
+    course_ids = [r[0] for r in course_ids_result.all()]
+
+    if not course_ids:
+        return {"steps": []}
+
+    course_map_result = await db.execute(
+        select(Course.id, Course.title).where(Course.id.in_(course_ids))
+    )
+    course_map = dict(course_map_result.all())
+
+    result = await db.execute(
+        select(
+            Submission.stepik_step_id,
+            Submission.course_id,
+            func.count(Submission.id).label("total"),
+            func.count(case((Submission.status == "correct", 1), else_=None)).label("correct"),
+        )
+        .where(
+            Submission.course_id.in_(course_ids),
+            Submission.is_author == False,
+        )
+        .group_by(Submission.stepik_step_id, Submission.course_id)
+        .having(func.count(Submission.id) >= min_submissions)
+        .order_by(
+            (func.count(case((Submission.status == "correct", 1), else_=None)) * 1.0 / func.count(Submission.id)).asc()
+        )
+        .limit(limit)
+    )
+    rows = result.all()
+
+    steps = []
+    for row in rows:
+        total = row.total
+        correct = row.correct
+        steps.append({
+            "stepik_step_id": row.stepik_step_id,
+            "course_id": str(row.course_id),
+            "course_title": course_map.get(row.course_id, "Unknown"),
+            "total": total,
+            "correct": correct,
+            "wrong": total - correct,
+            "success_pct": round((correct / total) * 100, 1) if total > 0 else 0,
+        })
+
+    return {"steps": steps}
