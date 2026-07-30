@@ -50,7 +50,7 @@ RAW_TABLES = {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             unit_id INTEGER,
             lesson_id INTEGER,
-            section INTEGER,
+            section_id INTEGER,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -78,11 +78,11 @@ RAW_TABLES = {
     "raw_course_grade": """
         CREATE TABLE IF NOT EXISTS raw_course_grade (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            "user" INTEGER,
-            course INTEGER,
+            course_id TEXT,
+            user_id INTEGER,
             score INTEGER,
             last_viewed TEXT,
-            first_viewed TEXT,
+            date_joined TEXT,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )

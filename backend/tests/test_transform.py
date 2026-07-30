@@ -122,7 +122,7 @@ class TestTransformEnrollments:
 
         now_iso = datetime.now(timezone.utc)
         await db_session.execute(text("""
-            INSERT INTO raw_course_grade ("user", course, score, last_viewed, first_viewed, _raw_json)
+            INSERT INTO raw_course_grade (user_id, course_id, score, last_viewed, date_joined, _raw_json)
             VALUES (1001, 101, 85, :lv, :fj, '{}'),
                    (1002, 101, 0, NULL, :fj2, '{}')
         """), {
@@ -169,7 +169,7 @@ class TestTransformEnrollments:
 
         now_iso = datetime.now(timezone.utc)
         await db_session.execute(text(
-            "INSERT INTO raw_course_grade (\"user\", course, score, last_viewed, _raw_json) VALUES (:u, :c, :s, :lv, '{}')"
+            "INSERT INTO raw_course_grade (user_id, course_id, score, last_viewed, _raw_json) VALUES (:u, :c, :s, :lv, '{}')"
         ), {"u": 2001, "c": 101, "s": 90, "lv": (now_iso - timedelta(days=1)).isoformat()})
         await db_session.commit()
 
@@ -201,7 +201,7 @@ class TestTransformSubmissions:
                 VALUES (500, 10, '{}')
             """))
             await db_session.execute(text("""
-                INSERT INTO raw_unit (unit_id, lesson_id, section, _raw_json)
+                INSERT INTO raw_unit (unit_id, lesson_id, section_id, _raw_json)
                 VALUES (1, 10, 1, '{}')
             """))
             await db_session.execute(text("""
@@ -372,3 +372,32 @@ class TestTransformCommunity:
         assert row is not None
         data = json.loads(row[0]) if isinstance(row[0], str) else row[0]
         assert data["community"]["total_comments"] == 0
+
+
+# ─── Schema validation: transform queries match raw table columns ──────
+
+
+COLS_BY_RAW_TABLE = {
+    "raw_course": {"course_id", "title", "became_published_at", "is_public"},
+    "raw_step": {"step_id", "lesson"},
+    "raw_unit": {"lesson_id", "section_id"},
+    "raw_section": {"section_id", "course"},
+    "raw_course_grade": {"user_id", "course_id", "score", "last_viewed", "date_joined"},
+    "raw_certificate": {"user_id", "course"},
+    "raw_attempt": {"attempt_id", "user_id"},
+}
+
+
+async def _get_raw_table_columns(session, table: str) -> set[str]:
+    """Return set of column names for a raw_* table via PRAGMA."""
+    r = await session.execute(text(f"SELECT name FROM pragma_table_info('{table}')"))
+    return {row[0].lower() for row in r}
+
+
+@pytest.mark.asyncio
+async def test_transform_queries_match_raw_columns(db_session):
+    """Regression: each transform SQL query references only columns that exist in its raw_* table."""
+    for table, expected_cols in COLS_BY_RAW_TABLE.items():
+        actual_cols = await _get_raw_table_columns(db_session, table)
+        missing = expected_cols - actual_cols
+        assert not missing, f"{table}: missing columns expected by transform: {missing}"

@@ -141,7 +141,7 @@ async def build_step_course_map(session: AsyncSession) -> dict[int, int]:
         SELECT DISTINCT s.step_id, sec.course
         FROM raw_step s
         JOIN raw_unit u ON u.lesson_id = s.lesson
-        JOIN raw_section sec ON sec.section_id = u.section
+        JOIN raw_section sec ON sec.section_id = u.section_id
         WHERE s.step_id IS NOT NULL AND sec.course IS NOT NULL
     """))
     return {int(r[0]): int(r[1]) for r in r}
@@ -160,9 +160,9 @@ async def transform_enrollments(session: AsyncSession):
     for stepik_cid, course_uuid in course_map.items():
         r = await session.execute(
             text("""
-                SELECT user AS student_id, score, last_viewed, first_viewed
+                SELECT user_id AS student_id, score, last_viewed, date_joined
                 FROM raw_course_grade
-                WHERE course = :cid
+                WHERE course_id = :cid
             """),
             {"cid": stepik_cid},
         )
@@ -184,7 +184,7 @@ async def transform_enrollments(session: AsyncSession):
                 continue
             student_id = int(student_id)
             lv = parse_dt(g.get("last_viewed"))
-            dj = parse_dt(g.get("first_viewed"))
+            dj = parse_dt(g.get("date_joined"))
             score = int(g.get("score") or 0)
             enrollments.append({
                 "id": str(uuid.uuid4()),
