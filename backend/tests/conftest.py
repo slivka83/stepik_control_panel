@@ -24,6 +24,7 @@ RAW_TABLES = {
             title TEXT,
             became_published_at TEXT,
             begin_date TEXT,
+            updated_at TEXT,
             is_public INTEGER,
             is_published TEXT,
             review_summary INTEGER,
