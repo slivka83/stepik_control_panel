@@ -87,7 +87,16 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
         seen_ids.add(sid)
         pub_raw = rc.get("time") or rc.get("update_date") or rc.get("start_date")
         pub_dt = parse_dt(pub_raw) or datetime.now(timezone.utc)
-        is_pub = rc.get("is_public")
+        is_pub_raw = rc.get("is_public")
+        if is_pub_raw is not None:
+            if isinstance(is_pub_raw, bool):
+                is_pub = is_pub_raw
+            elif isinstance(is_pub_raw, (int, float)):
+                is_pub = bool(is_pub_raw)
+            else:
+                is_pub = str(is_pub_raw).lower() in ("true", "1")
+        else:
+            is_pub = None
         status = get_course_status(is_pub) if is_pub is not None else "Draft"
         title = (rc.get("title") or "Untitled")[:255]
 

@@ -50,7 +50,16 @@ async def _replace_raw_table(session: AsyncSession, raw_table: str, objects: lis
     if not objects:
         return
 
-    all_db_cols = list(mapping.values())
+    try:
+        col_r = await session.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = :t
+        """), {"t": raw_table})
+        table_cols = {row[0] for row in col_r}
+    except Exception:
+        table_cols = set()
+
+    all_db_cols = [c for c in mapping.values() if not table_cols or c in table_cols]
 
     try:
         pk_r = await session.execute(text("""
@@ -98,7 +107,16 @@ async def _upsert_raw_table(session: AsyncSession, raw_table: str, objects: list
     if not objects:
         return
 
-    all_db_cols = list(mapping.values())
+    try:
+        col_r = await session.execute(text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = :t
+        """), {"t": raw_table})
+        table_cols = {row[0] for row in col_r}
+    except Exception:
+        table_cols = set()
+
+    all_db_cols = [c for c in mapping.values() if not table_cols or c in table_cols]
 
     try:
         pk_r = await session.execute(text("""
