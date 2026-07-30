@@ -8,6 +8,24 @@ from app.services.stepik_api import (
 )
 
 
+def _mock_request_client(mock_client_class, mock_response):
+    """Set up httpx.AsyncClient mock for _request tests.
+    _request uses _get_client() which calls httpx.AsyncClient() and 
+    uses the returned client directly (not as context manager).
+    """
+    instance = mock_client_class.return_value
+    instance.request = AsyncMock(return_value=mock_response)
+    return instance
+
+
+def _mock_async_client(mock_client_class, mock_response):
+    """Set up httpx.AsyncClient mock for functions using async with."""
+    instance = mock_client_class.return_value
+    instance.__aenter__.return_value = instance
+    instance.post = AsyncMock(return_value=mock_response)
+    return instance
+
+
 class TestRequestGuard:
     @pytest.mark.asyncio
     async def test_post_raises_value_error(self):
@@ -36,9 +54,7 @@ class TestRequestGuard:
                 mock_response = MagicMock()
                 mock_response.status_code = 200
                 mock_response.json.return_value = {"courses": [{"id": 1}]}
-                mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                mock_client.request = AsyncMock(return_value=mock_response)
+                _mock_request_client(mock_client, mock_response)
 
                 result = await _request("get", "/courses/1")
                 assert result == {"courses": [{"id": 1}]}
@@ -50,9 +66,7 @@ class TestRequestGuard:
                 mock_response = MagicMock()
                 mock_response.status_code = 200
                 mock_response.json.return_value = {"courses": [{"id": 1}]}
-                mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                mock_client.request = AsyncMock(return_value=mock_response)
+                _mock_request_client(mock_client, mock_response)
 
                 result = await _request("GET", "/courses/1")
                 assert result == {"courses": [{"id": 1}]}
@@ -72,12 +86,10 @@ class TestRateLimitHandling:
                     mock_response_200.status_code = 200
                     mock_response_200.json.return_value = {"data": "ok"}
 
-                    mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                    mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                    mock_client.request = AsyncMock(side_effect=[mock_response_429, mock_response_200])
+                    instance = mock_client.return_value
+                    instance.request = AsyncMock(side_effect=[mock_response_429, mock_response_200])
 
                     result = await _request("GET", "/test")
-                    # retries=0: retry_after_header=2, retry_after=min(2, 2^0)=1
                     mock_sleep.assert_called_once_with(1)
                     assert result == {"data": "ok"}
 
@@ -94,12 +106,10 @@ class TestRateLimitHandling:
                     mock_response_200.status_code = 200
                     mock_response_200.json.return_value = {}
 
-                    mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                    mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                    mock_client.request = AsyncMock(side_effect=[mock_response_429, mock_response_200])
+                    instance = mock_client.return_value
+                    instance.request = AsyncMock(side_effect=[mock_response_429, mock_response_200])
 
                     await _request("GET", "/test")
-                    # retries=0: retry_after_header=2^0=1, retry_after=min(1, 2^0)=1
                     mock_sleep.assert_called_once_with(1)
 
 
@@ -111,9 +121,7 @@ class TestErrorHandling:
                 mock_response = MagicMock()
                 mock_response.status_code = 400
                 mock_response.text = "Bad Request"
-                mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                mock_client.request = AsyncMock(return_value=mock_response)
+                _mock_request_client(mock_client, mock_response)
 
                 with pytest.raises(StepikAPIError) as exc_info:
                     await _request("GET", "/test")
@@ -126,9 +134,7 @@ class TestErrorHandling:
                 mock_response = MagicMock()
                 mock_response.status_code = 401
                 mock_response.text = "Unauthorized"
-                mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                mock_client.request = AsyncMock(return_value=mock_response)
+                _mock_request_client(mock_client, mock_response)
 
                 with pytest.raises(StepikAPIError):
                     await _request("GET", "/test")
@@ -140,9 +146,7 @@ class TestErrorHandling:
                 mock_response = MagicMock()
                 mock_response.status_code = 500
                 mock_response.text = "Internal Server Error"
-                mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                mock_client.request = AsyncMock(return_value=mock_response)
+                _mock_request_client(mock_client, mock_response)
 
                 with pytest.raises(StepikAPIError):
                     await _request("GET", "/test")
@@ -156,13 +160,11 @@ class TestTokenAuth:
                 mock_response = MagicMock()
                 mock_response.status_code = 200
                 mock_response.json.return_value = {}
-                mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                mock_client.request = AsyncMock(return_value=mock_response)
+                inst = _mock_request_client(mock_client, mock_response)
 
                 await _request("GET", "/test", token="my_token_123")
 
-                call_kwargs = mock_client.request.call_args[1]
+                call_kwargs = inst.request.call_args[1]
                 assert call_kwargs["headers"]["Authorization"] == "Bearer my_token_123"
 
     @pytest.mark.asyncio
@@ -172,13 +174,11 @@ class TestTokenAuth:
                 mock_response = MagicMock()
                 mock_response.status_code = 200
                 mock_response.json.return_value = {}
-                mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                mock_client.request = AsyncMock(return_value=mock_response)
+                inst = _mock_request_client(mock_client, mock_response)
 
                 await _request("GET", "/test")
 
-                call_kwargs = mock_client.request.call_args[1]
+                call_kwargs = inst.request.call_args[1]
                 assert "Authorization" not in call_kwargs["headers"]
 
 
@@ -193,16 +193,14 @@ class TestExchangeCodeForToken:
                 "refresh_token": "test_refresh",
                 "expires_in": 3600
             }
-            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
+            _mock_async_client(mock_client, mock_response)
 
             result = await exchange_code_for_token(
                 "code123", "client_id", "client_secret", "http://localhost:3000/api/auth/callback"
             )
 
             assert result["access_token"] == "test_access"
-            call_kwargs = mock_client.post.call_args[1]
+            call_kwargs = mock_client.return_value.post.call_args[1]
             assert call_kwargs["data"]["scope"] == "read"
             assert call_kwargs["data"]["grant_type"] == "authorization_code"
             assert call_kwargs["data"]["redirect_uri"] == "http://localhost:3000/api/auth/callback"
@@ -213,9 +211,7 @@ class TestExchangeCodeForToken:
             mock_response = MagicMock()
             mock_response.status_code = 400
             mock_response.text = "Invalid code"
-            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
+            _mock_async_client(mock_client, mock_response)
 
             with pytest.raises(StepikAPIError):
                 await exchange_code_for_token(
@@ -261,13 +257,11 @@ class TestRefreshAccessToken:
                 "refresh_token": "new_refresh",
                 "expires_in": 3600,
             }
-            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
+            _mock_async_client(mock_client, mock_response)
 
             result = await refresh_access_token("old_refresh", "client_id", "client_secret")
             assert result["access_token"] == "new_access"
-            call_kwargs = mock_client.post.call_args[1]
+            call_kwargs = mock_client.return_value.post.call_args[1]
             assert call_kwargs["data"]["grant_type"] == "refresh_token"
             assert call_kwargs["data"]["scope"] == "read"
 
@@ -277,9 +271,7 @@ class TestRefreshAccessToken:
             mock_response = MagicMock()
             mock_response.status_code = 400
             mock_response.text = "Invalid refresh token"
-            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
+            _mock_async_client(mock_client, mock_response)
 
             with pytest.raises(StepikAPIError):
                 await refresh_access_token("bad_refresh", "client_id", "client_secret")

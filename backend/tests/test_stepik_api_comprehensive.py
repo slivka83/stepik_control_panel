@@ -23,9 +23,8 @@ class TestRequest5xxRetry:
                     mock_response_200.status_code = 200
                     mock_response_200.json.return_value = {"data": "ok"}
 
-                    mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                    mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                    mock_client.request = AsyncMock(side_effect=[mock_response_500, mock_response_200])
+                    instance = mock_client.return_value
+                    instance.request = AsyncMock(side_effect=[mock_response_500, mock_response_200])
 
                     result = await _request("GET", "/test")
                     assert result == {"data": "ok"}
@@ -39,9 +38,8 @@ class TestRequest5xxRetry:
                     mock_response_500.status_code = 500
                     mock_response_500.text = "Server Error"
 
-                    mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                    mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                    mock_client.request = AsyncMock(return_value=mock_response_500)
+                    instance = mock_client.return_value
+                    instance.request = AsyncMock(return_value=mock_response_500)
 
                     with pytest.raises(StepikAPIError) as exc_info:
                         await _request("GET", "/test")
@@ -59,9 +57,8 @@ class TestRequest5xxRetry:
                     mock_response_200.status_code = 200
                     mock_response_200.json.return_value = {"ok": True}
 
-                    mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                    mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                    mock_client.request = AsyncMock(side_effect=[mock_response_503, mock_response_200])
+                    instance = mock_client.return_value
+                    instance.request = AsyncMock(side_effect=[mock_response_503, mock_response_200])
 
                     result = await _request("GET", "/test")
                     assert result == {"ok": True}
@@ -75,9 +72,8 @@ class TestRequest5xxRetry:
                     mock_response_502.status_code = 502
                     mock_response_502.text = "Bad Gateway"
 
-                    mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-                    mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-                    mock_client.request = AsyncMock(return_value=mock_response_502)
+                    instance = mock_client.return_value
+                    instance.request = AsyncMock(return_value=mock_response_502)
 
                     with pytest.raises(StepikAPIError):
                         await _request("GET", "/test")
@@ -111,14 +107,14 @@ class TestGetFinanceToken:
                 "access_token": "finance_token_123",
                 "expires_in": 36000,
             }
-            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
+            instance = mock_client.return_value
+            instance.__aenter__.return_value = instance
+            instance.post = AsyncMock(return_value=mock_response)
 
             token = await get_finance_token("fin_client", "fin_secret")
             assert token == "finance_token_123"
 
-            call_kwargs = mock_client.post.call_args[1]
+            call_kwargs = instance.post.call_args[1]
             assert call_kwargs["data"]["grant_type"] == "client_credentials"
             assert call_kwargs["data"]["scope"] == "read"
             assert call_kwargs["data"]["client_id"] == "fin_client"
@@ -146,9 +142,9 @@ class TestGetFinanceToken:
                 "access_token": "fresh_token",
                 "expires_in": 36000,
             }
-            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
+            instance = mock_client.return_value
+            instance.__aenter__.return_value = instance
+            instance.post = AsyncMock(return_value=mock_response)
 
             token = await get_finance_token("fin_client", "fin_secret")
             assert token == "fresh_token"
@@ -156,7 +152,7 @@ class TestGetFinanceToken:
     @pytest.mark.asyncio
     async def test_refreshes_when_near_expiry(self):
         _finance_token_cache["token"] = "old_token"
-        _finance_token_cache["expires_at"] = time.time() + 30  # less than 60s buffer
+        _finance_token_cache["expires_at"] = time.time() + 30
 
         with patch('httpx.AsyncClient') as mock_client:
             mock_response = MagicMock()
@@ -165,9 +161,9 @@ class TestGetFinanceToken:
                 "access_token": "refreshed_token",
                 "expires_in": 36000,
             }
-            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
+            instance = mock_client.return_value
+            instance.__aenter__.return_value = instance
+            instance.post = AsyncMock(return_value=mock_response)
 
             token = await get_finance_token("fin_client", "fin_secret")
             assert token == "refreshed_token"
@@ -178,9 +174,9 @@ class TestGetFinanceToken:
             mock_response = MagicMock()
             mock_response.status_code = 400
             mock_response.text = "Invalid client"
-            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
+            instance = mock_client.return_value
+            instance.__aenter__.return_value = instance
+            instance.post = AsyncMock(return_value=mock_response)
 
             with pytest.raises(StepikAPIError) as exc_info:
                 await get_finance_token("bad_client", "bad_secret")
@@ -198,9 +194,9 @@ class TestGetFinanceToken:
                 "access_token": "new_token",
                 "expires_in": 36000,
             }
-            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
+            instance = mock_client.return_value
+            instance.__aenter__.return_value = instance
+            instance.post = AsyncMock(return_value=mock_response)
 
             await get_finance_token("fin_client", "fin_secret")
             assert _finance_token_cache["token"] == "new_token"
@@ -214,11 +210,11 @@ class TestGetFinanceToken:
             mock_response.json.return_value = {
                 "access_token": "no_expiry_token",
             }
-            mock_client.return_value.__aenter__ = AsyncMock(return_value=mock_client)
-            mock_client.return_value.__aexit__ = AsyncMock(return_value=False)
-            mock_client.post = AsyncMock(return_value=mock_response)
+            instance = mock_client.return_value
+            instance.__aenter__.return_value = instance
+            instance.post = AsyncMock(return_value=mock_response)
 
             t0 = time.time()
             token = await get_finance_token("fin_client", "fin_secret")
             assert token == "no_expiry_token"
-            assert _finance_token_cache["expires_at"] >= t0 + 36000 - 10  # default 36000
+            assert _finance_token_cache["expires_at"] >= t0 + 36000 - 10

@@ -49,6 +49,7 @@ STEP_ENDPOINTS = {"attempts", "submissions"}
 COURSE_ENDPOINTS = {
     "course_grades", "certificates", "comments", "course_reviews",
     "enrollments", "course_period_statistics", "course_total_statistics",
+    "course_ranks",
 }
 
 
@@ -213,6 +214,10 @@ async def resolve_ids_for_endpoint(engine, endpoint_name: str, limit: int | None
 
             for item in items:
                 sid = str(item)
+                # Extract numeric ID from URL patterns like /api/progresses/123456
+                url_match = re.search(r"/api/\w+/(\d+)", sid)
+                if url_match:
+                    sid = url_match.group(1)
                 if sid not in seen:
                     seen.add(sid)
                     ids.append(sid)

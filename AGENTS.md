@@ -57,7 +57,9 @@ FRONTEND_PORT=3000
 - `courses.review_summary` — это **int ID**, а не dict. Для получения `average`/`count` нужен отдельный запрос к `/course-review-summaries`
 - `courses.is_published` всегда `None` — используй `courses.is_public` для определения статуса публикации
 - Stepik API возвращает максимум 20 комментариев на страницу (игнорирует `page_size > 20`)
-- **`page_size` игнорируется** на многих эндпоинтах (`course-grades`, и др.) — API всегда возвращает **20 записей** на страницу вне зависимости от `page_size`. Не рассчитывай на 500/1000 записей в страницу
+- **`page_size` игнорируется** на всех list-эндпоинтах — API всегда возвращает **20 записей** на страницу. `page_size` > 20 молча обрезается до 20. Не рассчитывай на 500/1000 записей в страницу
+- Исключение: `course-benefit-by-months` — плоский ответ, **без пагинации**, page_size=0
+- Значение `page_size` хранится в `meta_endpoint.page_size` (0 = нет пагинации)
 - `GET /submissions?course=X` возвращает **только submissions текущего пользователя**. Для получения submissions всех студентов нужно использовать `GET /submissions?step=STEP_ID`
 - `GET /submissions?step=` не поддерживает параметр `order` — всегда возвращает oldest first
 - Мета-данные submissions (`meta.has_next`) не содержат `total` — нужно страница за страницей пока `has_next=true`
@@ -95,38 +97,52 @@ curl -X POST \
 
 PK — UUID. Токены шифруются через `cryptography.fernet`, ключ `ENCRYPTION_KEY` из `.env`.
 
-## Синхронизация
+## Синхронизация (пайплайн API → raw → app)
 
-**Синхронизация выполняется только пользователем — по кнопке в UI. Агент НЕ имеет возможности запускать синхронизацию самостоятельно.**
+Все синхронизации идут через два слоя:
+
+### Raw-слой (`app/services/raw_sync.py`)
+- `sync_courses_structure()` — курсы + sections/units/lessons/steps
+- `sync_course_grades_and_certs()` — оценки + сертификаты
+- `sync_submissions()` — отправки + попытки (инкрементально)
+- `sync_financials()` — финансы (course-benefit-by-months + course-benefits)
+- `sync_community()` — рейтинги + комментарии
+- Использует `_request()` из `stepik_api.py`, пишет в `raw_*` таблицы
+- `_replace_raw_table()` (TRUNCATE + INSERT) для full_reload
+- `_upsert_raw_table()` (INSERT ON CONFLICT) для incremental
+- Работает с маппингом полей из `meta_field_mapping` (API → raw columns)
+
+### Transform-слой (`app/services/transform.py`)
+- `transform_courses()` — raw_course → courses (upsert + delete orphaned)
+- `transform_enrollments()` — raw_course_grade + raw_certificate → student_enrollments
+- `transform_submissions()` — raw_submission + raw_attempt → submissions (upsert)
+- `transform_financials()` — raw_course_benefit_by_month + raw_course_benefit → financial_snapshots
+- `transform_community()` — raw_course_review_summary + raw_comment → financial_snapshots community data
+- Использует сырой SQL (`text()`), UUID-параметры конвертируются в `str()` для SQLite-совместимости
+- Для SQLite-совместимости JSON-обращения используют `json_extract(_raw_json, '$.field')` вместо PG `->>`
+
+### Оркестратор (`app/services/sync.py`)
+- `sync_all_sync()` — вызывает raw_sync.* → transform.* последовательно, обновляя прогресс (0% → 100%)
+- Этапы: courses/enrollments (40%), submissions (85%), financials (95%), community (100%)
+- Хранит `SYNC_COOLDOWN_SECONDS=300`, `can_sync()` проверяет соoldown
+- Сохраняет `calculate_cohort_status()`, `MONTH_NAMES` для обратной совместимости импортов
 
 ### Порядок этапов
 
 ```
 sync_all:
   1. sync_courses_and_enrollments  (0→40%)
-     - GET /courses — список курсов автора
-     - Курсы пишутся в БД сразу (upsert по stepik_course_id, IN PLACE)
-     - Для каждого курса:
-       - GET /course-grades?course=X — студенты (20 записей/страница)
-       - GET /certificates?course=X — сертификаты
-       - DELETE старых enrollments + INSERT новых для этого курса
+     - raw_sync.sync_courses_structure + sync_course_grades_and_certs
+     - transform.transform_courses + transform_enrollments
   2. sync_submissions (40→85%)
-     - GET /steps — все шаги всех курсов
-     - Фильтрация: только code/choice/external-grader шаги (~57% от всех)
-     - GET /submissions?step=STEP_ID — все submissions по шагу
-     - Инкрементальная загрузка через step_sync_state (last_page)
-     - Upsert по stepik_submission_id (ON CONFLICT DO UPDATE)
-     - Пометка is_author=True для submission IDs из GET /submissions?course=X
+     - raw_sync.sync_submissions
+     - transform.transform_submissions
   3. sync_financials (85→95%)
-     - GET /course-benefit-by-months — сводка по месяцам
-     - GET /course-benefits — все платежи (содержат promo_code)
-     - Агрегация промокодов из всех платежей
-     - Создание/пересоздание FinancialSnapshot (DELETE + INSERT)
+     - raw_sync.sync_financials
+     - transform.transform_financials
   4. sync_community_stats (95→100%)
-     - GET /course-review-summaries — рейтинги → запись в snapshot
-     - Комментарии — **инкрементально**: читает `last_comment_time` из snapshot, считает только новые, прибавляет к totals
-     - Для каждого курса: GET /comments?course=X → страница за страницей (API отдаёт oldest first)
-     - Запись в snapshot после подсчёта всех курсов
+     - raw_sync.sync_community
+     - transform.transform_community
 ```
 
 ### Инкрементальная загрузка submissions
@@ -240,7 +256,94 @@ Y-ось графиков:
 
 Формулировка в docstring/комментарии: `"Regression: <описание бага>"`.
 
+## Raw Layer — Состояние
+
+Всего 24 raw-таблицы. Эндпоинты без данных деактивированы (is_active=False).
+`page_size`: 20 для list-эндпоинтов, 0 для `course_benefit_by_months` (без пагинации).
+
+### Стратегии обновления (meta_endpoint.incremental)
+
+| Стратегия | Описание | Эндпоинты |
+|---|---|---|
+| `full_reload` | TRUNCATE + перезагрузка всех страниц | 21 эндпоинт (courses, sections, users, ...) |
+| `incremental_page` | Догрузка по `last_page` (step_sync_state) | submissions, attempts |
+| `incremental_time` | Догрузка по дате (фильтр на клиенте) | comments |
+
+Скрипт: `backend/scripts/sync_raw.py`:
+```
+python scripts/sync_raw.py              # все активные
+python scripts/sync_raw.py submissions  # конкретный
+```
+
+Особенности:
+- `full_reload` с `?ids[]=` — батчи по 100 ID, без ID пробует bare endpoint
+- `full_reload` с `?course=X` — итерирует по всем курсам, страницы
+- `full_reload` bare — до 20 страниц (макс ~400 записей)
+- `client_credentials` — финансовые эндпоинты (course_benefits, course_benefit_by_months)
+
+| Таблица | Строки | Колонки | Sync | Стратегия |
+|---|---|---|---|---|
+| raw_course | 7 | 90 | ✓ | full_reload |
+| raw_section | 38 | 19 | ✓ | full_reload |
+| raw_unit | 114 | 12 | ✓ | full_reload |
+| raw_lesson | 114 | 26 | ✓ | full_reload |
+| raw_step | 659 | 23 | ✓ | full_reload |
+| raw_submission | 24272 | 6 | ✓ | incremental_page |
+| raw_attempt | 38223 | 6 | ✓ | incremental_page |
+| raw_comment | 1560 | 22 | ✓ | incremental_time |
+| raw_course_grade | 814 | 14 | ✓ | full_reload |
+| raw_certificate | 187 | 20 | ✓ | full_reload |
+| raw_course_benefit_by_month | 18 | 15 | ✓ | full_reload |
+| raw_course_benefit | 733 | 18 | ✓ | full_reload |
+| raw_course_review_summary | 7 | 5 | ✓ | full_reload |
+| raw_course_review | 20 | 16 | ✓ | full_reload |
+| raw_enrollment | — | — | пусто | — |
+| raw_progress | 659 | 9 | ✓ | full_reload |
+| raw_user | 742 | 25 | ✓ | full_reload |
+| raw_achievement | 62 | 5 | ✓ | full_reload |
+| raw_achievement_progress | 100 | 10 | ✓ | full_reload |
+| raw_author_list | 1 | 7 | ✓ | full_reload |
+| raw_course_list | 100 | 12 | ✓ | full_reload |
+| raw_course_rank | 2 | 8 | ✓ | full_reload |
+| raw_course_recommendation | 1 | 3 | ✓ | full_reload |
+| raw_social_profile | 88 | 5 | ✓ | full_reload |
+| raw_user_review_summary | 100 | 5 | ✓ | full_reload |
+
+**ID resolution (`IDS_SOURCE_MAP`):**
+- sections ← raw_course.section_ids
+- units ← raw_section.units
+- lessons ← raw_unit.lesson_id
+- steps ← raw_lesson.steps
+- course_review_summaries ← raw_course.review_summary_json
+- progresses ← raw_step.progress
+- users ← __multi__ (4 raw-таблицы)
+- profiles ← raw_user.profile
+
+**COURSE_ENDPOINTS:** course_grades, certificates, comments, course_reviews, enrollments, course_period_statistics, course_total_statistics, course_ranks
+
+**Работа с эндпоинтами (порядок):**
+1. Показать пользователю поля (`docs/fields_*.md`), получить отметку Sync
+2. `explore_endpoint.py --create-table --load` — создаёт таблицу, грузит данные
+3. `rebuild_raw.py` — применяет sync-отметки, убирает неотмеченные колонки
+4. Для `?ids[]=` эндпоинтов — сначала добавить источник в `IDS_SOURCE_MAP`
+
 ## Документация
 
 - `docs/brd.md` — бизнес-требования, модули, бизнес-правила
 - `docs/api.md` — справочник по Stepik API
+
+## Тесты
+
+250 тестов, 0 skipped, 0 failures (`pytest -v`).
+
+| Файл | Тестов | Что тестирует |
+|---|---|---|
+| `tests/test_stepik_api.py` | 19 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` |
+| `tests/test_stepik_api_comprehensive.py` | 15 | `get_finance_token`, 5xx retries, constants |
+| `tests/test_raw_sync.py` | 7 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions`, `sync_financials`, `sync_community` |
+| `tests/test_raw_sync_edge_cases.py` | 12 | `_paginated_fetch`, пустые/ошибочные данные transform и raw_sync |
+| `tests/test_transform.py` | 11 | `transform_courses/enrollments/submissions/financials/community` |
+| `tests/test_sync_integration.py` | 54 | `sync_all`, cohort status, интеграция raw_sync → transform |
+| `tests/test_sync_comprehensive.py` | 21 | `sync_all`, `sync_community_stats`, `sync_financials` |
+| `tests/test_sync_edge_cases.py` | 18 | Разрешение конфликтов, отсутствие данных, ошибки API |
+| Остальные | 93 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
