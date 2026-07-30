@@ -40,12 +40,12 @@ class TestTransformCourses:
     async def _populate_raw_courses(self, session, rows: list[dict]):
         for r in rows:
             await session.execute(text("""
-                INSERT INTO raw_course (course_id, title, time, update_date, start_date, is_public, _raw_json)
-                VALUES (:cid, :title, :time, :update_date, :start_date, :is_public, :raw_json)
+                INSERT INTO raw_course (course_id, title, became_published_at, begin_date, is_public, _raw_json)
+                VALUES (:cid, :title, :bpa, :bd, :is_public, :raw_json)
             """), {
                 "cid": r.get("course_id"), "title": r.get("title"),
-                "time": r.get("time"), "update_date": r.get("update_date"),
-                "start_date": r.get("start_date"), "is_public": r.get("is_public"),
+                "bpa": r.get("became_published_at"), "bd": r.get("begin_date"),
+                "is_public": r.get("is_public"),
                 "raw_json": json.dumps(r),
             })
 
@@ -57,7 +57,7 @@ class TestTransformCourses:
 
         await self._populate_raw_courses(db_session, [
             {"course_id": 101, "title": "New Course", "is_public": 1,
-             "time": "2026-01-15T00:00:00Z", "update_date": None, "start_date": None},
+             "became_published_at": "2026-01-15T00:00:00Z", "begin_date": None},
         ])
         await db_session.commit()
 
@@ -80,7 +80,7 @@ class TestTransformCourses:
 
         await self._populate_raw_courses(db_session, [
             {"course_id": 101, "title": "Updated Title", "is_public": 0,
-             "time": "2026-06-01T00:00:00Z", "update_date": None, "start_date": None},
+             "became_published_at": "2026-06-01T00:00:00Z", "begin_date": None},
         ])
         await db_session.commit()
 

@@ -51,7 +51,7 @@ def get_course_status(is_public):
 async def transform_courses(session: AsyncSession, user_id: str | None = None):
     logger.info("=== Courses ===")
     r = await session.execute(text("""
-        SELECT course_id, title, "time", update_date, start_date, is_public
+        SELECT course_id, title, became_published_at, begin_date, is_public
         FROM raw_course ORDER BY course_id
     """))
     raw_courses = [dict(r._mapping) for r in r]
@@ -85,8 +85,8 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
         if sid is None:
             continue
         seen_ids.add(sid)
-        pub_raw = rc.get("time") or rc.get("update_date") or rc.get("start_date")
-        pub_dt = parse_dt(pub_raw) or datetime.now(timezone.utc)
+        pub_raw = rc.get("became_published_at") or rc.get("begin_date")
+        pub_dt = parse_dt(pub_raw) if pub_raw else None
         is_pub_raw = rc.get("is_public")
         if is_pub_raw is not None:
             if isinstance(is_pub_raw, bool):
