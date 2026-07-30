@@ -82,6 +82,9 @@ const CourseRow = memo(function CourseRow({ course }) {
       <td className="py-2.5 pr-3 font-mono text-sm text-right">
         {price != null ? `${price.toLocaleString('ru-RU')}\u00A0₽` : '—'}
       </td>
+      <td className="py-2.5 pr-3 font-mono text-sm text-right text-neon-green">
+        {course.income != null ? `${course.income.toLocaleString('ru-RU')}\u00A0₽` : '—'}
+      </td>
       <td className="py-2.5 font-mono text-xs text-gray-400 whitespace-nowrap">{fmtDate(course.published_at)}</td>
     </tr>
   )
@@ -152,6 +155,7 @@ export default function Courses() {
                   <th className="pb-2 pr-3 font-medium text-right">Отзывы</th>
                   <th className="pb-2 pr-3 font-medium text-right">Рейтинг</th>
                   <th className="pb-2 pr-3 font-medium text-right">Стоимость</th>
+                  <th className="pb-2 pr-3 font-medium text-right">Доход</th>
                   <th className="pb-2 font-medium">Опубликован</th>
                 </tr>
               </thead>

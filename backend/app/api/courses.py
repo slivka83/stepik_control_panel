@@ -66,6 +66,7 @@ async def list_courses(
             "title": course.title,
             "status": course.status,
             "price": fc.get("price"),
+            "income": fc.get("income"),
             "published_at": course.published_at.isoformat() if course.published_at else None,
             "enrollment_count": enroll_counts.get(course.id, 0),
             "submissions_total": subs["total"],
