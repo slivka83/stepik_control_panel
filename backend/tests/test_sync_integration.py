@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from sqlalchemy import text
 
 from app.models import User
 from app.services.sync import sync_courses_and_enrollments, calculate_cohort_status
@@ -154,3 +155,26 @@ class TestCohortBoundaries:
         now = datetime.now(timezone.utc)
         joined = now - timedelta(days=1)
         assert calculate_cohort_status(now, joined) != "Zombie"
+
+
+@pytest.mark.asyncio
+async def test_sync_submissions_allows_stepwise_commits(db_session):
+    """Regression: sync падал с «Can't operate on closed transaction inside
+    context manager» на live PG.
+
+    raw_sync.sync_submissions/sync_community коммитят пошагово (инкрементально),
+    а sync.py оборачивал вызов в session.begin() — внутренний commit закрывал
+    транзакцию контекстного менеджера.
+    """
+    from app.services import sync as sync_mod
+
+    async def fake_raw_sync(session, token):
+        await session.commit()
+        await session.execute(text("SELECT 1"))
+        await session.commit()
+
+    with patch("app.services.sync._get_user_token", return_value="raw_token"), \
+         patch("app.services.raw_sync.sync_submissions", side_effect=fake_raw_sync), \
+         patch("app.services.transform.transform_submissions", new_callable=AsyncMock):
+        await sync_mod.sync_submissions(None)
+    assert sync_mod._sync_progress == 85

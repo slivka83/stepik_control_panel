@@ -3,9 +3,10 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import StudentsBar from '../components/StudentsBar'
 
 describe('StudentsBar', () => {
-  it('returns null when total is 0', () => {
-    const { container } = render(<StudentsBar data={{ active: 0, passive: 0 }} />)
-    expect(container.innerHTML).toBe('')
+  it('renders empty state when total is 0', () => {
+    render(<StudentsBar data={{ active: 0, passive: 0 }} />)
+    expect(screen.getByText('Нет данных для отображения')).toBeInTheDocument()
+    expect(screen.getByText('Студенты')).toBeInTheDocument()
   })
 
   it('renders title and total count', () => {

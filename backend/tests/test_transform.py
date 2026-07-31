@@ -131,7 +131,7 @@ class TestTransformEnrollments:
             "fj2": (now_iso - timedelta(days=100)).isoformat(),
         })
         await db_session.execute(text("""
-            INSERT INTO raw_certificate (user_id, course, _raw_json)
+            INSERT INTO raw_certificate (user_id, course_id, _raw_json)
             VALUES (1001, 101, '{}')
         """))
         await db_session.commit()
@@ -214,7 +214,7 @@ class TestTransformSubmissions:
                        ('{"id": 1001, "step": 500, "status": "wrong", "time": "2026-07-16T10:00:00Z", "score": 0.0, "reply": {}, "attempt": 11}')
             """))
             await db_session.execute(text("""
-                INSERT INTO raw_attempt (attempt_id, user_id, _raw_json)
+                INSERT INTO raw_attempt (attempt_id, "user", _raw_json)
                 VALUES (10, 12345, '{}'),
                        (11, 67890, '{}')
             """))
@@ -308,6 +308,36 @@ class TestTransformFinancials:
         assert data["courses"] == []
         assert data["months"] == []
 
+    @pytest.mark.asyncio
+    async def test_preserves_community_block(self, db_session):
+        """Regression: transform_financials (DELETE+INSERT) терял community-блок.
+
+        Если community-этап после финансов падал, снапшот оставался без
+        community — плашки Отзывы/Комментарии/Средний рейтинг обнулялись.
+        """
+        from app.services.transform import transform_financials
+        _make_user(db_session)
+        await db_session.commit()
+
+        await db_session.execute(text("""
+            INSERT INTO financial_snapshots (id, data, updated_at)
+            VALUES (:id, :data, :now)
+        """), {
+            "id": "00000000-0000-0000-0000-000000000001",
+            "data": json.dumps({"community": {"total_comments": 1561, "total_reviews": 20}}),
+            "now": datetime.now(timezone.utc).replace(tzinfo=None),
+        })
+        await db_session.commit()
+
+        await transform_financials(db_session)
+        await db_session.commit()
+
+        r = await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
+        row = r.fetchone()
+        data = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+        assert data["community"]["total_comments"] == 1561
+        assert data["community"]["total_reviews"] == 20
+
 
 # ─── transform_community ───────────────────────────────────────────────
 
@@ -325,7 +355,7 @@ class TestTransformCommunity:
 
         await db_session.execute(text("""
             INSERT INTO raw_course_review_summary (average, count, _raw_json)
-            VALUES ('4.5', 100, '{"average": 4.5, "count": 100}')
+            VALUES ('4.5', 100, '{"average": 4.5, "count": 100, "course": 101}')
         """))
         await db_session.execute(text("""
             INSERT INTO raw_comment ("user", target, "time", thread, _raw_json)
@@ -383,8 +413,8 @@ COLS_BY_RAW_TABLE = {
     "raw_unit": {"lesson_id", "section_id"},
     "raw_section": {"section_id", "course"},
     "raw_course_grade": {"user_id", "course_id", "score", "last_viewed", "date_joined"},
-    "raw_certificate": {"user_id", "course"},
-    "raw_attempt": {"attempt_id", "user_id"},
+    "raw_certificate": {"user_id", "course_id"},
+    "raw_attempt": {"attempt_id", "user"},
 }
 
 

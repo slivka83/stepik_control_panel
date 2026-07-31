@@ -10,6 +10,7 @@ import { pluralize } from '../utils/pluralize'
 const ROW_HEIGHT = 35
 const TABS = [
   { key: 'months', label: 'По месяцам' },
+  { key: 'years', label: 'По годам' },
   { key: 'courses', label: 'По курсам' },
   { key: 'promo', label: 'По промокодам' },
   { key: 'recent', label: 'Последние операции' },
@@ -117,12 +118,16 @@ export default function Financials() {
     )
   }
 
-  const { summary, months, courses, promos, recent_payments } = financials || {}
+  const { summary, months, years, courses, promos, recent_payments } = financials || {}
   const hasData = (summary?.total_payments || 0) > 0
 
   const reversedMonths = [...(months || [])].reverse()
   const monthsTotalPages = Math.ceil(reversedMonths.length / rowsPerPage)
   const paginatedMonths = reversedMonths.slice((page - 1) * rowsPerPage, page * rowsPerPage)
+
+  const reversedYears = [...(years || [])].reverse()
+  const yearsTotalPages = Math.ceil(reversedYears.length / rowsPerPage)
+  const paginatedYears = reversedYears.slice((page - 1) * rowsPerPage, page * rowsPerPage)
 
   const coursesTotalPages = Math.ceil((courses || []).length / rowsPerPage)
   const paginatedCourses = (courses || []).slice((page - 1) * rowsPerPage, page * rowsPerPage)
@@ -202,6 +207,39 @@ export default function Financials() {
                 </table>
               </div>
               <Pagination page={page} totalPages={monthsTotalPages} setPage={setPage} />
+            </div>
+          )}
+
+          {activeTab === 'years' && (
+            <div className="glass-panel p-4 flex flex-col flex-1 min-h-0">
+
+              <div ref={tableRef} className="overflow-hidden flex-1 min-h-0">
+                <table className="w-full text-sm table-fixed fin-table">
+                  <thead>
+                    <tr className="border-b border-gray-700">
+                      <th className="text-left text-gray-400 py-2 font-normal w-[28%]">Год</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[16%]">Покупок</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[22%]">Оборот</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[20%]">Доход</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[14%]">Возвраты</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedYears.map((m) => (
+                      <tr key={`year-${m.year}`} className="border-b border-gray-800">
+                        <td className="py-2 text-white font-mono truncate">{m.year}</td>
+                        <td className="py-2 text-right font-mono text-gray-300">{m.payments_count}</td>
+                        <td className="py-2 text-right font-mono text-white">{formatCurrency(m.turnover)}</td>
+                        <td className="py-2 text-right font-mono text-neon-green">{formatCurrency(m.income)}</td>
+                        <td className="py-2 text-right font-mono text-crimson-alert">
+                          {m.refunds > 0 ? `-${formatCurrency(m.refunds)}` : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Pagination page={page} totalPages={yearsTotalPages} setPage={setPage} />
             </div>
           )}
 

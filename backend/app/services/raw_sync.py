@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.services.stepik_api import _request, get_finance_token
+from app.services.stepik_api import _request, get_finance_token, StepikAPIError
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,24 @@ async def _get_fields_mapping(session: AsyncSession, endpoint_name: str) -> dict
         {"ep": endpoint_name},
     )
     return {row[0]: row[1] for row in r}
+
+
+async def _sync_id_sequence(session: AsyncSession, raw_table: str) -> None:
+    """PG: после INSERT с явными id подтянуть serial-последовательность.
+
+    Иначе следующий INSERT без id (upsert-путь) получит nextval из прошлой
+    жизни и упадёт на pkey. SQLite это не трогает (нет sequences).
+    """
+    try:
+        r = await session.execute(text(f'SELECT max(id) FROM "{raw_table}"'))
+        max_id = r.scalar()
+        if max_id:
+            await session.execute(
+                text("SELECT setval(pg_get_serial_sequence(:t, 'id'), :m, true)"),
+                {"t": raw_table, "m": int(max_id)},
+            )
+    except Exception:
+        pass
 
 
 async def _replace_raw_table(session: AsyncSession, raw_table: str, objects: list[dict], mapping: dict[str, str]):
@@ -102,6 +120,8 @@ async def _replace_raw_table(session: AsyncSession, raw_table: str, objects: lis
             values,
         )
 
+    await _sync_id_sequence(session, raw_table)
+
 
 async def _upsert_raw_table(session: AsyncSession, raw_table: str, objects: list[dict], mapping: dict[str, str]):
     if not objects:
@@ -130,6 +150,11 @@ async def _upsert_raw_table(session: AsyncSession, raw_table: str, objects: list
     col_names = [c for c in all_db_cols if c not in serial_pks] + ["_raw_json"]
     if not col_names:
         return
+
+    # Если id исключён (serial PK), новые строки получат nextval — он обязан
+    # быть за пределами занятого диапазона (см. регрессию raw_comment_pkey)
+    if serial_pks:
+        await _sync_id_sequence(session, raw_table)
 
     placeholders = ", ".join(f":{c}" for c in col_names)
     cols_str = ", ".join(f'"{c}"' for c in col_names)
@@ -161,6 +186,8 @@ async def _upsert_raw_table(session: AsyncSession, raw_table: str, objects: list
             text(f'INSERT INTO "{raw_table}" ({cols_str}) VALUES ({placeholders}){conflict_clause}'),
             values,
         )
+
+    await _sync_id_sequence(session, raw_table)
 
 
 async def sync_courses_structure(session: AsyncSession, token: str):
@@ -280,13 +307,22 @@ async def sync_submissions(session: AsyncSession, token: str):
     page_state = {int(row[0].split("_", 1)[1]): int(row[1]) for row in r}
 
     total = 0
+    skipped_steps = []
     for sid in step_ids:
         last_page = page_state.get(int(sid), 0)
         page = last_page + 1 if last_page > 0 else 1
         step_new = 0
         while page <= 200:
-            data = await _request("GET", "/submissions", token,
-                                  {"step": sid, "page": page, "page_size": 500})
+            try:
+                data = await _request("GET", "/submissions", token,
+                                      {"step": sid, "page": page, "page_size": 500})
+            except StepikAPIError as e:
+                # Stepik возвращает 404 для удалённых/недоступных шагов —
+                # не должен убивать весь sync
+                if e.status_code == 404:
+                    skipped_steps.append(sid)
+                    break
+                raise
             objects = data.get("submissions", [])
             if not objects:
                 break
@@ -307,6 +343,8 @@ async def sync_submissions(session: AsyncSession, token: str):
             logger.info("  step %d: +%d (page %d+)", sid, step_new, last_page + 1 if last_page > 0 else 1)
             await session.commit()
 
+    if skipped_steps:
+        logger.warning("  skipped %d steps (404): %s", len(skipped_steps), skipped_steps[:10])
     logger.info("  raw_submission: +%d rows (incremental)", total)
 
     # Author submissions pass
@@ -329,13 +367,15 @@ async def sync_submissions(session: AsyncSession, token: str):
         logger.info("    course %d: author subs so far: %d", cid, author_total)
     logger.info("  raw_submission: +%d rows (author pass)", author_total)
 
-    # Sync attempts for user_id mapping
-    r = await session.execute(text("""
-        SELECT DISTINCT CAST(json_extract(sub._raw_json, '$.attempt') AS INTEGER) AS attempt_id
-        FROM raw_submission sub
-        WHERE json_extract(sub._raw_json, '$.attempt') IS NOT NULL
-    """))
-    attempt_ids = [int(row[0]) for row in r if row[0] is not None]
+    # Sync attempts for user_id mapping — extract attempt IDs in Python
+    r = await session.execute(text("SELECT _raw_json FROM raw_submission"))
+    attempt_ids = set()
+    for (raw_json,) in r:
+        data = raw_json if isinstance(raw_json, dict) else json.loads(raw_json)
+        aid = data.get("attempt")
+        if aid is not None:
+            attempt_ids.add(int(aid))
+    attempt_ids = sorted(attempt_ids)
     total_attempts = 0
     for i in range(0, len(attempt_ids), 100):
         batch = attempt_ids[i:i + 100]
@@ -381,7 +421,7 @@ async def sync_community(session: AsyncSession, token: str):
     for cid in course_ids:
         r = await session.execute(
             text("SELECT review_summary_json FROM raw_course WHERE course_id = :cid"),
-            {"cid": cid},
+            {"cid": str(cid)},
         )
         row = r.fetchone()
         if row and row[0]:
@@ -399,7 +439,11 @@ async def sync_community(session: AsyncSession, token: str):
         review_summaries = []
         for i in range(0, len(review_ids), 100):
             batch = review_ids[i:i + 100]
-            rs = await _paginated_fetch("/course-review-summaries", token, "course-review-summaries", {"ids[]": batch})
+            try:
+                rs = await _paginated_fetch("/course-review-summaries", token, "course-review-summaries", {"ids[]": batch})
+            except StepikAPIError as e:
+                logger.warning("  course-review-summaries batch %d: %s — skip", i // 100, e)
+                continue
             review_summaries.extend(rs)
         mapping = await _get_fields_mapping(session, "course_review_summaries")
         await _replace_raw_table(session, "raw_course_review_summary", review_summaries, mapping)
@@ -419,8 +463,12 @@ async def sync_community(session: AsyncSession, token: str):
         page = 1
         max_time_str = last_time
         while page <= 50:
-            data = await _request("GET", "/comments", token,
-                                  {"course": cid, "page": page, "page_size": 20})
+            try:
+                data = await _request("GET", "/comments", token,
+                                      {"course": cid, "page": page, "page_size": 20})
+            except StepikAPIError as e:
+                logger.warning("  comments course %d page %d: %s — skip", cid, page, e)
+                break
             objects = data.get("comments", [])
             if not objects:
                 break

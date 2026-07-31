@@ -54,19 +54,19 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <KpiCard title="Доход /месяц" value={kpi?.total_revenue || 0} trend={kpi?.revenue_change_pct} color="white" suffix={'\u200A₽'} />
         <KpiCard title="Покупки /месяц" value={kpi?.current_month_payments || 0} trend={kpi?.payments_change_pct} color="white" />
-        <KpiCard title="Возвраты /месяц" value={kpi?.current_month_refunds_count || 0} trend={kpi?.refunds_change_pct} color="white" suffix={'\u200A₽'} />
+        <KpiCard title="Возвраты /месяц" value={kpi?.current_month_refunds_count || 0} trend={kpi?.refunds_change_pct} trendInverted color="white" suffix={'\u200A₽'} />
         <KpiCard title="Курсы" value={kpi?.courses_published || 0} secondValue={kpi?.courses_unpublished || 0} color="white" />
-        <KpiCard title="Студенты" value={kpi?.total_students || 0} color="white" />
-        <KpiCard title="Средний рейтинг" value={kpi?.average_rating || 0} ratingColor fractionDigits={2} minimumFractionDigits={2} />
+        <KpiCard title="Студенты" value={kpi?.students_prev_months ?? 0} secondValue={kpi?.current_month_students || 0} trend={kpi?.students_change_pct} secondHighlight color="white" />
+        <KpiCard title="Средний рейтинг курсов" value={kpi?.average_rating || 0} ratingColor fractionDigits={2} minimumFractionDigits={2} />
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <KpiCard title="Решения /месяц" value={kpi?.current_month_submissions || 0} trend={kpi?.submissions_change_pct} color="white" />
-        <KpiCard title="Студенты /месяц" value={kpi?.current_month_students || 0} trend={kpi?.students_change_pct} color="white" />
-        <KpiCard title="Комментарии /месяц" value={kpi?.current_month_comments || 0} trend={kpi?.comments_change_pct} color="white" />
-        <KpiCard title="Сертификаты" value={kpi?.certificates_issued || 0} color="white" />
-        <KpiCard title="Отзывы" value={kpi?.total_reviews || 0} color="white" />
-        <KpiCard title="Комментарии" value={kpi?.total_comments || 0} color="white" />
+        <KpiCard title="Публичные решения" value={kpi?.published_solutions_prev_months ?? 0} secondValue={kpi?.published_solutions_current_month || 0} trend={kpi?.published_solutions_change_pct} secondHighlight color="white" />
+        <KpiCard title="Комментарии" value={kpi?.comments_prev_months ?? 0} secondValue={kpi?.current_month_comments || 0} trend={kpi?.comments_change_pct} secondHighlight color="white" />
+        <KpiCard title="Сертификаты" value={kpi?.certificates_prev_months ?? 0} secondValue={kpi?.certificates_current_month || 0} trend={kpi?.certificates_change_pct} secondHighlight color="white" />
+        <KpiCard title="Отзывы" value={kpi?.reviews_prev_months ?? 0} secondValue={kpi?.reviews_current_month || 0} trend={kpi?.reviews_change_pct} secondHighlight color="white" />
+        <KpiCard title="Средняя оценка шагов" value={kpi?.steps_average_grade || 0} ratingColor fractionDigits={2} minimumFractionDigits={2} />
       </div>
 
       <StudentsBar data={cohorts} />

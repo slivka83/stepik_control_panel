@@ -8,6 +8,7 @@ import api from '../api'
 const ROW_HEIGHT = 35
 const TABS = [
   { key: 'months', label: 'По месяцам' },
+  { key: 'years', label: 'По годам' },
   { key: 'courses', label: 'По курсам' },
   { key: 'hardest', label: 'Самые сложные' },
 ]
@@ -90,6 +91,7 @@ export default function Solutions() {
   const submissions = data.submissions || {}
   const months = submissions.months || []
   const byCourse = submissions.by_course || []
+  const years = submissions.years || []
 
   const [hardestSteps, setHardestSteps] = useState([])
   const [hardestLoading, setHardestLoading] = useState(false)
@@ -119,6 +121,10 @@ export default function Solutions() {
 
   const coursesTotalPages = Math.ceil(byCourse.length / rowsPerPage)
   const paginatedCourses = byCourse.slice((page - 1) * rowsPerPage, page * rowsPerPage)
+
+  const reversedYears = [...years].reverse()
+  const yearsTotalPages = Math.ceil(reversedYears.length / rowsPerPage)
+  const paginatedYears = reversedYears.slice((page - 1) * rowsPerPage, page * rowsPerPage)
 
   if (loading) {
     return (
@@ -202,6 +208,41 @@ export default function Solutions() {
                 </table>
               </div>
               <Pagination page={page} totalPages={monthsTotalPages} setPage={setPage} />
+            </div>
+          )}
+
+          {activeTab === 'years' && (
+            <div className="glass-panel p-4 flex flex-col flex-1 min-h-0">
+
+              <div ref={tableRef} className="overflow-hidden flex-1 min-h-0">
+                <table className="w-full text-sm table-fixed fin-table">
+                  <thead>
+                    <tr className="border-b border-gray-700">
+                      <th className="text-left text-gray-400 py-2 font-normal w-[28%]">Год</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[16%]">Всего</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[20%]">Правильно</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[18%]">Неверно</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[18%]">Успех</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedYears.map((m) => {
+                      const wrong = (m.total || 0) - (m.correct || 0)
+                      const pct = m.total > 0 ? ((m.correct || 0) / m.total * 100) : 0
+                      return (
+                        <tr key={m.year} className="border-b border-gray-800">
+                          <td className="text-white font-mono text-xs truncate">{m.year}</td>
+                          <td className="text-right text-gray-300 font-mono">{(m.total || 0).toLocaleString('ru-RU')}</td>
+                          <td className="text-right text-neon-green font-mono">{(m.correct || 0).toLocaleString('ru-RU')}</td>
+                          <td className="text-right text-crimson-alert font-mono">{wrong.toLocaleString('ru-RU')}</td>
+                          <td className="text-right font-mono" style={{ color: pct >= 50 ? '#4ade80' : '#f59e0b' }}>{pct.toFixed(1)}%</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <Pagination page={page} totalPages={yearsTotalPages} setPage={setPage} />
             </div>
           )}
 

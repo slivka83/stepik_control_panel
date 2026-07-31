@@ -153,6 +153,7 @@ class TestDashboardSubmissions:
             response = client.get("/api/dashboard/submissions")
             assert response.status_code == 200
             assert response.json()["months"] == []
+            assert response.json()["years"] == []
         finally:
             app.dependency_overrides.clear()
 
@@ -162,7 +163,7 @@ class TestDashboardSubmissions:
         await db_session.flush()
 
         now = datetime.now(timezone.utc)
-        last_month = now - timedelta(days=30)
+        last_month = (now.replace(day=1) - timedelta(days=1)).replace(day=15)
 
         sub1 = Submission(
             id=uuid.uuid4(), stepik_submission_id=10006, stepik_step_id=1001,
@@ -184,6 +185,46 @@ class TestDashboardSubmissions:
             assert len(data["months"]) == 2
             assert data["months"][0]["total"] == 1
             assert data["months"][1]["total"] == 1
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_years_aggregates_months(self, db_session):
+        user = _make_user_in_db(db_session)
+        course = _make_course_in_db(db_session, user.id)
+        await db_session.flush()
+
+        old = datetime(2025, 3, 10, tzinfo=timezone.utc)
+        recent = datetime(2026, 1, 5, tzinfo=timezone.utc)
+
+        db_session.add_all([
+            Submission(
+                id=uuid.uuid4(), stepik_submission_id=10008, stepik_step_id=1001,
+                course_id=course.id, status="correct", score=1.0,
+                submission_time=old, is_author=False,
+            ),
+            Submission(
+                id=uuid.uuid4(), stepik_submission_id=10009, stepik_step_id=1001,
+                course_id=course.id, status="wrong", score=0.0,
+                submission_time=old, is_author=False,
+            ),
+            Submission(
+                id=uuid.uuid4(), stepik_submission_id=10010, stepik_step_id=1001,
+                course_id=course.id, status="correct", score=1.0,
+                submission_time=recent, is_author=False,
+            ),
+        ])
+        await db_session.flush()
+
+        _setup_overrides(db_session, user)
+        try:
+            response = client.get("/api/dashboard/submissions")
+            data = response.json()
+            years = data["years"]
+            assert [y["year"] for y in years] == [2025, 2026]
+            assert years[0]["total"] == 2
+            assert years[0]["correct"] == 1
+            assert years[1]["total"] == 1
+            assert years[1]["correct"] == 1
         finally:
             app.dependency_overrides.clear()
 

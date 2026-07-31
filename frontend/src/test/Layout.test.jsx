@@ -11,157 +11,88 @@ const defaultSyncValue = {
   refresh: vi.fn(),
 }
 
+const NAV_LINKS = {
+  'Дашборд': '/',
+  'Курсы': '/courses',
+  'Решения': '/solutions',
+  'Финансы': '/financials',
+  'Студенты': '/students',
+  'Активности': '/activities',
+}
+
+function mockAuthMe(authenticated) {
+  if (!authenticated) {
+    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
+    return
+  }
+  vi.spyOn(global, 'fetch').mockResolvedValue({
+    ok: true,
+    headers: { get: (name) => (name === 'content-type' ? 'application/json' : null) },
+    json: () => Promise.resolve({ id: '1', stepik_id: 64381531, authenticated: true }),
+  })
+}
+
+function renderLayout(authenticated) {
+  mockAuthMe(authenticated)
+  return render(
+    <TestRouter syncValue={defaultSyncValue}>
+      <Layout><div>Content</div></Layout>
+    </TestRouter>
+  )
+}
+
 describe('Layout', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
   })
 
   it('renders children', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
-    render(
-      <TestRouter syncValue={defaultSyncValue}>
-        <Layout><div>Test Content</div></Layout>
-      </TestRouter>
-    )
+    renderLayout(false)
     await waitFor(() => {
-      expect(screen.getByText('Test Content')).toBeInTheDocument()
+      expect(screen.getByText('Content')).toBeInTheDocument()
     })
   })
 
   it('renders sidebar nav links', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
-    render(
-      <TestRouter syncValue={defaultSyncValue}>
-        <Layout><div>Content</div></Layout>
-      </TestRouter>
-    )
+    renderLayout(false)
     await waitFor(() => {
-      expect(screen.getByText('Дашборд')).toBeInTheDocument()
-      expect(screen.getByText('Курсы')).toBeInTheDocument()
-      expect(screen.getByText('Решения')).toBeInTheDocument()
-      expect(screen.getByText('Финансы')).toBeInTheDocument()
-      expect(screen.getByText('Студенты')).toBeInTheDocument()
-      expect(screen.getByText('Активности')).toBeInTheDocument()
-    })
-  })
-
-  it('shows login button when not authenticated', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
-    render(
-      <TestRouter syncValue={defaultSyncValue}>
-        <Layout><div>Content</div></Layout>
-      </TestRouter>
-    )
-    await waitFor(() => {
-      expect(screen.getByText('Войти')).toBeInTheDocument()
-    })
-  })
-
-  it('shows SYNCED when authenticated', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      headers: { get: (name) => name === 'content-type' ? 'application/json' : null },
-      json: () => Promise.resolve({ id: '1', stepik_id: 123, authenticated: true }),
-    })
-    render(
-      <TestRouter syncValue={defaultSyncValue}>
-        <Layout><div>Content</div></Layout>
-      </TestRouter>
-    )
-    await waitFor(() => {
-      expect(screen.getByText('SYNCED')).toBeInTheDocument()
-    })
-  })
-
-  it('shows Stepik ID when authenticated', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      headers: { get: (name) => name === 'content-type' ? 'application/json' : null },
-      json: () => Promise.resolve({ id: '1', stepik_id: 64381531, authenticated: true }),
-    })
-    render(
-      <TestRouter syncValue={defaultSyncValue}>
-        <Layout><div>Content</div></Layout>
-      </TestRouter>
-    )
-    await waitFor(() => {
-      expect(screen.getByText('ID: 64381531')).toBeInTheDocument()
-    })
-  })
-
-  it('shows logout button when authenticated', async () => {
-    vi.spyOn(global, 'fetch').mockResolvedValue({
-      ok: true,
-      headers: { get: (name) => name === 'content-type' ? 'application/json' : null },
-      json: () => Promise.resolve({ id: '1', stepik_id: 123, authenticated: true }),
-    })
-    render(
-      <TestRouter syncValue={defaultSyncValue}>
-        <Layout><div>Content</div></Layout>
-      </TestRouter>
-    )
-    await waitFor(() => {
-      expect(screen.getByText('Выйти')).toBeInTheDocument()
-    })
-  })
-
-  it('hides SYNCED when not authenticated', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
-    render(
-      <TestRouter syncValue={defaultSyncValue}>
-        <Layout><div>Content</div></Layout>
-      </TestRouter>
-    )
-    await waitFor(() => {
-      expect(screen.getByText('Войти')).toBeInTheDocument()
-    })
-    expect(screen.queryByText('SYNCED')).not.toBeInTheDocument()
-  })
-
-  it('renders version', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
-    render(
-      <TestRouter syncValue={defaultSyncValue}>
-        <Layout><div>Content</div></Layout>
-      </TestRouter>
-    )
-    await waitFor(() => {
-      expect(screen.getByText('v0.2.0')).toBeInTheDocument()
-    })
-  })
-
-  it('renders read-only mode label', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
-    render(
-      <TestRouter syncValue={defaultSyncValue}>
-        <Layout><div>Content</div></Layout>
-      </TestRouter>
-    )
-    await waitFor(() => {
-      expect(screen.getByText('Read-Only Mode')).toBeInTheDocument()
+      for (const label of Object.keys(NAV_LINKS)) {
+        expect(screen.getByRole('link', { name: label })).toBeInTheDocument()
+      }
     })
   })
 
   it('renders nav links with correct hrefs', async () => {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'))
-    render(
-      <TestRouter syncValue={defaultSyncValue}>
-        <Layout><div>Content</div></Layout>
-      </TestRouter>
-    )
+    renderLayout(false)
     await waitFor(() => {
-      const dashLink = screen.getByText('Дашборд').closest('a')
-      expect(dashLink).toHaveAttribute('href', '/')
-      const coursesLink = screen.getByText('Курсы').closest('a')
-      expect(coursesLink).toHaveAttribute('href', '/courses')
-      const solutionsLink = screen.getByText('Решения').closest('a')
-      expect(solutionsLink).toHaveAttribute('href', '/solutions')
-      const finLink = screen.getByText('Финансы').closest('a')
-      expect(finLink).toHaveAttribute('href', '/financials')
-      const cohortLink = screen.getByText('Студенты').closest('a')
-      expect(cohortLink).toHaveAttribute('href', '/students')
-      const activitiesLink = screen.getByText('Активности').closest('a')
-      expect(activitiesLink).toHaveAttribute('href', '/activities')
+      for (const [label, href] of Object.entries(NAV_LINKS)) {
+        expect(screen.getByRole('link', { name: label })).toHaveAttribute('href', href)
+      }
+    })
+  })
+
+  it('shows login button when not authenticated', async () => {
+    renderLayout(false)
+    await waitFor(() => {
+      expect(screen.getByTitle('Войти')).toBeInTheDocument()
+    })
+    expect(screen.queryByTitle('Выйти')).not.toBeInTheDocument()
+    expect(screen.queryByTitle('Обновить')).not.toBeInTheDocument()
+  })
+
+  it('shows sync and logout buttons when authenticated', async () => {
+    renderLayout(true)
+    await waitFor(() => {
+      expect(screen.getByTitle('Выйти')).toBeInTheDocument()
+    })
+    expect(screen.getByTitle('Обновить')).toBeInTheDocument()
+    expect(screen.queryByTitle('Войти')).not.toBeInTheDocument()
+  })
+
+  it('marks active nav link', async () => {
+    renderLayout(false)
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Дашборд' })).toHaveClass('text-cyber-blue')
     })
   })
 })

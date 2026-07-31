@@ -17,6 +17,9 @@ const mockFinancials = {
   months: [
     { month: 'Январь 2026', year: 2026, month_num: 1, turnover: 70000, income: 50000, refunds: 0, payments_count: 15, refunds_count: 0 },
   ],
+  years: [
+    { year: 2026, turnover: 70000, income: 50000, refunds: 0, payments_count: 15 },
+  ],
   courses: [
     { course_id: 68260, title: 'Тестовый курс', turnover: 70000, income: 50000, refunds: 0, payments: 15 },
   ],
@@ -55,7 +58,7 @@ function renderFinancials(financials) {
 describe('Financials', () => {
   it('renders page with data', () => {
     renderFinancials()
-    expect(screen.getByText('Финансовая аналитика')).toBeInTheDocument()
+    expect(screen.getByText('Месяц')).toBeInTheDocument()
     expect(screen.getByText(/Январь 2026/)).toBeInTheDocument()
   })
 
@@ -67,8 +70,18 @@ describe('Financials', () => {
   it('renders tab buttons when has data', () => {
     renderFinancials()
     expect(screen.getByText('По месяцам')).toBeInTheDocument()
+    expect(screen.getByText('По годам')).toBeInTheDocument()
     expect(screen.getByText('По курсам')).toBeInTheDocument()
     expect(screen.getByText('Последние операции')).toBeInTheDocument()
+  })
+
+  it('switches to years tab on click', async () => {
+    const user = userEvent.setup()
+    renderFinancials()
+    await user.click(screen.getByText('По годам'))
+    expect(screen.getByText('2026')).toBeInTheDocument()
+    expect(screen.getAllByText('Покупок').length).toBeGreaterThanOrEqual(2)
+    expect(screen.getByText('15')).toBeInTheDocument()
   })
 
   it('renders 5 KPI cards', () => {
@@ -84,13 +97,15 @@ describe('Financials', () => {
     const user = userEvent.setup()
     renderFinancials()
     await user.click(screen.getByText('По курсам'))
-    expect(screen.getByText('Доход по курсам')).toBeInTheDocument()
+    expect(screen.getByText('Тестовый курс')).toBeInTheDocument()
+    expect(screen.getByText('Стоимость')).toBeInTheDocument()
   })
 
   it('switches to recent payments tab on click', async () => {
     const user = userEvent.setup()
     renderFinancials()
     await user.click(screen.getByText('Последние операции'))
-    expect(screen.getByText('Последние операции (1 операция)')).toBeInTheDocument()
+    expect(screen.getByText('WELCOME')).toBeInTheDocument()
+    expect(screen.getByText('Тестовый курс')).toBeInTheDocument()
   })
 })

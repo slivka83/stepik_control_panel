@@ -49,6 +49,33 @@ class TestCoursesList:
         finally:
             app.dependency_overrides.clear()
 
+    async def test_list_courses_sorted_by_published_at(self, db_session):
+        """Regression: таблица курсов должна быть отсортирована по Опубликован
+        (сначала опубликованные — новые сверху, черновики в конце)."""
+        user = await _seed_db(db_session)
+        old = datetime(2025, 1, 1).replace(tzinfo=timezone.utc).replace(tzinfo=None)
+        new = datetime(2026, 7, 1).replace(tzinfo=timezone.utc).replace(tzinfo=None)
+        mid = datetime(2025, 6, 15).replace(tzinfo=timezone.utc).replace(tzinfo=None)
+        draft = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=300,
+                       title="Draft", status="Draft", published_at=None)
+        c_new = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=100,
+                       title="New", status="Published", published_at=new)
+        c_old = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=200,
+                       title="Old", status="Published", published_at=old)
+        c_mid = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=400,
+                       title="Mid", status="Published", published_at=mid)
+        db_session.add_all([draft, c_old, c_new, c_mid])
+        await db_session.commit()
+
+        _setup_overrides(db_session, user)
+        try:
+            response = client.get("/api/courses")
+            assert response.status_code == 200
+            titles = [c["title"] for c in response.json()["courses"]]
+            assert titles == ["New", "Mid", "Old", "Draft"], titles
+        finally:
+            app.dependency_overrides.clear()
+
     async def test_list_courses_returns_data(self, db_session):
         user = await _seed_db(db_session)
         c1 = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=100,

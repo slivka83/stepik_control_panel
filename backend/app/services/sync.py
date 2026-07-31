@@ -123,9 +123,10 @@ async def sync_submissions(user_id=None):
 
     _sync_step = "решения: загрузка"
     _sync_progress = 42
+    # raw_sync.sync_submissions коммитит сам (пошагово, для инкрементальности) —
+    # внешний session.begin() конфликтует с внутренними commit()
     async with async_session() as session:
-        async with session.begin():
-            await raw_sync.sync_submissions(session, token)
+        await raw_sync.sync_submissions(session, token)
     _sync_progress = 75
     logger.info("Raw submissions synced")
 
@@ -165,9 +166,9 @@ async def sync_community_stats(user_id=None):
         return
 
     _sync_step = "сообщество: загрузка"
+    # raw_sync.sync_community коммитит сам (пошагово) — без внешнего session.begin()
     async with async_session() as session:
-        async with session.begin():
-            await raw_sync.sync_community(session, token)
+        await raw_sync.sync_community(session, token)
     _sync_progress = 98
     logger.info("Raw community synced")
 
@@ -256,5 +257,5 @@ def sync_all_sync(force: bool = False, user_id=None) -> dict:
     finally:
         async_session = old_session
         rate_limiter._sync_thread_local.skip_rate_limit = False
-        engine.dispose()
+        loop.run_until_complete(engine.dispose())
         loop.close()

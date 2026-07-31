@@ -29,3 +29,13 @@ globalThis.scrollTo = () => {}
 Object.defineProperty(HTMLElement.prototype, 'getBoundingClientRect', {
   value: () => ({ width: 800, height: 400, top: 0, left: 0, right: 800, bottom: 400 }),
 })
+
+Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+  configurable: true,
+  get: () => 400,
+})
+
+Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+  configurable: true,
+  get: () => 20,
+})

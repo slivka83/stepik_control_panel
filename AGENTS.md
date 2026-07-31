@@ -110,6 +110,9 @@ PK — UUID. Токены шифруются через `cryptography.fernet`, �
 - Использует `_request()` из `stepik_api.py`, пишет в `raw_*` таблицы
 - `_replace_raw_table()` (TRUNCATE + INSERT) для full_reload
 - `_upsert_raw_table()` (INSERT ON CONFLICT) для incremental
+- `_sync_id_sequence()` — после INSERT с явными id подтягивает serial-последовательность (PG; SQLite — no-op). Иначе следующий upsert-insert получит nextval из «прошлой жизни» и упадёт на pkey (регрессия `raw_comment_pkey`)
+- `sync_submissions()` скипает шаги с HTTP 404 (удалённые на Stepik) — не убивает весь sync
+- Все параметры для TEXT-колонок raw-слоя биндятся как `str()` (asyncpg строгая типизация: int в text-колонку → DataError)
 - Работает с маппингом полей из `meta_field_mapping` (API → raw columns)
 
 ### Transform-слой (`app/services/transform.py`)
@@ -216,19 +219,19 @@ snapshot.data = {**snapshot.data, "community": {
 - `dim-crimson` `#8b2040` — тёмный красный
 - `white` / `text-gray-300` — приглушённый белый
 
-Градиент рейтинга (средний рейтинг):
+Градиент рейтинга (средний рейтинг курсов / средняя оценка шагов):
 | Диапазон | RGB |
 |----------|-----|
-| 1.0 | `rgb(239,68,68)` |
-| 2.0 | `rgb(249,115,22)` |
-| 3.0 | `rgb(234,179,8)` |
-| 4.0 | `rgb(132,204,22)` |
-| 4.5 | `rgb(100,214,81)` |
-| 4.9+ | `rgb(74,222,128)` |
+| 1.0 | `rgb(255,0,0)` |
+| 2.0 | `rgb(255,120,0)` |
+| 3.0 | `rgb(255,210,0)` |
+| 4.0 | `rgb(160,230,0)` |
+| 4.5 | `rgb(0,180,0)` |
+| 4.9+ | `rgb(0,255,0)` |
 
 Дашборд — 2 ряда по 6 KPI-карточек:
 - **Ряд 1:** Доход /месяц (trend), Покупки /месяц (trend), Возвраты /месяц (trend), Курсы, Средний рейтинг (градиент), Сертификаты
-- **Ряд 2:** Решения /месяц (trend), Студенты /месяц (trend), Комментарии /месяц (trend), Комментарии (всего), Отзывы, Комментарии
+- **Ряд 2:** Решения /месяц (trend), Студенты /месяц (trend), Комментарии /месяц (trend), Комментарии (всего), Сертификаты, Отзывы
 
 KPI-карточки с трендом показывают `↑ N%` или `↓ N%` справа от заголовка (зелёный/красный).
 
@@ -334,16 +337,25 @@ python scripts/sync_raw.py submissions  # конкретный
 
 ## Тесты
 
-250 тестов, 0 skipped, 0 failures (`pytest -v`).
+296 тестов, 0 skipped, 0 failures (`pytest -v`).
 
 | Файл | Тестов | Что тестирует |
 |---|---|---|
-| `tests/test_stepik_api.py` | 19 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` |
-| `tests/test_stepik_api_comprehensive.py` | 15 | `get_finance_token`, 5xx retries, constants |
-| `tests/test_raw_sync.py` | 7 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions`, `sync_financials`, `sync_community` |
+| `tests/test_stepik_api.py` | 20 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` |
+| `tests/test_stepik_api_comprehensive.py` | 14 | `get_finance_token`, 5xx retries, constants |
+| `tests/test_raw_sync.py` | 11 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions` (+404-шаги, конфликтные upsert'ы, str-bind для TEXT-колонок), `sync_financials`, `sync_community`, регрессии `became_published_at` и stale sequence |
 | `tests/test_raw_sync_edge_cases.py` | 12 | `_paginated_fetch`, пустые/ошибочные данные transform и raw_sync |
 | `tests/test_transform.py` | 11 | `transform_courses/enrollments/submissions/financials/community` |
-| `tests/test_sync_integration.py` | 54 | `sync_all`, cohort status, интеграция raw_sync → transform |
-| `tests/test_sync_comprehensive.py` | 21 | `sync_all`, `sync_community_stats`, `sync_financials` |
-| `tests/test_sync_edge_cases.py` | 18 | Разрешение конфликтов, отсутствие данных, ошибки API |
-| Остальные | 93 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
+| `tests/test_sync_integration.py` | 18 | `sync_all`, cohort status, интеграция raw_sync → transform, stepwise-коммиты raw_sync внутри sync-этапов |
+| `tests/test_sync_comprehensive.py` | 20 | `sync_all`, `sync_community_stats`, `sync_financials` |
+| `tests/test_sync_edge_cases.py` | 22 | Разрешение конфликтов, отсутствие данных, ошибки API |
+| `tests/test_data_contract.py` | 5 | Глобальные контракты снапшота/API/фронта (price, per_course, поля страниц) |
+| `tests/test_schema_contract.py` | 8 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот) |
+| Остальные | 155 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
+
+Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).
+
+Schema-contract тесты (`test_schema_contract.py`) — глобальная защита от дрейфа схемы:
+- Статический парсинг всех `text(...)` SQL-блоков в `transform.py`/`raw_sync.py`: каждая `table.column` обязана существовать в фикстуре `RAW_TABLES` и моделях
+- Все raw-колонки, читаемые трансформациями, обязаны быть TEXT в фикстуре (реальная PG хранит raw-слой как TEXT)
+- Live PG (skip без `DATABASE_URL` в `.env`): колонки, потребляемые трансформациями, существуют в PG и имеют тип text/jsonb; каждый `meta_field_mapping.db_column` активных эндпоинтов существует в PG; **каждая читаемая трансформациями колонка покрыта is_loaded-строкой mapping'а** (иначе loader молча оставляет NULL — регрессия `became_published_at`); полный пайплайн `transform_*` отрабатывает в транзакции (rollback) без ошибок; снапшот финансов содержит `courses` (с `price`) и `community.per_course`

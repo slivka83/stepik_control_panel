@@ -17,15 +17,18 @@ from app.models import Base, User, Course, StudentEnrollment, Submission, Financ
 from app.database import engine, get_db, async_session
 
 RAW_TABLES = {
+    # NOTE: column names AND types mirror the real PostgreSQL schema
+    # (raw layer stores everything as TEXT). Keep them in sync with PG —
+    # the schema-contract tests rely on this parity.
     "raw_course": """
         CREATE TABLE IF NOT EXISTS raw_course (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            course_id INTEGER,
+            course_id TEXT,
             title TEXT,
             became_published_at TEXT,
             begin_date TEXT,
             updated_at TEXT,
-            is_public INTEGER,
+            is_public TEXT,
             is_published TEXT,
             review_summary INTEGER,
             review_summary_json TEXT,
@@ -38,8 +41,8 @@ RAW_TABLES = {
     "raw_section": """
         CREATE TABLE IF NOT EXISTS raw_section (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            section_id INTEGER,
-            course INTEGER,
+            section_id TEXT,
+            course TEXT,
             units TEXT,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -48,9 +51,9 @@ RAW_TABLES = {
     "raw_unit": """
         CREATE TABLE IF NOT EXISTS raw_unit (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            unit_id INTEGER,
-            lesson_id INTEGER,
-            section_id INTEGER,
+            unit_id TEXT,
+            lesson_id TEXT,
+            section_id TEXT,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -58,7 +61,7 @@ RAW_TABLES = {
     "raw_lesson": """
         CREATE TABLE IF NOT EXISTS raw_lesson (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            lesson_id INTEGER,
+            lesson_id TEXT,
             steps TEXT,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -67,8 +70,8 @@ RAW_TABLES = {
     "raw_step": """
         CREATE TABLE IF NOT EXISTS raw_step (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            step_id INTEGER,
-            lesson INTEGER,
+            step_id TEXT,
+            lesson TEXT,
             progress TEXT,
             block TEXT,
             _raw_json TEXT,
@@ -79,8 +82,8 @@ RAW_TABLES = {
         CREATE TABLE IF NOT EXISTS raw_course_grade (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             course_id TEXT,
-            user_id INTEGER,
-            score INTEGER,
+            user_id TEXT,
+            score TEXT,
             last_viewed TEXT,
             date_joined TEXT,
             _raw_json TEXT,
@@ -90,9 +93,9 @@ RAW_TABLES = {
     "raw_certificate": """
         CREATE TABLE IF NOT EXISTS raw_certificate (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            certificate_id INTEGER,
-            user_id INTEGER,
-            course INTEGER,
+            certificate_id TEXT,
+            user_id TEXT,
+            course_id TEXT,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -100,13 +103,13 @@ RAW_TABLES = {
     "raw_submission": """
         CREATE TABLE IF NOT EXISTS raw_submission (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            submission_id INTEGER,
-            step INTEGER,
-            "user" INTEGER,
+            submission_id TEXT UNIQUE,
+            step TEXT,
+            "user" TEXT,
             status TEXT,
             "time" TEXT,
             score TEXT,
-            attempt INTEGER,
+            attempt TEXT,
             eta TEXT,
             reply TEXT,
             _raw_json TEXT,
@@ -116,9 +119,9 @@ RAW_TABLES = {
     "raw_attempt": """
         CREATE TABLE IF NOT EXISTS raw_attempt (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            attempt_id INTEGER,
-            user_id INTEGER,
-            step INTEGER,
+            attempt_id TEXT UNIQUE,
+            "user" TEXT,
+            step TEXT,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -126,13 +129,13 @@ RAW_TABLES = {
     "raw_course_benefit_by_month": """
         CREATE TABLE IF NOT EXISTS raw_course_benefit_by_month (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            year INTEGER,
-            month INTEGER,
+            year TEXT,
+            month TEXT,
             total_turnover TEXT,
             total_user_income TEXT,
             total_refunds TEXT,
-            count_payments INTEGER,
-            count_refunds INTEGER,
+            count_payments TEXT,
+            count_refunds TEXT,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -140,15 +143,27 @@ RAW_TABLES = {
     "raw_course_benefit": """
         CREATE TABLE IF NOT EXISTS raw_course_benefit (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            benefit_id INTEGER,
-            course INTEGER,
+            benefit_id TEXT,
+            course TEXT,
             amount TEXT,
             payment_amount TEXT,
             status TEXT,
             "time" TEXT,
-            buyer INTEGER,
+            buyer TEXT,
             promo_code TEXT,
             currency_code TEXT,
+            _raw_json TEXT,
+            _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """,
+    "raw_course_review": """
+        CREATE TABLE IF NOT EXISTS raw_course_review (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            review_id TEXT,
+            course TEXT,
+            "user" TEXT,
+            score TEXT,
+            create_date TEXT,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -156,9 +171,9 @@ RAW_TABLES = {
     "raw_course_review_summary": """
         CREATE TABLE IF NOT EXISTS raw_course_review_summary (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            review_summary_id INTEGER,
+            review_summary_id TEXT,
             average TEXT,
-            count INTEGER,
+            count TEXT,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -166,9 +181,9 @@ RAW_TABLES = {
     "raw_comment": """
         CREATE TABLE IF NOT EXISTS raw_comment (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            comment_id INTEGER,
-            "user" INTEGER,
-            target INTEGER,
+            comment_id TEXT UNIQUE,
+            "user" TEXT,
+            target TEXT,
             "time" TEXT,
             thread TEXT,
             _raw_json TEXT,
@@ -201,6 +216,7 @@ async def db_session():
         await conn.run_sync(Base.metadata.drop_all)
         for name in RAW_TABLES:
             await conn.execute(text(f"DROP TABLE IF EXISTS {name}"))
+    await engine.dispose()
 
 
 @pytest_asyncio.fixture(scope="function")

@@ -8,6 +8,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 
+def _ensure_json(val):
+    """Handle _raw_json which is a dict (PG jsonb) or str (SQLite)."""
+    if val is None:
+        return None
+    if isinstance(val, (dict, list)):
+        return val
+    if isinstance(val, (str, bytes, bytearray)):
+        return json.loads(val)
+    return val
+
+
+def _serialize_data(val, session):
+    """Serialize to JSON string. PG asyncpg expects string for jsonb codec."""
+    return json.dumps(val, ensure_ascii=False)
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -84,6 +100,7 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
         sid = rc["course_id"]
         if sid is None:
             continue
+        sid = int(sid)
         seen_ids.add(sid)
         is_pub_raw = rc.get("is_public")
         if is_pub_raw is not None:
@@ -119,7 +136,7 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
                 {
                     "id": str(uuid.uuid4()), "uid": user_id_db, "sid": sid,
                     "t": title, "s": status, "p": pub_dt,
-                    "now": datetime.now(timezone.utc),
+            "now": datetime.utcnow(),
                 },
             )
         upserted += 1
@@ -164,16 +181,16 @@ async def transform_enrollments(session: AsyncSession):
                 FROM raw_course_grade
                 WHERE course_id = :cid
             """),
-            {"cid": stepik_cid},
+            {"cid": str(stepik_cid)},
         )
         grade_rows = [dict(r._mapping) for r in r]
 
         r = await session.execute(
             text("""
                 SELECT DISTINCT user_id FROM raw_certificate
-                WHERE course = :cid AND user_id IS NOT NULL
+                WHERE course_id = :cid AND user_id IS NOT NULL
             """),
-            {"cid": stepik_cid},
+            {"cid": str(stepik_cid)},
         )
         cert_users = {int(r[0]) for r in r}
 
@@ -185,7 +202,7 @@ async def transform_enrollments(session: AsyncSession):
             student_id = int(student_id)
             lv = parse_dt(g.get("last_viewed"))
             dj = parse_dt(g.get("date_joined"))
-            score = int(g.get("score") or 0)
+            score = int(float(g.get("score") or 0))
             enrollments.append({
                 "id": str(uuid.uuid4()),
                 "course_id": course_uuid,
@@ -193,9 +210,9 @@ async def transform_enrollments(session: AsyncSession):
                 "cohort_status": calculate_cohort_status(lv, dj),
                 "points_earned": score,
                 "certificate_issued": student_id in cert_users,
-                "last_viewed_at": lv,
+                "last_viewed_at": lv.replace(tzinfo=None) if lv else None,
                 "date_joined": dj,
-                "created_at": datetime.now(timezone.utc),
+                "created_at": datetime.now(timezone.utc).replace(tzinfo=None),
             })
 
         await session.execute(
@@ -229,13 +246,12 @@ async def transform_submissions(session: AsyncSession):
 
     r = await session.execute(text("""
         SELECT _raw_json FROM raw_submission
-        ORDER BY CAST(json_extract(_raw_json, '$.id') AS INTEGER)
     """))
-    submission_rows = [json.loads(r[0]) for r in r]
+    submission_rows = sorted((_ensure_json(r[0]) for r in r), key=lambda x: int(x.get("id", 0)))
 
     r = await session.execute(text("""
-        SELECT attempt_id, user_id FROM raw_attempt
-        WHERE user_id IS NOT NULL
+        SELECT attempt_id, "user" FROM raw_attempt
+        WHERE "user" IS NOT NULL
     """))
     attempt_user = {int(row[0]): int(row[1]) for row in r}
 
@@ -283,7 +299,7 @@ async def transform_submissions(session: AsyncSession):
             "eta": eta_val,
             "stime": sub_time,
             "author": is_author,
-            "now": datetime.now(timezone.utc),
+            "now": datetime.now(timezone.utc).replace(tzinfo=None),
         })
 
         if len(batch) >= BATCH_SIZE:
@@ -352,15 +368,29 @@ async def transform_financials(session: AsyncSession):
     r = await session.execute(text("SELECT id, stepik_course_id, title FROM courses"))
     course_map = {int(row[1]): {"id": str(row[0]), "title": row[2]} for row in r}
 
+    course_prices = {}
+    if course_map:
+        r = await session.execute(text("SELECT _raw_json FROM raw_course"))
+        for (raw_json,) in r:
+            rc = _ensure_json(raw_json)
+            cid = rc.get("id")
+            if cid in course_map:
+                price_val = rc.get("price")
+                if price_val is not None:
+                    try:
+                        course_prices[cid] = float(price_val)
+                    except (ValueError, TypeError):
+                        pass
+
     r = await session.execute(text("""
         SELECT _raw_json FROM raw_course_benefit_by_month
     """))
-    by_months = [json.loads(r[0]) for r in r]
+    by_months = [_ensure_json(r[0]) for r in r]
 
     r = await session.execute(text("""
         SELECT _raw_json FROM raw_course_benefit
     """))
-    benefits = [json.loads(r[0]) for r in r]
+    benefits = [_ensure_json(r[0]) for r in r]
 
     total_turnover = sum(float(m.get("total_turnover", 0) or 0) for m in by_months)
     total_income = sum(float(m.get("total_user_income", 0) or 0) for m in by_months)
@@ -401,6 +431,7 @@ async def transform_financials(session: AsyncSession):
             course_stats[cid] = {
                 "course_id": cid,
                 "title": cm.get("title", f"Курс #{cid}"),
+                "price": course_prices.get(cid),
                 "turnover": 0, "income": 0, "refunds": 0, "payments": 0,
             }
         status = b.get("status", "")
@@ -470,6 +501,13 @@ async def transform_financials(session: AsyncSession):
         "recent_payments": recent_payments,
     }
 
+    r = await session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
+    prev_row = r.fetchone()
+    if prev_row:
+        prev_data = prev_row[0] if isinstance(prev_row[0], dict) else json.loads(prev_row[0])
+        if isinstance(prev_data, dict) and prev_data.get("community"):
+            snapshot_data["community"] = prev_data["community"]
+
     await session.execute(text("DELETE FROM financial_snapshots"))
     await session.execute(
         text("""
@@ -478,8 +516,8 @@ async def transform_financials(session: AsyncSession):
         """),
         {
             "id": str(uuid.uuid4()),
-            "data": json.dumps(snapshot_data, ensure_ascii=False),
-            "now": datetime.now(timezone.utc),
+            "data": _serialize_data(snapshot_data, session),
+            "now": datetime.now(timezone.utc).replace(tzinfo=None),
         },
     )
 
@@ -500,26 +538,41 @@ async def transform_community(session: AsyncSession):
     r = await session.execute(text("""
         SELECT _raw_json FROM raw_course_review_summary
     """))
-    reviews = [json.loads(r[0]) for r in r]
+    reviews = [_ensure_json(r[0]) for r in r]
 
     average_rating = 0.0
     total_reviews = 0
+    per_course_rating = {}
+    per_course_reviews_count = {}
     if reviews:
-        ratings = [float(r.get("average", 0)) for r in reviews if r.get("average")]
-        counts = [int(r.get("count", 0)) for r in reviews if r.get("count")]
-        total_reviews = sum(counts)
-        if ratings:
-            average_rating = round(sum(ratings) / len(ratings), 2)
+        for rv in reviews:
+            cid = rv.get("course") or rv.get("id")
+            avg = rv.get("average")
+            cnt = int(rv.get("count", 0) or 0)
+            total_reviews += cnt
+            if cid and avg:
+                try:
+                    avg_f = float(avg)
+                    if avg_f > 0:
+                        per_course_rating[str(cid)] = round(avg_f, 2)
+                        per_course_reviews_count[str(cid)] = cnt
+                except (ValueError, TypeError):
+                    pass
+        if per_course_rating:
+            average_rating = round(sum(per_course_rating.values()) / len(per_course_rating), 2)
 
     r = await session.execute(text("""
-        SELECT _raw_json FROM raw_comment ORDER BY json_extract(_raw_json, '$.time')
+        SELECT _raw_json FROM raw_comment
     """))
-    comments = [json.loads(r[0]) for r in r]
+    comments = sorted((_ensure_json(r[0]) for r in r), key=lambda x: x.get("time") or "")
 
     total_comments = 0
     comments_monthly = {}
     total_solutions = 0
     solutions_monthly = {}
+    per_course_comments = {}
+
+    step_course = await build_step_course_map(session)
 
     for cm in comments:
         time_raw = cm.get("time")
@@ -540,6 +593,22 @@ async def transform_community(session: AsyncSession):
             total_solutions += 1
             solutions_monthly[key] = solutions_monthly.get(key, 0) + 1
 
+        target = cm.get("target")
+        if target and step_course:
+            step_cid = step_course.get(int(target))
+            if step_cid:
+                cid_str = str(step_cid)
+                per_course_comments[cid_str] = per_course_comments.get(cid_str, 0) + 1
+
+    per_course = {}
+    for cid, _ in course_map.items():
+        cid_str = str(cid)
+        per_course[cid_str] = {
+            "comments": per_course_comments.get(cid_str, 0),
+            "reviews_count": per_course_reviews_count.get(cid_str, 0),
+            "average_rating": per_course_rating.get(cid_str, 0),
+        }
+
     community = {
         "average_rating": average_rating,
         "total_reviews": total_reviews,
@@ -547,6 +616,7 @@ async def transform_community(session: AsyncSession):
         "comments_monthly": comments_monthly,
         "total_solutions": total_solutions,
         "solutions_monthly": solutions_monthly,
+        "per_course": per_course,
     }
 
     r = await session.execute(text("SELECT id, data FROM financial_snapshots LIMIT 1"))
@@ -557,16 +627,16 @@ async def transform_community(session: AsyncSession):
         data["community"] = community
         await session.execute(
             text("UPDATE financial_snapshots SET data = :data, updated_at = :now WHERE id = :id"),
-            {"data": json.dumps(data, ensure_ascii=False),
-             "now": datetime.now(timezone.utc),
+            {"data": _serialize_data(data, session),
+             "now": datetime.now(timezone.utc).replace(tzinfo=None),
              "id": snap_id},
         )
     else:
         await session.execute(
             text("INSERT INTO financial_snapshots (id, data, updated_at) VALUES (:id, :data, :now)"),
             {"id": str(uuid.uuid4()),
-             "data": json.dumps({"community": community}, ensure_ascii=False),
-             "now": datetime.now(timezone.utc)},
+             "data": _serialize_data({"community": community}, session),
+             "now": datetime.now(timezone.utc).replace(tzinfo=None)},
         )
 
     logger.info("  rating=%.2f reviews=%d comments=%d solutions=%d",

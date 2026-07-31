@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import TestRouter from './TestRouter'
 import Courses from '../pages/Courses'
 
@@ -114,5 +114,37 @@ describe('Courses', () => {
   it('renders rating with color', () => {
     render(<TestRouter syncValue={makeSyncValue([{ ...defaultCourse, average_rating: 4.5 }])}><Courses /></TestRouter>)
     expect(screen.getByText('4.50')).toBeInTheDocument()
+  })
+
+  it('sorts by Студенты on header click', () => {
+    render(<TestRouter syncValue={makeSyncValue([
+      { ...defaultCourse, id: '1', title: 'Low', enrollment_count: 5 },
+      { ...defaultCourse, id: '2', title: 'High', enrollment_count: 500 },
+      { ...defaultCourse, id: '3', title: 'Mid', enrollment_count: 50 },
+    ])}><Courses /></TestRouter>)
+
+    const header = screen.getByText('Студенты').closest('th')
+    fireEvent.click(header)
+    const rows = screen.getAllByRole('row').slice(1)
+    expect(within(rows[0]).getByText('High')).toBeInTheDocument()
+    expect(within(rows[2]).getByText('Low')).toBeInTheDocument()
+
+    fireEvent.click(header)
+    const rowsAsc = screen.getAllByRole('row').slice(1)
+    expect(within(rowsAsc[0]).getByText('Low')).toBeInTheDocument()
+    expect(within(rowsAsc[2]).getByText('High')).toBeInTheDocument()
+  })
+
+  it('keeps drafts last when sorting by Опубликован desc', () => {
+    render(<TestRouter syncValue={makeSyncValue([
+      { ...defaultCourse, id: '1', title: 'Draft', published_at: null },
+      { ...defaultCourse, id: '2', title: 'Old', published_at: '2024-01-01T00:00:00Z' },
+      { ...defaultCourse, id: '3', title: 'New', published_at: '2026-07-01T00:00:00Z' },
+    ])}><Courses /></TestRouter>)
+
+    const rows = screen.getAllByRole('row').slice(1)
+    expect(within(rows[0]).getByText('New')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('Old')).toBeInTheDocument()
+    expect(within(rows[2]).getByText('Draft')).toBeInTheDocument()
   })
 })

@@ -27,7 +27,17 @@ class TestFinancials:
             data={
                 "summary": {"total_turnover": 200000, "total_income": 150000,
                             "total_refunds": 5000, "total_payments": 42, "net_income": 145000},
-                "months": [{"month": "Январь 2026", "income": 50000}],
+                "months": [
+                    {"month": "Январь 2025", "year": 2025, "month_num": 1,
+                     "income": 50000, "turnover": 70000, "refunds": 0,
+                     "payments_count": 15, "refunds_count": 0},
+                    {"month": "Февраль 2025", "year": 2025, "month_num": 2,
+                     "income": 30000, "turnover": 40000, "refunds": 2000,
+                     "payments_count": 10, "refunds_count": 1},
+                    {"month": "Январь 2026", "year": 2026, "month_num": 1,
+                     "income": 70000, "turnover": 90000, "refunds": 0,
+                     "payments_count": 17, "refunds_count": 0},
+                ],
                 "courses": [{"title": "Python", "income": 100000}],
                 "recent_payments": [{"id": 1, "amount": 2940}],
             },
@@ -49,8 +59,15 @@ class TestFinancials:
             data = response.json()
             assert data["summary"]["total_turnover"] == 200000
             assert data["summary"]["net_income"] == 145000
-            assert len(data["months"]) == 1
+            assert len(data["months"]) == 3
             assert len(data["courses"]) == 1
+            assert [y["year"] for y in data["years"]] == [2025, 2026]
+            assert data["years"][0]["payments_count"] == 25
+            assert data["years"][0]["turnover"] == 110000
+            assert data["years"][0]["income"] == 80000
+            assert data["years"][0]["refunds"] == 2000
+            assert data["years"][1]["payments_count"] == 17
+            assert data["years"][1]["income"] == 70000
         finally:
             app.dependency_overrides.clear()
 
@@ -78,5 +95,6 @@ class TestFinancials:
             data = response.json()
             assert data["summary"]["total_turnover"] == 0
             assert data["months"] == []
+            assert data["years"] == []
         finally:
             app.dependency_overrides.clear()

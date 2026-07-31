@@ -32,6 +32,7 @@
 | is\_adaptive | is\_adaptive | boolean | Адаптивный курс | Да | \- | \- |
 | is\_self\_paced | is\_self\_paced | boolean | Курс в собственном темпе | Да | \- | \- |
 | is\_public | is\_public | boolean | Курс виден всем | Да | \- | \- |
+| became\_published\_at | became\_published\_at | timestamptz | Дата первой публикации курса | Да | \- | \- |
 | is\_featured | is\_featured | boolean | Курс рекомендован платформой | Да | \- | \- |
 | is\_active | is\_active | boolean | Курс активен | Да | \- | \- |
 | is\_archived | is\_archived | boolean | Курс в архиве | Да | \- | \- |

@@ -38,6 +38,24 @@ describe('KpiCard', () => {
     expect(container.textContent).toContain('5%')
   })
 
+  it.each([
+    [5, 'text-neon-green'],
+    [0, 'text-crimson-alert'],
+    [-5, 'text-crimson-alert'],
+  ])('default trend %s: above zero green, zero and below red', (trend, expectedClass) => {
+    const { container } = render(<KpiCard title="T" value={100} trend={trend} />)
+    expect(container.querySelector('span.text-xs.font-mono')).toHaveClass(expectedClass)
+  })
+
+  it.each([
+    [5, 'text-crimson-alert'],
+    [0, 'text-neon-green'],
+    [-5, 'text-neon-green'],
+  ])('inverted trend %s: above zero red, zero and below green', (trend, expectedClass) => {
+    const { container } = render(<KpiCard title="T" value={100} trend={trend} trendInverted />)
+    expect(container.querySelector('span.text-xs.font-mono')).toHaveClass(expectedClass)
+  })
+
   it('renders zero value', () => {
     render(<KpiCard title="Empty" value={0} />)
     expect(screen.getByText('Empty')).toBeInTheDocument()
@@ -51,6 +69,23 @@ describe('KpiCard', () => {
   it('does not render trend when trend prop is absent', () => {
     const { container } = render(<KpiCard title="No trend" value={100} />)
     expect(container.textContent).not.toContain('%')
+  })
+
+  it.each([
+    [1.0, 'rgb(255, 0, 0)'],
+    [1.99, 'rgb(255, 0, 0)'],
+    [2.0, 'rgb(255, 120, 0)'],
+    [3.0, 'rgb(255, 210, 0)'],
+    [3.99, 'rgb(255, 210, 0)'],
+    [4.0, 'rgb(160, 230, 0)'],
+    [4.49, 'rgb(160, 230, 0)'],
+    [4.5, 'rgb(0, 180, 0)'],
+    [4.7, 'rgb(0, 180, 0)'],
+    [4.89, 'rgb(0, 180, 0)'],
+    [4.9, 'rgb(0, 255, 0)'],
+  ])('rating value %s uses step color %s (no interpolation)', (val, expected) => {
+    const { container } = render(<KpiCard title="R" value={val} ratingColor />)
+    expect(container.querySelector('.font-mono')).toHaveStyle({ color: expected })
   })
 
   it.each([

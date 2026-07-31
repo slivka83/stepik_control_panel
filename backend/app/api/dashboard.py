@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, func, extract, case
+from sqlalchemy import select, func, extract, case, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timedelta, timezone
+import json
 
 from app.database import get_db
 from app.models import Course, StudentEnrollment, FinancialSnapshot, User, Submission
@@ -89,6 +90,13 @@ async def get_kpi(
             "total_turnover": 0, "total_refunds": 0, "total_payments": 0,
             "current_month_turnover": 0,
             "total_comments": 0, "total_reviews": 0, "average_rating": 0,
+            "students_prev_months": 0, "certificates_prev_months": 0,
+            "certificates_current_month": 0, "comments_prev_months": 0,
+            "reviews_prev_months": 0, "reviews_current_month": 0,
+            "certificates_change_pct": None, "reviews_change_pct": None,
+            "published_solutions_prev_months": 0, "published_solutions_current_month": 0,
+            "published_solutions_change_pct": None,
+            "steps_average_grade": 0,
         }
 
     students_result = await db.execute(
@@ -181,6 +189,51 @@ async def get_kpi(
     cur_comments = comments_monthly.get(cur_comments_key, 0)
     prev_comments = comments_monthly.get(prev_comments_key, 0)
 
+    solutions_monthly = community.get("solutions_monthly", {})
+    cur_solutions = solutions_monthly.get(cur_comments_key, 0)
+    prev_solutions = solutions_monthly.get(prev_comments_key, 0)
+
+    def _json_field(val, field):
+        if isinstance(val, (dict, list)):
+            return val.get(field) if isinstance(val, dict) else None
+        if isinstance(val, (str, bytes, bytearray)):
+            try:
+                return json.loads(val).get(field)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return None
+
+    async def _count_raw_month(table, field, prefix):
+        rows = await db.execute(text(f"SELECT _raw_json FROM {table}"))
+        return sum(
+            1 for row in rows.all()
+            if str(_json_field(row[0], field) or "").startswith(prefix)
+        )
+
+    cur_prefix = f"{cur_year}-{cur_month:02d}"
+    prev_prefix = f"{prev_year}-{prev_month:02d}"
+    cur_certificates = await _count_raw_month("raw_certificate", "issue_date", cur_prefix)
+    prev_certificates = await _count_raw_month("raw_certificate", "issue_date", prev_prefix)
+    cur_reviews = await _count_raw_month("raw_course_review", "create_date", cur_prefix)
+    prev_reviews = await _count_raw_month("raw_course_review", "create_date", prev_prefix)
+
+    async def _steps_average_grade():
+        rows = await db.execute(text("SELECT _raw_json FROM raw_step"))
+        votes_total = 0
+        votes_count = 0
+        for row in rows.all():
+            ng = _json_field(row[0], "num_grades")
+            if not isinstance(ng, list):
+                continue
+            for i, cnt in enumerate(ng):
+                try:
+                    c = int(cnt)
+                except (TypeError, ValueError):
+                    continue
+                votes_total += c * (i + 1)
+                votes_count += c
+        return round(votes_total / votes_count, 2) if votes_count else 0
+
     def pct(cur, prev):
         if prev:
             return round((cur - prev) / abs(prev) * 100)
@@ -200,7 +253,11 @@ async def get_kpi(
         "current_month_comments": cur_comments,
         "comments_change_pct": pct(cur_comments, prev_comments),
         "total_students": total_students,
+        "students_prev_months": max(0, total_students - cur_enroll),
         "certificates_issued": certificates_issued,
+        "certificates_prev_months": max(0, certificates_issued - cur_certificates),
+        "certificates_current_month": cur_certificates,
+        "certificates_change_pct": pct(cur_certificates, prev_certificates),
         "courses_count": len(courses),
         "courses_published": sum(1 for c in courses if c.status == "Published"),
         "courses_unpublished": sum(1 for c in courses if c.status != "Published"),
@@ -212,8 +269,16 @@ async def get_kpi(
         "total_payments": summary.get("total_payments", 0),
         "current_month_turnover": summary.get("current_month_turnover", 0),
         "total_comments": community.get("total_comments", 0),
+        "comments_prev_months": max(0, community.get("total_comments", 0) - cur_comments),
         "total_reviews": community.get("total_reviews", 0),
+        "reviews_prev_months": max(0, community.get("total_reviews", 0) - cur_reviews),
+        "reviews_current_month": cur_reviews,
+        "reviews_change_pct": pct(cur_reviews, prev_reviews),
+        "published_solutions_prev_months": max(0, community.get("total_solutions", 0) - cur_solutions),
+        "published_solutions_current_month": cur_solutions,
+        "published_solutions_change_pct": pct(cur_solutions, prev_solutions),
         "average_rating": community.get("average_rating", 0),
+        "steps_average_grade": await _steps_average_grade(),
     }
 
 
@@ -301,7 +366,7 @@ async def get_submissions(
     course_ids = [c.id for c in courses]
 
     if not course_ids:
-        return {"months": []}
+        return {"months": [], "by_course": [], "years": []}
 
     month_result = await db.execute(
         select(
@@ -324,6 +389,14 @@ async def get_submissions(
             "total": row.total,
             "correct": row.correct,
         })
+
+    year_stats = {}
+    for row in month_rows:
+        y = int(row.year)
+        agg = year_stats.setdefault(y, {"year": y, "total": 0, "correct": 0})
+        agg["total"] += row.total
+        agg["correct"] += row.correct
+    years = [year_stats[y] for y in sorted(year_stats)]
 
     course_result = await db.execute(
         select(
@@ -353,7 +426,7 @@ async def get_submissions(
             "correct": row.correct,
         })
 
-    return {"months": months, "by_course": by_course}
+    return {"months": months, "by_course": by_course, "years": years}
 
 
 @router.get("/active-students")

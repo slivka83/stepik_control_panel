@@ -75,6 +75,7 @@ async def list_courses(
             "reviews_count": pc.get("reviews_count", 0),
             "average_rating": pc.get("average_rating", 0),
         })
+    courses_list.sort(key=lambda c: (c["published_at"] is not None, c["published_at"] or ""), reverse=True)
     return {"courses": courses_list}
 
 

@@ -1,18 +1,36 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import TestRouter from './TestRouter'
 import Dashboard from '../pages/Dashboard'
 
 const mockKpi = {
   total_revenue: 50000,
-  net_income: 1354735,
-  total_turnover: 2049992,
-  total_students: 7618,
-  certificates_issued: 179,
-  courses_count: 7,
-  total_payments: 689,
-  total_refunds: 21930,
-  total_income: 1376665,
+  revenue_change_pct: 12,
+  current_month_payments: 55,
+  payments_change_pct: 8,
+  current_month_refunds_count: 21930,
+  refunds_change_pct: -3,
+  courses_published: 5,
+  courses_unpublished: 2,
+  students_prev_months: 7563,
+  current_month_students: 55,
+  students_change_pct: 45,
+  average_rating: 4.95,
+  current_month_submissions: 8123,
+  submissions_change_pct: 10,
+  reviews_prev_months: 20,
+  reviews_current_month: 0,
+  reviews_change_pct: 0,
+  current_month_comments: 71,
+  comments_change_pct: 318,
+  comments_prev_months: 1490,
+  published_solutions_prev_months: 96,
+  published_solutions_current_month: 5,
+  published_solutions_change_pct: 25,
+  certificates_prev_months: 178,
+  certificates_current_month: 7,
+  certificates_change_pct: 133,
+  steps_average_grade: 4.7,
 }
 
 const mockCohorts = { active: 7000, passive: 400, fading: 200, sleeping: 18 }
@@ -24,20 +42,13 @@ const mockRevenue = {
   ],
 }
 
-const mockAlerts = {
-  alerts: [
-    { type: 'warning', message: '29 студентов набрали проходной балл, но не получили сертификат', link: 'https://stepik.org/course/68260/certificates', link_text: 'Открыть на Stepik' },
-    { type: 'error', message: '5643 студентов на курсе «Алгоритмы ML» не набрали ни одного балла', link: 'https://stepik.org/course/68260/students', link_text: 'Посмотреть на Stepik' },
-  ],
-}
-
 const fullSyncValue = {
   syncStatus: { in_progress: false, last_sync: null },
   data: {
     kpi: mockKpi,
     cohorts: mockCohorts,
     revenue: mockRevenue,
-    alerts: mockAlerts.alerts,
+    alerts: [],
     courses: [],
     financials: { summary: { total_payments: 0 }, months: [], courses: [], recent_payments: [] },
   },
@@ -46,43 +57,80 @@ const fullSyncValue = {
   refresh: vi.fn(),
 }
 
+const zeroKpi = {
+  total_revenue: 0,
+  revenue_change_pct: null,
+  current_month_payments: 0,
+  payments_change_pct: null,
+  current_month_refunds_count: 0,
+  refunds_change_pct: null,
+  courses_published: 0,
+  courses_unpublished: 0,
+  students_prev_months: 0,
+  current_month_students: 0,
+  students_change_pct: null,
+  average_rating: 0,
+  current_month_submissions: 0,
+  submissions_change_pct: null,
+  reviews_prev_months: 0,
+  reviews_current_month: 0,
+  reviews_change_pct: null,
+  current_month_comments: 0,
+  comments_change_pct: null,
+  comments_prev_months: 0,
+  published_solutions_prev_months: 0,
+  published_solutions_current_month: 0,
+  published_solutions_change_pct: null,
+  certificates_prev_months: 0,
+  certificates_current_month: 0,
+  certificates_change_pct: null,
+  steps_average_grade: 0,
+}
+
+const KPI_TITLES = [
+  'Доход /месяц',
+  'Покупки /месяц',
+  'Возвраты /месяц',
+  'Курсы',
+  'Средний рейтинг курсов',
+  'Решения /месяц',
+  'Отзывы',
+  'Публичные решения',
+  'Комментарии',
+  'Сертификаты',
+  'Средняя оценка шагов',
+]
+
+async function cardByTrend(trendText, index = 0) {
+  const trend = (await screen.findAllByText(trendText))[index]
+  return trend.closest('.glass-panel')
+}
+
 describe('Dashboard', () => {
-  it('renders dashboard title', () => {
+  it('renders all twelve KPI cards', () => {
     render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
-    expect(screen.getByText('Сводная аналитика')).toBeInTheDocument()
+    ;[...KPI_TITLES, 'Студенты'].forEach(t => {
+      expect(screen.getAllByText(t).length).toBeGreaterThan(0)
+    })
   })
 
-  it('renders all six KPI cards', () => {
+  it('renders previous months + current month split with trend', async () => {
     render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
-    expect(screen.getByText('Доход за месяц')).toBeInTheDocument()
-    expect(screen.getByText('Чистый доход')).toBeInTheDocument()
-    expect(screen.getByText('Оборот')).toBeInTheDocument()
-    expect(screen.getByText('Студенты')).toBeInTheDocument()
-    expect(screen.getByText('Покупок')).toBeInTheDocument()
-    expect(screen.getByText('Сертификаты')).toBeInTheDocument()
-  })
 
-  it('renders alerts', () => {
-    render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
-    expect(screen.getByText('Алерты')).toBeInTheDocument()
-    expect(screen.getByText(/29 студентов набрали проходной балл/)).toBeInTheDocument()
-    expect(screen.getByText(/5643 студентов/)).toBeInTheDocument()
-  })
+    const studentsCard = await cardByTrend('↑ 45%')
+    await waitFor(() => expect(studentsCard.textContent).toContain('+55'), { timeout: 4000 })
 
-  it('renders alert deep links to stepik.org', () => {
-    render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
-    const links = screen.getAllByRole('link')
-    const stepikLinks = links.filter(l => l.href.includes('stepik.org'))
-    expect(stepikLinks.length).toBeGreaterThanOrEqual(2)
-  })
+    const commentsCard = await cardByTrend('↑ 318%')
+    await waitFor(() => expect(commentsCard.textContent).toContain('+71'), { timeout: 4000 })
 
-  it('renders empty alerts section when no alerts', () => {
-    const noAlertsValue = {
-      ...fullSyncValue,
-      data: { ...fullSyncValue.data, alerts: [] },
-    }
-    render(<TestRouter syncValue={noAlertsValue}><Dashboard /></TestRouter>)
-    expect(screen.queryByText('Алерты')).not.toBeInTheDocument()
+    const solutionsCard = await cardByTrend('↑ 25%')
+    await waitFor(() => expect(solutionsCard.textContent).toContain('+5'), { timeout: 4000 })
+
+    const certsCard = await cardByTrend('↑ 133%')
+    await waitFor(() => expect(certsCard.textContent).toContain('+7'), { timeout: 4000 })
+
+    expect(await screen.findByText('4,95')).toBeInTheDocument()
+    expect(await screen.findByText('4,70')).toBeInTheDocument()
   })
 
   it('renders with zero KPI values', () => {
@@ -90,27 +138,35 @@ describe('Dashboard', () => {
       ...fullSyncValue,
       data: {
         ...fullSyncValue.data,
-        kpi: { total_revenue: 0, total_students: 0, certificates_issued: 0, courses_count: 0, net_income: 0, total_turnover: 0, total_payments: 0, total_refunds: 0, total_income: 0 },
+        kpi: zeroKpi,
         cohorts: { active: 0, passive: 0, fading: 0, sleeping: 0 },
         revenue: { months: [] },
       },
     }
     render(<TestRouter syncValue={zeroValue}><Dashboard /></TestRouter>)
-    expect(screen.getByText('Сводная аналитика')).toBeInTheDocument()
-    expect(screen.getByText('Доход за месяц')).toBeInTheDocument()
-    expect(screen.getByText('Студенты')).toBeInTheDocument()
-    expect(screen.getByText('Сертификаты')).toBeInTheDocument()
+    ;[...KPI_TITLES, 'Студенты'].forEach(t => {
+      expect(screen.getAllByText(t).length).toBeGreaterThan(0)
+    })
   })
 
   it('renders chart sections', () => {
     render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
-    expect(screen.getByText('Когортная сегментация')).toBeInTheDocument()
     expect(screen.getByText('Доход по месяцам')).toBeInTheDocument()
+    expect(screen.getByText('Отправленные решения')).toBeInTheDocument()
   })
 
-  it('shows loading state', () => {
-    const loadingValue = { ...fullSyncValue, loading: true, data: { ...fullSyncValue.data, kpi: null } }
-    render(<TestRouter syncValue={loadingValue}><Dashboard /></TestRouter>)
-    expect(screen.getByText('Сводная аналитика')).toBeInTheDocument()
+  it('shows loading skeleton', () => {
+    const { container } = render(
+      <TestRouter syncValue={{ ...fullSyncValue, loading: true, data: { ...fullSyncValue.data, kpi: null } }}>
+        <Dashboard />
+      </TestRouter>,
+    )
+    expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0)
+  })
+
+  it('shows error banner on failure', () => {
+    render(<TestRouter syncValue={{ ...fullSyncValue, error: 'Network error' }}><Dashboard /></TestRouter>)
+    expect(screen.getByText('Ошибка загрузки данных')).toBeInTheDocument()
+    expect(screen.getByText('Network error')).toBeInTheDocument()
   })
 })
