@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, Boolean, Text, Integer, ForeignKey, UniqueConstraint
+from sqlalchemy import Boolean, Column, ForeignKey, Integer, String, Text, UniqueConstraint
+
 from app.models.base import Base
 
 
@@ -14,6 +15,4 @@ class MetaFieldMapping(Base):
     skip_reason = Column(Text)
     description = Column(Text)
 
-    __table_args__ = (
-        UniqueConstraint("endpoint_name", "api_field"),
-    )
+    __table_args__ = (UniqueConstraint("endpoint_name", "api_field"),)

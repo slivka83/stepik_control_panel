@@ -2,10 +2,17 @@ import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-
 from app.config import get_settings
-from app.database import Base
-from app.models import User, Course, StudentEnrollment, Submission, FinancialSnapshot, MetaEndpoint, MetaFieldMapping  # noqa: F401
+from app.models import (  # noqa: F401
+    Course,
+    FinancialSnapshot,
+    MetaEndpoint,
+    MetaFieldMapping,
+    StudentEnrollment,
+    Submission,
+    User,
+)
+from app.models.base import Base
 
 config = context.config
 
@@ -39,6 +46,7 @@ def do_run_migrations(connection):
 
 async def run_async_migrations() -> None:
     from sqlalchemy.ext.asyncio import create_async_engine
+
     connectable = create_async_engine(config.get_main_option("sqlalchemy.url"))
 
     async with connectable.connect() as connection:

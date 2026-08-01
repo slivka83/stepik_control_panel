@@ -24,8 +24,10 @@ export function SyncProvider({ children }) {
     publishedSolutions: { months: [] },
     students: { students: [], total: 0 },
   })
-  const abortRef = useRef(null)
-  const pollIntervalRef = useRef(30000)
+const abortRef = useRef(null)
+const pollIntervalRef = useRef(30000)
+
+const SYNC_POLL_INTERVAL_MS = 2000
 
   const fetchAll = useCallback(async (signal) => {
     try {
@@ -96,26 +98,33 @@ export function SyncProvider({ children }) {
     fetchAll(controller.signal)
 
     let lastKnownSync = null
+    let timer = null
     const poll = async () => {
       try {
         const { data: status } = await api.get('/sync/status', { signal: controller.signal })
         setSyncStatus(prev => {
-          if (prev.in_progress === status.in_progress && prev.last_sync === status.last_sync) return prev
+          if (
+            prev.in_progress === status.in_progress &&
+            prev.last_sync === status.last_sync &&
+            prev.progress === status.progress &&
+            prev.step === status.step
+          ) return prev
           return status
         })
         if (lastKnownSync && status.last_sync && lastKnownSync !== status.last_sync) {
           fetchAll(controller.signal)
         }
         lastKnownSync = status.last_sync
+        timer = setTimeout(poll, status.in_progress ? SYNC_POLL_INTERVAL_MS : pollIntervalRef.current)
       } catch {
-        // aborted or network error
+        timer = setTimeout(poll, pollIntervalRef.current)
       }
     }
 
-    const interval = setInterval(poll, pollIntervalRef.current)
+    timer = setTimeout(poll, pollIntervalRef.current)
     return () => {
+      clearTimeout(timer)
       controller.abort()
-      clearInterval(interval)
     }
   }, [user, authLoading, fetchAll])
 

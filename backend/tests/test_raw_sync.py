@@ -1,11 +1,13 @@
 """Tests for raw_sync service: API → raw table syncing."""
-from datetime import datetime, timezone
+
+from datetime import UTC, datetime
 from unittest.mock import patch
 
 import pytest
 from sqlalchemy import text
 
 from app.models import User
+from app.services import raw_sync
 from app.services.crypto import encrypt_token
 from tests.test_schema_contract import needs_pg
 
@@ -13,11 +15,13 @@ from tests.test_schema_contract import needs_pg
 def _make_user(session, stepik_id=12345):
     import uuid
     from datetime import timedelta
+
     user = User(
-        id=uuid.uuid4(), stepik_id=stepik_id,
+        id=uuid.uuid4(),
+        stepik_id=stepik_id,
         access_token=encrypt_token("token"),
         refresh_token=encrypt_token("refresh"),
-        token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        token_expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     session.add(user)
     return user
@@ -42,24 +46,35 @@ def _side_effect(pages: list[list[dict]]):
     results = []
     for page_data in pages:
         # Guess the endpoint key from the path
-        results.append({"courses": page_data, "course-grades": page_data,
-                        "certificates": page_data, "sections": page_data,
-                        "units": page_data, "lessons": page_data,
-                        "steps": page_data, "submissions": page_data,
-                        "attempts": page_data, "course-benefit-by-months": page_data,
-                        "course-benefits": page_data,
-                        "course-review-summaries": page_data,
-                        "comments": page_data,
-                        "meta": {"has_next": False}})
+        results.append(
+            {
+                "courses": page_data,
+                "course-grades": page_data,
+                "certificates": page_data,
+                "sections": page_data,
+                "units": page_data,
+                "lessons": page_data,
+                "steps": page_data,
+                "submissions": page_data,
+                "attempts": page_data,
+                "course-benefit-by-months": page_data,
+                "course-benefits": page_data,
+                "course-review-summaries": page_data,
+                "comments": page_data,
+                "meta": {"has_next": False},
+            }
+        )
     return results
 
 
 # ─── sync_courses_structure ────────────────────────────────────────────
 
+
 class TestSyncCoursesStructure:
     @pytest.mark.asyncio
     async def test_writes_to_raw_tables(self, db_session):
         from app.services.raw_sync import sync_courses_structure
+
         _make_user(db_session)
         await db_session.commit()
 
@@ -82,8 +97,10 @@ class TestSyncCoursesStructure:
                 return {"steps": fake_steps, "meta": {"has_next": False}}
             return {}
 
-        with patch("app.services.raw_sync._request", side_effect=request_side_effect), \
-             patch("app.config.get_settings") as mock_settings:
+        with (
+            patch("app.services.raw_sync._request", side_effect=request_side_effect),
+            patch("app.config.get_settings") as mock_settings,
+        ):
             mock_settings.return_value.stepik_user_id = 12345
             await sync_courses_structure(db_session, "fake_token")
 
@@ -102,6 +119,7 @@ class TestSyncCoursesStructure:
         courses.published_at пустел, колонка «Опубликован» показывала «—».
         """
         from app.services.raw_sync import sync_courses_structure
+
         _make_user(db_session)
         await db_session.execute(
             text("""
@@ -113,11 +131,16 @@ class TestSyncCoursesStructure:
         )
         await db_session.commit()
 
-        fake_courses = [{
-            "id": 101, "title": "Course 1", "sections": [1],
-            "owner_user_id": 12345, "is_public": True,
-            "became_published_at": "2026-01-15T10:00:00Z",
-        }]
+        fake_courses = [
+            {
+                "id": 101,
+                "title": "Course 1",
+                "sections": [1],
+                "owner_user_id": 12345,
+                "is_public": True,
+                "became_published_at": "2026-01-15T10:00:00Z",
+            }
+        ]
         fake_sections = [{"id": 1, "course": 101, "units": [10], "section_id": 1}]
         fake_units = [{"id": 10, "lesson": 100, "section": 1, "unit_id": 10}]
         fake_lessons = [{"id": 100, "steps": [500], "lesson_id": 100}]
@@ -136,14 +159,14 @@ class TestSyncCoursesStructure:
                 return {"steps": fake_steps, "meta": {"has_next": False}}
             return {}
 
-        with patch("app.services.raw_sync._request", side_effect=request_side_effect), \
-             patch("app.config.get_settings") as mock_settings:
+        with (
+            patch("app.services.raw_sync._request", side_effect=request_side_effect),
+            patch("app.config.get_settings") as mock_settings,
+        ):
             mock_settings.return_value.stepik_user_id = 12345
             await sync_courses_structure(db_session, "fake_token")
 
-        r = await db_session.execute(
-            text("SELECT became_published_at, _raw_json FROM raw_course")
-        )
+        r = await db_session.execute(text("SELECT became_published_at, _raw_json FROM raw_course"))
         row = r.fetchone()
         assert row is not None, "raw_course пуст"
         assert row[0] == "2026-01-15T10:00:00Z", "became_published_at не записан в raw_course"
@@ -152,10 +175,12 @@ class TestSyncCoursesStructure:
 
 # ─── sync_course_grades_and_certs ──────────────────────────────────────
 
+
 class TestSyncCourseGradesAndCerts:
     @pytest.mark.asyncio
     async def test_writes_grades_and_certs(self, db_session):
         from app.services.raw_sync import sync_course_grades_and_certs
+
         _make_user(db_session)
         await db_session.commit()
 
@@ -180,23 +205,34 @@ class TestSyncCourseGradesAndCerts:
 
 # ─── sync_submissions ──────────────────────────────────────────────────
 
+
 class TestSyncSubmissions:
     @pytest.mark.asyncio
     async def test_writes_submissions_and_attempts(self, db_session):
         from app.services.raw_sync import sync_submissions
+
         _make_user(db_session)
         await db_session.commit()
 
         # Need steps to exist in raw_step for submission sync
-        await db_session.execute(text("""
+        await db_session.execute(
+            text("""
             INSERT INTO raw_step (step_id, lesson, _raw_json)
             VALUES (500, 10, '{}')
-        """))
+        """)
+        )
         await db_session.commit()
 
         fake_subs = [
-            {"id": 1000, "step": 500, "status": "correct", "time": "2026-07-15T10:00:00Z",
-             "score": 1.0, "reply": {}, "attempt": 10},
+            {
+                "id": 1000,
+                "step": 500,
+                "status": "correct",
+                "time": "2026-07-15T10:00:00Z",
+                "score": 1.0,
+                "reply": {},
+                "attempt": 10,
+            },
         ]
         fake_attempts = [{"id": 10, "user": 12345, "step": 500}]
 
@@ -225,27 +261,53 @@ class TestSyncSubmissions:
         страниц: одна и та же submission на двух страницах должна задедупиться.
         """
         from app.services.raw_sync import sync_submissions
+
         _make_user(db_session)
-        await db_session.execute(text("""
+        await db_session.execute(
+            text("""
             INSERT INTO meta_field_mapping
                 (endpoint_name, api_field, db_column, db_type, is_loaded)
             VALUES ('submissions', 'id', 'submission_id', 'bigint', TRUE)
-        """))
-        await db_session.execute(text("""
+        """)
+        )
+        await db_session.execute(
+            text("""
             INSERT INTO raw_step (step_id, lesson, _raw_json)
             VALUES (500, 10, '{}')
-        """))
+        """)
+        )
         await db_session.commit()
 
         page1 = [
-            {"id": 1000, "step": 500, "status": "correct", "time": "2026-07-15T10:00:00Z",
-             "score": 1.0, "reply": {}, "attempt": 10},
+            {
+                "id": 1000,
+                "step": 500,
+                "status": "correct",
+                "time": "2026-07-15T10:00:00Z",
+                "score": 1.0,
+                "reply": {},
+                "attempt": 10,
+            },
         ]
         page2 = [
-            {"id": 1000, "step": 500, "status": "correct", "time": "2026-07-15T10:00:00Z",
-             "score": 1.0, "reply": {}, "attempt": 10},
-            {"id": 1001, "step": 500, "status": "wrong", "time": "2026-07-15T11:00:00Z",
-             "score": 0.0, "reply": {}, "attempt": 11},
+            {
+                "id": 1000,
+                "step": 500,
+                "status": "correct",
+                "time": "2026-07-15T10:00:00Z",
+                "score": 1.0,
+                "reply": {},
+                "attempt": 10,
+            },
+            {
+                "id": 1001,
+                "step": 500,
+                "status": "wrong",
+                "time": "2026-07-15T11:00:00Z",
+                "score": 0.0,
+                "reply": {},
+                "attempt": 11,
+            },
         ]
 
         def request_side_effect(method, path, token, params=None):
@@ -268,21 +330,38 @@ class TestSyncSubmissions:
 
 # ─── sync_financials ───────────────────────────────────────────────────
 
+
 class TestSyncFinancials:
     @pytest.mark.asyncio
     async def test_writes_financial_tables(self, db_session):
         from app.services.raw_sync import sync_financials
+
         _make_user(db_session)
         await db_session.commit()
 
         fake_by_months = [
-            {"year": 2026, "month": 7, "total_turnover": 10000, "total_user_income": 8000,
-             "total_refunds": 200, "count_payments": 10, "count_refunds": 1},
+            {
+                "year": 2026,
+                "month": 7,
+                "total_turnover": 10000,
+                "total_user_income": 8000,
+                "total_refunds": 200,
+                "count_payments": 10,
+                "count_refunds": 1,
+            },
         ]
         fake_benefits = [
-            {"id": 1, "course": 101, "amount": 1000, "payment_amount": 1200,
-             "status": "completed", "time": "2026-07-01T10:00:00Z", "buyer": 1001,
-             "promo_code": None, "currency_code": "RUB"},
+            {
+                "id": 1,
+                "course": 101,
+                "amount": 1000,
+                "payment_amount": 1200,
+                "status": "completed",
+                "time": "2026-07-01T10:00:00Z",
+                "buyer": 1001,
+                "promo_code": None,
+                "currency_code": "RUB",
+            },
         ]
 
         def request_side_effect(method, path, token, params=None):
@@ -292,8 +371,10 @@ class TestSyncFinancials:
                 return {"course-benefits": fake_benefits, "meta": {"has_next": False}}
             return {}
 
-        with patch("app.services.raw_sync.get_finance_token", return_value="finance_token"), \
-             patch("app.services.raw_sync._request", side_effect=request_side_effect):
+        with (
+            patch("app.services.raw_sync.get_finance_token", return_value="finance_token"),
+            patch("app.services.raw_sync._request", side_effect=request_side_effect),
+        ):
             await sync_financials(db_session)
 
         assert await _count_rows(db_session, "raw_course_benefit_by_month") == 1
@@ -302,23 +383,28 @@ class TestSyncFinancials:
     @pytest.mark.asyncio
     async def test_skips_without_token(self, db_session):
         from app.services.raw_sync import sync_financials
+
         with patch("app.services.raw_sync.get_finance_token", return_value=None):
             await sync_financials(db_session)
 
 
 # ─── sync_community ────────────────────────────────────────────────────
 
+
 class TestSyncCommunity:
     @pytest.mark.asyncio
     async def test_writes_reviews_and_comments(self, db_session):
         from app.services.raw_sync import sync_community
+
         _make_user(db_session)
         await db_session.commit()
 
-        await db_session.execute(text("""
+        await db_session.execute(
+            text("""
             INSERT INTO raw_course (course_id, review_summary_json, _raw_json)
             VALUES (101, '[42]', '{"id": 101, "review_summary": 42}')
-        """))
+        """)
+        )
         await db_session.commit()
 
         fake_reviews = [{"id": 42, "average": 4.5, "count": 100}]
@@ -346,17 +432,22 @@ class TestSyncCommunity:
         """
         from app.services.raw_sync import sync_community
         from app.services.stepik_api import StepikAPIError
+
         _make_user(db_session)
-        await db_session.execute(text("""
+        await db_session.execute(
+            text("""
             INSERT INTO meta_field_mapping
                 (endpoint_name, api_field, db_column, db_type, is_loaded)
             VALUES ('comments', 'id', 'comment_id', 'bigint', TRUE)
-        """))
-        await db_session.execute(text("""
+        """)
+        )
+        await db_session.execute(
+            text("""
             INSERT INTO raw_course (course_id, review_summary_json, _raw_json) VALUES
                 (101, '[42]', '{"id": 101, "review_summary": 42}'),
                 (102, '[43]', '{"id": 102, "review_summary": 43}')
-        """))
+        """)
+        )
         await db_session.commit()
 
         fake_reviews = [
@@ -393,17 +484,22 @@ class TestSyncSubmissionsStep404:
         """
         from app.services.raw_sync import sync_submissions
         from app.services.stepik_api import StepikAPIError
+
         _make_user(db_session)
-        await db_session.execute(text("""
+        await db_session.execute(
+            text("""
             INSERT INTO meta_field_mapping
                 (endpoint_name, api_field, db_column, db_type, is_loaded)
             VALUES ('submissions', 'id', 'submission_id', 'bigint', TRUE)
-        """))
-        await db_session.execute(text("""
+        """)
+        )
+        await db_session.execute(
+            text("""
             INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES
                 (500, 10, '{}'),
                 (501, 11, '{}')
-        """))
+        """)
+        )
         await db_session.commit()
 
         dead_step = {"id": 500, "status": "correct", "time": "2026-07-15T10:00:00Z"}
@@ -435,11 +531,14 @@ class TestSyncCommunityStrBind:
         в WHERE course_id = :cid. SQLite это не ловит (динамическая типизация).
         """
         from app.services.raw_sync import sync_community
+
         _make_user(db_session)
-        await db_session.execute(text("""
+        await db_session.execute(
+            text("""
             INSERT INTO raw_course (course_id, review_summary_json, _raw_json)
             VALUES (291904, '5', '{"id": 291904}')
-        """))
+        """)
+        )
         await db_session.commit()
 
         binds = []
@@ -454,12 +553,13 @@ class TestSyncCommunityStrBind:
 
         def request_side_effect(method, path, token, params=None):
             if "review-summaries" in path:
-                return {"course-review-summaries": [{"id": 5, "course": 291904}],
-                        "meta": {"has_next": False}}
+                return {"course-review-summaries": [{"id": 5, "course": 291904}], "meta": {"has_next": False}}
             return {}
 
-        with patch("app.services.raw_sync._request", side_effect=request_side_effect), \
-             patch("app.services.raw_sync._paginated_fetch", return_value=[]):
+        with (
+            patch("app.services.raw_sync._request", side_effect=request_side_effect),
+            patch("app.services.raw_sync._paginated_fetch", return_value=[]),
+        ):
             await sync_community(db_session, "fake_token")
 
         assert binds, "запрос к review_summary_json не выполнялся"
@@ -476,7 +576,8 @@ async def test_upsert_syncs_stale_sequence_on_pg():
     «из прошлой жизни» — upsert-путь (INSERT без id) попадал nextval в
     занятый диапазон и убивал sync. Транзакция с rollback — данные целы.
     """
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
     from app.services.raw_sync import _upsert_raw_table
     from tests.test_schema_contract import PG_URL
 
@@ -487,13 +588,15 @@ async def test_upsert_syncs_stale_sequence_on_pg():
             trans = await session.begin()
             try:
                 await session.execute(text("TRUNCATE TABLE raw_comment RESTART IDENTITY"))
-                await session.execute(text(
-                    "INSERT INTO raw_comment (id, comment_id, _raw_json) "
-                    "VALUES (100, '1', '{}'), (101, '2', '{}')"
-                ))
+                await session.execute(
+                    text(
+                        "INSERT INTO raw_comment (id, comment_id, _raw_json) VALUES (100, '1', '{}'), (101, '2', '{}')"
+                    )
+                )
                 await session.execute(text("SELECT setval('raw_comment_id_seq', 1, false)"))
                 await _upsert_raw_table(
-                    session, "raw_comment",
+                    session,
+                    "raw_comment",
                     [{"id": 9999, "comment_id": "3"}],
                     {"comment_id": "comment_id"},
                 )
@@ -506,3 +609,110 @@ async def test_upsert_syncs_stale_sequence_on_pg():
                 await trans.rollback()
     finally:
         await engine.dispose()
+
+
+# ─── sync_users ─────────────────────────────────────────────────────────
+
+
+class TestSyncUsers:
+    """Regression: raw_user (имена студентов) не входил в пайплайн кнопки —
+    витрина студентов показывала fallback «Студент {id}»."""
+
+    async def _seed_user_mapping(self, db_session):
+        for api_field, db_col in [("id", "user_id"), ("first_name", "first_name"), ("last_name", "last_name"), ("full_name", "full_name")]:
+            await db_session.execute(
+                text("""
+                    INSERT INTO meta_field_mapping
+                        (endpoint_name, api_field, db_column, db_type, is_loaded)
+                    VALUES ('users', :f, :c, 'text', TRUE)
+                """),
+                {"f": api_field, "c": db_col},
+            )
+
+    async def test_syncs_names_into_raw_user(self, db_session):
+        import uuid as _uuid
+
+        from app.models import Course, StudentEnrollment, Submission
+
+        user = _make_user(db_session)
+        course = Course(id=_uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="Python", status="Published")
+        db_session.add(course)
+        await db_session.flush()
+        now = datetime.now(UTC).replace(tzinfo=None)
+        db_session.add(StudentEnrollment(id=_uuid.uuid4(), course_id=course.id, student_id=7, last_viewed_at=now))
+        db_session.add(Submission(
+            id=_uuid.uuid4(), stepik_submission_id=2001, stepik_step_id=10,
+            course_id=course.id, status="correct", score=1.0,
+            submission_time=now, user_id=8, is_author=False,
+        ))
+        await db_session.execute(
+            text("INSERT INTO raw_course_grade (user_id, course_id, _raw_json) VALUES (9, 100, '{}')")
+        )
+        await self._seed_user_mapping(db_session)
+        await db_session.commit()
+
+        def fake_fetch(path, token, key, extra=None):
+            ids = extra.get("ids[]", [])
+            return [{"id": int(i), "first_name": f"Name{i}", "last_name": f"Last{i}"} for i in ids]
+
+        with patch("app.services.raw_sync._paginated_fetch", side_effect=fake_fetch):
+            await raw_sync.sync_users(db_session, "token")
+
+        r = await db_session.execute(text("SELECT user_id, first_name, last_name FROM raw_user"))
+        names = {(str(row[0]), str(row[1]), str(row[2])) for row in r}
+        assert ("7", "Name7", "Last7") in names
+        assert ("8", "Name8", "Last8") in names
+        assert ("9", "Name9", "Last9") in names
+        assert len(names) == 3
+
+    async def test_batches_ids_by_100(self, db_session):
+        import uuid as _uuid
+
+        from app.models import Course, StudentEnrollment
+
+        user = _make_user(db_session)
+        course = Course(id=_uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="Python", status="Published")
+        db_session.add(course)
+        await db_session.flush()
+        now = datetime.now(UTC).replace(tzinfo=None)
+        for sid in range(1, 251):
+            db_session.add(StudentEnrollment(id=_uuid.uuid4(), course_id=course.id, student_id=sid, last_viewed_at=now))
+        await db_session.commit()
+
+        batches = []
+        async def fake_fetch(path, token, key, extra=None):
+            ids = extra.get("ids[]", [])
+            batches.append(len(ids))
+            return []
+
+        with patch("app.services.raw_sync._paginated_fetch", side_effect=fake_fetch):
+            await raw_sync.sync_users(db_session, "token")
+
+        assert batches == [100, 100, 50]
+
+    async def test_filters_non_numeric_ids(self, db_session):
+        import uuid as _uuid
+
+        from app.models import Course, StudentEnrollment
+
+        user = _make_user(db_session)
+        course = Course(id=_uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="Python", status="Published")
+        db_session.add(course)
+        await db_session.flush()
+        now = datetime.now(UTC).replace(tzinfo=None)
+        db_session.add(StudentEnrollment(id=_uuid.uuid4(), course_id=course.id, student_id=7, last_viewed_at=now))
+        # Garbage from raw_comment.user (OAuth client name) must not break the sync
+        await db_session.execute(
+            text("INSERT INTO raw_comment (comment_id, \"user\", _raw_json) VALUES (1, 'stepik_panel', '{}')")
+        )
+        await db_session.commit()
+
+        fetched_ids = []
+        async def fake_fetch(path, token, key, extra=None):
+            fetched_ids.extend(extra.get("ids[]", []))
+            return []
+
+        with patch("app.services.raw_sync._paginated_fetch", side_effect=fake_fetch):
+            await raw_sync.sync_users(db_session, "token")
+
+        assert fetched_ids == ["7"]

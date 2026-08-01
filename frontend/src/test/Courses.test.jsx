@@ -33,6 +33,19 @@ describe('Courses', () => {
     expect(screen.getByText('Черновиков')).toBeInTheDocument()
   })
 
+  it('renders published and draft card numbers in white like dashboard', () => {
+    render(<TestRouter syncValue={makeSyncValue([defaultCourse])}><Courses /></TestRouter>)
+    for (const title of ['Опубликовано', 'Черновиков']) {
+      const card = screen.getByText(title).closest('.glass-panel')
+      expect(card.querySelector('.font-mono')).toHaveClass('text-gray-300')
+    }
+  })
+
+  it('does not render total comments card', () => {
+    render(<TestRouter syncValue={makeSyncValue([defaultCourse])}><Courses /></TestRouter>)
+    expect(screen.queryByText('Всего комментариев')).not.toBeInTheDocument()
+  })
+
   it('shows empty state with connect button', () => {
     render(<TestRouter syncValue={makeSyncValue()}><Courses /></TestRouter>)
     expect(screen.getByText('Нет курсов')).toBeInTheDocument()

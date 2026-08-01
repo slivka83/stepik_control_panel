@@ -1,6 +1,7 @@
 import pytest
-from app.services.crypto import encrypt_token, decrypt_token, get_fernet
 from cryptography.fernet import Fernet
+
+from app.services.crypto import decrypt_token, encrypt_token, get_fernet
 
 
 class TestEncryptDecrypt:
@@ -23,6 +24,7 @@ class TestEncryptDecrypt:
     def test_decrypt_wrong_key_fails(self):
         encrypted = encrypt_token("test")
         from cryptography.fernet import InvalidToken
+
         wrong_fernet = Fernet(Fernet.generate_key())
         with pytest.raises(InvalidToken):
             wrong_fernet.decrypt(encrypted.encode())

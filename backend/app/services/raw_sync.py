@@ -1,12 +1,11 @@
 import json
 import logging
-from datetime import datetime, timezone
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.services.stepik_api import _request, get_finance_token, StepikAPIError
+from app.services.stepik_api import StepikAPIError, _request, get_finance_token
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +19,13 @@ def _query_params(extra: dict | None = None, page: int = 1) -> dict:
     return p
 
 
-async def _paginated_fetch(path: str, token: str, key: str, extra: dict | None = None, max_pages: int = 500) -> list[dict]:
+async def _paginated_fetch(
+    path: str,
+    token: str,
+    key: str,
+    extra: dict | None = None,
+    max_pages: int = 500,
+) -> list[dict]:
     all_items = []
     page = 1
     while page <= max_pages:
@@ -69,10 +74,13 @@ async def _replace_raw_table(session: AsyncSession, raw_table: str, objects: lis
         return
 
     try:
-        col_r = await session.execute(text("""
+        col_r = await session.execute(
+            text("""
             SELECT column_name FROM information_schema.columns
             WHERE table_name = :t
-        """), {"t": raw_table})
+        """),
+            {"t": raw_table},
+        )
         table_cols = {row[0] for row in col_r}
     except Exception:
         table_cols = set()
@@ -80,10 +88,13 @@ async def _replace_raw_table(session: AsyncSession, raw_table: str, objects: lis
     all_db_cols = [c for c in mapping.values() if not table_cols or c in table_cols]
 
     try:
-        pk_r = await session.execute(text("""
+        pk_r = await session.execute(
+            text("""
             SELECT column_name FROM information_schema.columns
             WHERE table_name = :t AND column_default LIKE 'nextval(%'
-        """), {"t": raw_table})
+        """),
+            {"t": raw_table},
+        )
         serial_pks = {row[0] for row in pk_r}
     except Exception:
         serial_pks = set()
@@ -103,7 +114,6 @@ async def _replace_raw_table(session: AsyncSession, raw_table: str, objects: lis
     for obj in objects:
         raw_json = json.dumps(obj, ensure_ascii=False)
         values = {"_raw_json": raw_json}
-        api_to_db = {v: k for k, v in mapping.items()} if mapping else {}
         for c in col_names:
             if c == "_raw_json":
                 continue
@@ -128,10 +138,13 @@ async def _upsert_raw_table(session: AsyncSession, raw_table: str, objects: list
         return
 
     try:
-        col_r = await session.execute(text("""
+        col_r = await session.execute(
+            text("""
             SELECT column_name FROM information_schema.columns
             WHERE table_name = :t
-        """), {"t": raw_table})
+        """),
+            {"t": raw_table},
+        )
         table_cols = {row[0] for row in col_r}
     except Exception:
         table_cols = set()
@@ -139,10 +152,13 @@ async def _upsert_raw_table(session: AsyncSession, raw_table: str, objects: list
     all_db_cols = [c for c in mapping.values() if not table_cols or c in table_cols]
 
     try:
-        pk_r = await session.execute(text("""
+        pk_r = await session.execute(
+            text("""
             SELECT column_name FROM information_schema.columns
             WHERE table_name = :t AND column_default LIKE 'nextval(%'
-        """), {"t": raw_table})
+        """),
+            {"t": raw_table},
+        )
         serial_pks = {row[0] for row in pk_r}
     except Exception:
         serial_pks = set()
@@ -166,7 +182,7 @@ async def _upsert_raw_table(session: AsyncSession, raw_table: str, objects: list
             id_field = c
             break
 
-    conflict_clause = f' ON CONFLICT ("{id_field}") DO NOTHING' if id_field else ''
+    conflict_clause = f' ON CONFLICT ("{id_field}") DO NOTHING' if id_field else ""
 
     for obj in objects:
         raw_json = json.dumps(obj, ensure_ascii=False)
@@ -211,7 +227,7 @@ async def sync_courses_structure(session: AsyncSession, token: str):
     # Sections
     sections = []
     for i in range(0, len(section_ids), 100):
-        batch = section_ids[i:i + 100]
+        batch = section_ids[i : i + 100]
         s = await _paginated_fetch("/sections", token, "sections", {"ids[]": batch})
         sections.extend(s)
     mapping = await _get_fields_mapping(session, "sections")
@@ -226,7 +242,7 @@ async def sync_courses_structure(session: AsyncSession, token: str):
             unit_ids.extend(uids)
     units = []
     for i in range(0, len(unit_ids), 100):
-        batch = unit_ids[i:i + 100]
+        batch = unit_ids[i : i + 100]
         u = await _paginated_fetch("/units", token, "units", {"ids[]": batch})
         units.extend(u)
     mapping = await _get_fields_mapping(session, "units")
@@ -237,9 +253,9 @@ async def sync_courses_structure(session: AsyncSession, token: str):
     lesson_ids = list(set(u["lesson"] for u in units if u.get("lesson")))
     lessons = []
     for i in range(0, len(lesson_ids), 100):
-        batch = lesson_ids[i:i + 100]
-        l = await _paginated_fetch("/lessons", token, "lessons", {"ids[]": batch})
-        lessons.extend(l)
+        batch = lesson_ids[i : i + 100]
+        page_lessons = await _paginated_fetch("/lessons", token, "lessons", {"ids[]": batch})
+        lessons.extend(page_lessons)
     mapping = await _get_fields_mapping(session, "lessons")
     await _replace_raw_table(session, "raw_lesson", lessons, mapping)
     logger.info("  raw_lesson: %d rows", len(lessons))
@@ -252,7 +268,7 @@ async def sync_courses_structure(session: AsyncSession, token: str):
             step_ids.extend(ss)
     steps = []
     for i in range(0, len(step_ids), 100):
-        batch = step_ids[i:i + 100]
+        batch = step_ids[i : i + 100]
         s = await _paginated_fetch("/steps", token, "steps", {"ids[]": batch})
         steps.extend(s)
     mapping = await _get_fields_mapping(session, "steps")
@@ -271,7 +287,12 @@ async def sync_course_grades_and_certs(session: AsyncSession, token: str, course
     all_grades = []
     all_certs = []
     for cid in course_ids:
-        grades = await _paginated_fetch("/course-grades", token, "course-grades", {"course": cid, "is_assistant": "true"})
+        grades = await _paginated_fetch(
+            "/course-grades",
+            token,
+            "course-grades",
+            {"course": cid, "is_assistant": "true"},
+        )
         all_grades.extend(grades)
         logger.info("    course %d: %d grades", cid, len(grades))
 
@@ -314,8 +335,7 @@ async def sync_submissions(session: AsyncSession, token: str):
         step_new = 0
         while page <= 200:
             try:
-                data = await _request("GET", "/submissions", token,
-                                      {"step": sid, "page": page, "page_size": 500})
+                data = await _request("GET", "/submissions", token, {"step": sid, "page": page, "page_size": 500})
             except StepikAPIError as e:
                 # Stepik возвращает 404 для удалённых/недоступных шагов —
                 # не должен убивать весь sync
@@ -331,7 +351,11 @@ async def sync_submissions(session: AsyncSession, token: str):
             total += len(objects)
 
             await session.execute(
-                text("INSERT INTO raw_sync_state (endpoint_name, key, value) VALUES ('submissions', :k, :v) ON CONFLICT (endpoint_name, key) DO UPDATE SET value = :v2"),
+                text(
+                    "INSERT INTO raw_sync_state (endpoint_name, key, value) "
+                    "VALUES ('submissions', :k, :v) "
+                    "ON CONFLICT (endpoint_name, key) DO UPDATE SET value = :v2"
+                ),
                 {"k": f"step_{sid}", "v": str(page), "v2": str(page)},
             )
 
@@ -354,8 +378,7 @@ async def sync_submissions(session: AsyncSession, token: str):
     for cid in course_ids:
         page = 1
         while page <= 50:
-            data = await _request("GET", "/submissions", token,
-                                  {"course": cid, "page": page, "page_size": 500})
+            data = await _request("GET", "/submissions", token, {"course": cid, "page": page, "page_size": 500})
             objects = data.get("submissions", [])
             if not objects:
                 break
@@ -378,7 +401,7 @@ async def sync_submissions(session: AsyncSession, token: str):
     attempt_ids = sorted(attempt_ids)
     total_attempts = 0
     for i in range(0, len(attempt_ids), 100):
-        batch = attempt_ids[i:i + 100]
+        batch = attempt_ids[i : i + 100]
         try:
             attempts = await _paginated_fetch("/attempts", token, "attempts", {"ids[]": batch})
             await _upsert_raw_table(session, "raw_attempt", attempts, mapping_attempts)
@@ -438,9 +461,14 @@ async def sync_community(session: AsyncSession, token: str):
     if review_ids:
         review_summaries = []
         for i in range(0, len(review_ids), 100):
-            batch = review_ids[i:i + 100]
+            batch = review_ids[i : i + 100]
             try:
-                rs = await _paginated_fetch("/course-review-summaries", token, "course-review-summaries", {"ids[]": batch})
+                rs = await _paginated_fetch(
+                    "/course-review-summaries",
+                    token,
+                    "course-review-summaries",
+                    {"ids[]": batch},
+                )
             except StepikAPIError as e:
                 logger.warning("  course-review-summaries batch %d: %s — skip", i // 100, e)
                 continue
@@ -451,7 +479,9 @@ async def sync_community(session: AsyncSession, token: str):
 
     # Comments — incremental by time per course
     r = await session.execute(
-        text("SELECT key, value FROM raw_sync_state WHERE endpoint_name = 'comments' AND key LIKE 'last_time_course_%'"),
+        text(
+            "SELECT key, value FROM raw_sync_state WHERE endpoint_name = 'comments' AND key LIKE 'last_time_course_%'"
+        ),
     )
     last_times = {row[0]: row[1] for row in r}
 
@@ -464,8 +494,7 @@ async def sync_community(session: AsyncSession, token: str):
         max_time_str = last_time
         while page <= 50:
             try:
-                data = await _request("GET", "/comments", token,
-                                      {"course": cid, "page": page, "page_size": 20})
+                data = await _request("GET", "/comments", token, {"course": cid, "page": page, "page_size": 20})
             except StepikAPIError as e:
                 logger.warning("  comments course %d page %d: %s — skip", cid, page, e)
                 break
@@ -486,7 +515,11 @@ async def sync_community(session: AsyncSession, token: str):
                 course_new += len(new_objects)
 
                 await session.execute(
-                    text("INSERT INTO raw_sync_state (endpoint_name, key, value) VALUES ('comments', :k, :v) ON CONFLICT (endpoint_name, key) DO UPDATE SET value = :v2"),
+                    text(
+                        "INSERT INTO raw_sync_state (endpoint_name, key, value) "
+                        "VALUES ('comments', :k, :v) "
+                        "ON CONFLICT (endpoint_name, key) DO UPDATE SET value = :v2"
+                    ),
                     {"k": f"last_time_course_{cid}", "v": max_time_str, "v2": max_time_str},
                 )
 
@@ -500,3 +533,48 @@ async def sync_community(session: AsyncSession, token: str):
         total_new += course_new
 
     logger.info("  raw_comment: +%d rows (incremental_time)", total_new)
+
+
+USER_ID_SOURCES = [
+    "SELECT DISTINCT student_id FROM student_enrollments WHERE student_id IS NOT NULL",
+    "SELECT DISTINCT user_id FROM submissions WHERE user_id IS NOT NULL",
+    "SELECT DISTINCT user_id FROM raw_course_grade WHERE user_id IS NOT NULL",
+    "SELECT DISTINCT user_id FROM raw_certificate WHERE user_id IS NOT NULL",
+    "SELECT DISTINCT user FROM raw_course_review WHERE user IS NOT NULL",
+]
+
+
+async def sync_users(session: AsyncSession, token: str):
+    """Sync user profiles (names) → raw_user (full_reload, ?ids[]= batches).
+
+    IDs come from enrollments/submissions (app layer) and grades/certs/reviews
+    (raw layer). Non-numeric garbage is filtered out — e.g. raw_comment.user
+    holds the OAuth client name instead of a real user id.
+    """
+    logger.info("=== Raw: users ===")
+
+    ids: set[str] = set()
+    for q in USER_ID_SOURCES:
+        r = await session.execute(text(q))
+        for (val,) in r:
+            if val is None:
+                continue
+            s = str(val)
+            if s.lstrip("-").isdigit():
+                ids.add(s)
+
+    if not ids:
+        logger.warning("  no user IDs to sync")
+        return
+
+    users = []
+    id_list = sorted(ids, key=int)
+    for i in range(0, len(id_list), 100):
+        batch = id_list[i : i + 100]
+        u = await _paginated_fetch("/users", token, "users", {"ids[]": batch})
+        users.extend(u)
+        logger.info("  ... %d profiles", len(users))
+
+    mapping = await _get_fields_mapping(session, "users")
+    await _replace_raw_table(session, "raw_user", users, mapping)
+    logger.info("  raw_user: %d rows", len(users))

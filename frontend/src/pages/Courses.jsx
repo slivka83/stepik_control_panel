@@ -159,8 +159,8 @@ export default function Courses() {
   if (loading) {
     return (
     <div className="flex flex-col flex-1 gap-4 min-h-0 min-w-0">
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          {Array.from({ length: 6 }).map((_, i) => (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+          {Array.from({ length: 5 }).map((_, i) => (
             <div key={`sk-${i}`} className="glass-panel p-4 animate-pulse">
               <div className="h-3 bg-gray-700 rounded w-20 mb-2"></div>
               <div className="h-6 bg-gray-700 rounded w-24"></div>
@@ -179,13 +179,12 @@ export default function Courses() {
     <div className="flex flex-col flex-1 gap-4 min-h-0">
       {error && <ErrorBanner message={error} onRetry={refresh} />}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
         <KpiCard title="Всего курсов" value={kpi?.courses_count || 0} color="white" />
-        <KpiCard title="Опубликовано" value={kpi?.courses_published || 0} color="neon-green" />
-        <KpiCard title="Черновиков" value={kpi?.courses_unpublished || 0} color="amber-alert" />
+        <KpiCard title="Опубликовано" value={kpi?.courses_published || 0} color="white" />
+        <KpiCard title="Черновиков" value={kpi?.courses_unpublished || 0} color="white" />
         <KpiCard title="Всего студентов" value={kpi?.total_students || 0} color="white" />
         <KpiCard title="Средний рейтинг" value={kpi?.average_rating || 0} ratingColor fractionDigits={2} minimumFractionDigits={2} />
-        <KpiCard title="Всего комментариев" value={kpi?.total_comments || 0} color="white" />
       </div>
 
       {courses.length === 0 ? (

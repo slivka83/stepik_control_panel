@@ -2,6 +2,7 @@ import { useSync } from '../contexts/SyncContext'
 import ErrorBanner from '../components/ErrorBanner'
 import SubmissionsChart from '../components/SubmissionsChart'
 import ActiveStudentsChart from '../components/ActiveStudentsChart'
+import { formatMonthLabel } from '../utils/monthWindow.js'
 
 export default function Activities() {
   const { data, loading, error, refresh } = useSync()
@@ -12,14 +13,11 @@ export default function Activities() {
 
   const commentsChartData = {
     months: Object.entries(commentsMonthly)
-      .sort(([a], [b]) => a.localeCompare(b))
       .map(([key, val]) => {
         const [y, m] = key.split('-')
-        const date = new Date(+y, +m - 1)
-        const raw = date.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
-        const month = raw.charAt(0).toUpperCase() + raw.slice(1)
-        return { month, total: val, correct: val }
-      }),
+        return { month: formatMonthLabel(Number(m), Number(y)), total: val, correct: val }
+      })
+      .sort((a, b) => a.month.localeCompare(b.month)),
   }
 
   if (loading) {

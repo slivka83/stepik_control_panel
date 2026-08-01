@@ -1,20 +1,26 @@
 """Comprehensive tests for Stepik API client: get_finance_token, 5xx retries."""
-import pytest
+
 import time
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.services.stepik_api import (
-    _request, get_finance_token, StepikAPIError,
-    StepikRateLimitError, MAX_RETRIES, _finance_token_cache, _finance_token_lock,
+    MAX_RETRIES,
+    StepikAPIError,
+    StepikRateLimitError,
+    _finance_token_cache,
+    _request,
+    get_finance_token,
 )
 
 
 class TestRequest5xxRetry:
     @pytest.mark.asyncio
     async def test_500_retries_and_succeeds(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('asyncio.sleep', new_callable=AsyncMock):
-                with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch("httpx.AsyncClient") as mock_client:
                     mock_response_500 = MagicMock()
                     mock_response_500.status_code = 500
                     mock_response_500.text = "Server Error"
@@ -31,9 +37,9 @@ class TestRequest5xxRetry:
 
     @pytest.mark.asyncio
     async def test_500_exhausts_retries(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('asyncio.sleep', new_callable=AsyncMock):
-                with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch("httpx.AsyncClient") as mock_client:
                     mock_response_500 = MagicMock()
                     mock_response_500.status_code = 500
                     mock_response_500.text = "Server Error"
@@ -47,9 +53,9 @@ class TestRequest5xxRetry:
 
     @pytest.mark.asyncio
     async def test_503_retries_and_succeeds(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('asyncio.sleep', new_callable=AsyncMock):
-                with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch("httpx.AsyncClient") as mock_client:
                     mock_response_503 = MagicMock()
                     mock_response_503.status_code = 503
 
@@ -65,9 +71,9 @@ class TestRequest5xxRetry:
 
     @pytest.mark.asyncio
     async def test_502_exhausts_retries(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('asyncio.sleep', new_callable=AsyncMock):
-                with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch("httpx.AsyncClient") as mock_client:
                     mock_response_502 = MagicMock()
                     mock_response_502.status_code = 502
                     mock_response_502.text = "Bad Gateway"
@@ -85,6 +91,7 @@ class TestStepikAPIConstants:
 
     def test_api_base_url(self):
         from app.services.stepik_api import STEPIK_API_BASE
+
         assert STEPIK_API_BASE == "https://stepik.org/api"
 
     def test_rate_limit_error_is_stepik_error(self):
@@ -100,7 +107,7 @@ class TestGetFinanceToken:
 
     @pytest.mark.asyncio
     async def test_first_call_fetches_token(self):
-        with patch('httpx.AsyncClient') as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -125,7 +132,7 @@ class TestGetFinanceToken:
         _finance_token_cache["token"] = "cached_token"
         _finance_token_cache["expires_at"] = time.time() + 36000
 
-        with patch('httpx.AsyncClient') as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             token = await get_finance_token("fin_client", "fin_secret")
             assert token == "cached_token"
             mock_client.post.assert_not_called()
@@ -135,7 +142,7 @@ class TestGetFinanceToken:
         _finance_token_cache["token"] = "expired_token"
         _finance_token_cache["expires_at"] = time.time() - 100
 
-        with patch('httpx.AsyncClient') as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -154,7 +161,7 @@ class TestGetFinanceToken:
         _finance_token_cache["token"] = "old_token"
         _finance_token_cache["expires_at"] = time.time() + 30
 
-        with patch('httpx.AsyncClient') as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -170,7 +177,7 @@ class TestGetFinanceToken:
 
     @pytest.mark.asyncio
     async def test_handles_api_error(self):
-        with patch('httpx.AsyncClient') as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
             mock_response.status_code = 400
             mock_response.text = "Invalid client"
@@ -187,7 +194,7 @@ class TestGetFinanceToken:
         _finance_token_cache["token"] = "old_token"
         _finance_token_cache["expires_at"] = time.time() - 100
 
-        with patch('httpx.AsyncClient') as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -204,7 +211,7 @@ class TestGetFinanceToken:
 
     @pytest.mark.asyncio
     async def test_fallback_expires_in(self):
-        with patch('httpx.AsyncClient') as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {

@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.models import Base, MetaEndpoint, MetaFieldMapping  # noqa: F401
 from tests.conftest import RAW_TABLES
@@ -37,20 +37,89 @@ SCANNED_FILES = [
 ]
 
 KEYWORDS = {
-    "select", "from", "where", "join", "on", "group", "by", "order", "having",
-    "insert", "into", "values", "update", "set", "delete", "limit", "offset",
-    "as", "distinct", "and", "or", "not", "in", "is", "null", "like", "between",
-    "exists", "union", "all", "case", "when", "then", "else", "end", "asc",
-    "desc", "true", "false", "do", "conflict", "returning", "nulls", "first",
-    "last", "unique", "primary", "auto_increment", "default", "check",
-    "references", "create", "table", "if", "collate", "cast", "extract",
-    "interval", "restart", "identity", "cascade", "index", "serial",
+    "select",
+    "from",
+    "where",
+    "join",
+    "on",
+    "group",
+    "by",
+    "order",
+    "having",
+    "insert",
+    "into",
+    "values",
+    "update",
+    "set",
+    "delete",
+    "limit",
+    "offset",
+    "as",
+    "distinct",
+    "and",
+    "or",
+    "not",
+    "in",
+    "is",
+    "null",
+    "like",
+    "between",
+    "exists",
+    "union",
+    "all",
+    "case",
+    "when",
+    "then",
+    "else",
+    "end",
+    "asc",
+    "desc",
+    "true",
+    "false",
+    "do",
+    "conflict",
+    "returning",
+    "nulls",
+    "first",
+    "last",
+    "unique",
+    "primary",
+    "auto_increment",
+    "default",
+    "check",
+    "references",
+    "create",
+    "table",
+    "if",
+    "collate",
+    "cast",
+    "extract",
+    "interval",
+    "restart",
+    "identity",
+    "cascade",
+    "index",
+    "serial",
 }
 
 FUNCTIONS = {
-    "json_extract", "cast", "count", "sum", "min", "max", "avg", "coalesce",
-    "pragma_table_info", "round", "lower", "upper", "length", "array_agg",
-    "string_agg", "now", "abs",
+    "json_extract",
+    "cast",
+    "count",
+    "sum",
+    "min",
+    "max",
+    "avg",
+    "coalesce",
+    "pragma_table_info",
+    "round",
+    "lower",
+    "upper",
+    "length",
+    "array_agg",
+    "string_agg",
+    "now",
+    "abs",
 }
 
 VIRTUAL_TABLES = {
@@ -60,9 +129,7 @@ VIRTUAL_TABLES = {
 
 DDL_COL_RE = re.compile(r'^\s+(?:"([a-zA-Z_]\w*)"|([a-zA-Z_]\w*))\s+([A-Z_]+)', re.M)
 SQL_BLOCK_RE = re.compile(r'text\(\s*("""(.*?)"""|"(.*?)")', re.S)
-TABLE_REF_RE = re.compile(
-    r"\b(?:FROM|JOIN|UPDATE|INTO)\s+((?:[a-zA-Z_]\w*\.)?[a-zA-Z_]\w*)(?:\s+([a-zA-Z_]\w*))?"
-)
+TABLE_REF_RE = re.compile(r"\b(?:FROM|JOIN|UPDATE|INTO)\s+((?:[a-zA-Z_]\w*\.)?[a-zA-Z_]\w*)(?:\s+([a-zA-Z_]\w*))?")
 QUAL_RE = re.compile(r"(?<![\w.])" r"([a-zA-Z_]\w*)\." r"([a-zA-Z_]\w*)")
 TOKEN_RE = re.compile(r'"([a-zA-Z_]\w*)"|([a-zA-Z_]\w*)|(\d+(?:\.\d+)?)|(:[a-zA-Z_]\w+|\?)')
 
@@ -110,7 +177,7 @@ def statement_tables(sql: str) -> tuple[dict[str, list[str]], str | None]:
     for m in TABLE_REF_RE.finditer(sql):
         table = m.group(1)
         alias = m.group(2)
-        lead = sql[m.start():].lstrip()[:7].split()[0].upper()
+        lead = sql[m.start() :].lstrip()[:7].split()[0].upper()
         if "." in table:
             table = table.split(".", 1)[0]
         if table.lower() in KEYWORDS:
@@ -154,8 +221,8 @@ def referenced_columns(sql: str, known_names: set[str] | None = None) -> set[str
             continue
         prev_tok = tokens[i - 1] if i else None
         next_tok = tokens[i + 1] if i + 1 < len(tokens) else None
-        before = sql[prev_tok.end():m.start()] if prev_tok else sql[:m.start()]
-        after = sql[m.end():next_tok.start()] if next_tok else sql[m.end():]
+        before = sql[prev_tok.end() : m.start()] if prev_tok else sql[: m.start()]
+        after = sql[m.end() : next_tok.start()] if next_tok else sql[m.end() :]
         prev_word = (prev_tok.group(1) or prev_tok.group(2)) if prev_tok else None
         if prev_word is not None and prev_word.lower() == "as":
             continue
@@ -186,9 +253,7 @@ def clause_columns(sql: str, target: str | None) -> set[str]:
     return found
 
 
-def validate_statement(
-    schema: dict[str, set[str]], label: str, sql: str
-) -> list[str]:
+def validate_statement(schema: dict[str, set[str]], label: str, sql: str) -> list[str]:
     errors: list[str] = []
     sql_clean = clean_sql(sql)
     prefix_to_table, target = statement_tables(sql)
@@ -232,10 +297,7 @@ def validate_statement(
             continue
         if not any(cand in schema[t] for t in check_tables):
             ctx = "SET/INSERT/ON CONFLICT"
-            errors.append(
-                f"[{label}] колонка '{cand}' ({ctx}) отсутствует "
-                f"в таблицах: {sorted(check_tables)}"
-            )
+            errors.append(f"[{label}] колонка '{cand}' ({ctx}) отсутствует в таблицах: {sorted(check_tables)}")
     return errors
 
 
@@ -262,6 +324,7 @@ def referenced_raw_columns(schema: dict[str, set[str]]) -> dict[str, set[str]]:
 # ---------------------------------------------------------------------------
 # Статические тесты (без БД)
 # ---------------------------------------------------------------------------
+
 
 def test_static_sql_references_exist_in_schema():
     schema = build_schema()
@@ -298,6 +361,7 @@ def test_transform_reads_raw_columns_as_text():
 # Live-PostgreSQL тесты (пропускаются без .env DATABASE_URL)
 # ---------------------------------------------------------------------------
 
+
 def _pg_url() -> str | None:
     env_path = REPO_ROOT / ".env"
     if not env_path.exists():
@@ -318,9 +382,11 @@ needs_pg = pytest.mark.skipif(PG_URL is None, reason="Нет PostgreSQL (DATABAS
 async def _pg_columns(engine) -> dict[str, dict[str, str]]:
     async with engine.connect() as conn:
         r = await conn.execute(
-            text("SELECT table_name, column_name, data_type "
-                 "FROM information_schema.columns WHERE table_name LIKE :pat "
-                 "ORDER BY table_name, ordinal_position"),
+            text(
+                "SELECT table_name, column_name, data_type "
+                "FROM information_schema.columns WHERE table_name LIKE :pat "
+                "ORDER BY table_name, ordinal_position"
+            ),
             {"pat": "raw_%"},
         )
     cols: dict[str, dict[str, str]] = {}
@@ -361,12 +427,10 @@ async def test_pg_raw_schema_contains_transform_columns():
                 continue
             dtype = pg_cols[table].get(col)
             assert dtype is not None, (
-                f"{table}.{col}: колонка есть в фикстуре, но отсутствует в PG — "
-                f"transform упадёт на живой БД"
+                f"{table}.{col}: колонка есть в фикстуре, но отсутствует в PG — transform упадёт на живой БД"
             )
             assert dtype in {"text", "jsonb"}, (
-                f"{table}.{col}: в PG тип {dtype}, "
-                f"но трансформации читают его как TEXT — риск INTEGER/TEXT бага"
+                f"{table}.{col}: в PG тип {dtype}, но трансформации читают его как TEXT — риск INTEGER/TEXT бага"
             )
 
 
@@ -472,6 +536,7 @@ async def test_full_transform_pipeline_on_pg():
                 await tr.transform_submissions(session)
                 await tr.transform_financials(session)
                 await tr.transform_community(session)
+                await tr.transform_students(session)
             finally:
                 # begin()-контекст коммитит на выходе — только явный rollback
                 await trans.rollback()
@@ -496,9 +561,7 @@ async def test_pg_snapshot_schema_after_pipeline():
             try:
                 await tr.transform_financials(session)
                 await tr.transform_community(session)
-                r = await session.execute(
-                    text("SELECT data FROM financial_snapshots ORDER BY updated_at DESC LIMIT 1")
-                )
+                r = await session.execute(text("SELECT data FROM financial_snapshots ORDER BY updated_at DESC LIMIT 1"))
                 row = r.fetchone()
             finally:
                 # begin()-контекст коммитит на выходе — только явный rollback
@@ -509,9 +572,7 @@ async def test_pg_snapshot_schema_after_pipeline():
         assert "summary" in data, "Нет summary в снапшоте"
         assert data["summary"].get("total_income", 0) > 0
         assert data.get("courses"), "Нет top-level courses в снапшоте"
-        assert any("price" in c for c in data["courses"]), (
-            "Нет price в course entries — фронтенд покажет «—»"
-        )
+        assert any("price" in c for c in data["courses"]), "Нет price в course entries — фронтенд покажет «—»"
         community = data.get("community", {})
         assert "per_course" in community, "Нет community.per_course в снапшоте"
         assert community.get("total_comments", 0) > 0

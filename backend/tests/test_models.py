@@ -1,11 +1,11 @@
-import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
-from app.models import User, Course, StudentEnrollment, Submission, FinancialSnapshot
+from app.models import Course, FinancialSnapshot, StudentEnrollment, Submission, User
 
 
 @pytest.mark.asyncio
@@ -14,7 +14,7 @@ async def test_user_creation(db_session):
         stepik_id=12345,
         access_token="encrypted_access",
         refresh_token="encrypted_refresh",
-        token_expires_at=datetime.now(timezone.utc),
+        token_expires_at=datetime.now(UTC),
     )
     db_session.add(user)
     await db_session.commit()
@@ -27,17 +27,17 @@ async def test_user_creation(db_session):
 
 @pytest.mark.asyncio
 async def test_user_unique_stepik_id(db_session):
-    user1 = User(stepik_id=999, access_token="a", refresh_token="r", token_expires_at=datetime.now(timezone.utc))
-    user2 = User(stepik_id=999, access_token="b", refresh_token="r2", token_expires_at=datetime.now(timezone.utc))
+    user1 = User(stepik_id=999, access_token="a", refresh_token="r", token_expires_at=datetime.now(UTC))
+    user2 = User(stepik_id=999, access_token="b", refresh_token="r2", token_expires_at=datetime.now(UTC))
     db_session.add(user1)
     db_session.add(user2)
-    with pytest.raises(Exception):
+    with pytest.raises(IntegrityError):
         await db_session.commit()
 
 
 @pytest.mark.asyncio
 async def test_course_creation(db_session):
-    user = User(stepik_id=123, access_token="a", refresh_token="r", token_expires_at=datetime.now(timezone.utc))
+    user = User(stepik_id=123, access_token="a", refresh_token="r", token_expires_at=datetime.now(UTC))
     db_session.add(user)
     await db_session.commit()
 
@@ -54,10 +54,9 @@ async def test_course_creation(db_session):
     assert result.status == "Draft"
 
 
-
 @pytest.mark.asyncio
 async def test_course_relationship(db_session):
-    user = User(stepik_id=123, access_token="a", refresh_token="r", token_expires_at=datetime.now(timezone.utc))
+    user = User(stepik_id=123, access_token="a", refresh_token="r", token_expires_at=datetime.now(UTC))
     db_session.add(user)
     await db_session.commit()
 
@@ -65,9 +64,7 @@ async def test_course_relationship(db_session):
     db_session.add(course)
     await db_session.commit()
 
-    result = await db_session.execute(
-        select(User).where(User.id == user.id).options(selectinload(User.courses))
-    )
+    result = await db_session.execute(select(User).where(User.id == user.id).options(selectinload(User.courses)))
     user_loaded = result.scalar_one()
     assert len(user_loaded.courses) == 1
     assert user_loaded.courses[0].title == "Test"
@@ -75,7 +72,7 @@ async def test_course_relationship(db_session):
 
 @pytest.mark.asyncio
 async def test_enrollment_creation(db_session):
-    user = User(stepik_id=123, access_token="a", refresh_token="r", token_expires_at=datetime.now(timezone.utc))
+    user = User(stepik_id=123, access_token="a", refresh_token="r", token_expires_at=datetime.now(UTC))
     db_session.add(user)
     await db_session.commit()
 
@@ -86,7 +83,7 @@ async def test_enrollment_creation(db_session):
     enrollment = StudentEnrollment(
         course_id=course.id,
         student_id=200,
-        last_viewed_at=datetime.now(timezone.utc),
+        last_viewed_at=datetime.now(UTC),
     )
     db_session.add(enrollment)
     await db_session.commit()
@@ -100,7 +97,7 @@ async def test_enrollment_creation(db_session):
 
 @pytest.mark.asyncio
 async def test_submission_creation(db_session):
-    user = User(stepik_id=123, access_token="a", refresh_token="r", token_expires_at=datetime.now(timezone.utc))
+    user = User(stepik_id=123, access_token="a", refresh_token="r", token_expires_at=datetime.now(UTC))
     db_session.add(user)
     await db_session.commit()
 
@@ -113,7 +110,7 @@ async def test_submission_creation(db_session):
         stepik_submission_id=900,
         stepik_step_id=500,
         status="correct",
-        submission_time=datetime.now(timezone.utc),
+        submission_time=datetime.now(UTC),
     )
     db_session.add(submission)
     await db_session.commit()
@@ -139,7 +136,7 @@ async def test_financial_snapshot_creation(db_session):
 
 
 def test_user_repr():
-    user = User(stepik_id=1, access_token="a", refresh_token="r", token_expires_at=datetime.now(timezone.utc))
+    user = User(stepik_id=1, access_token="a", refresh_token="r", token_expires_at=datetime.now(UTC))
     assert "User id=" in repr(user)
     assert "stepik_id=1" in repr(user)
 

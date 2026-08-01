@@ -1,14 +1,14 @@
-import time as time_mod
 import asyncio
+import time as time_mod
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import app.services.sync as sync_mod
+from app.api.auth import get_user
 from app.database import get_db
 from app.models import FinancialSnapshot, User
-from app.api.auth import get_user
-import app.services.sync as sync_mod
 
 router = APIRouter(prefix="/api/sync", tags=["sync"])
 

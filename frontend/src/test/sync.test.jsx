@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { SyncProvider, useSync } from '../contexts/SyncContext'
 import { AuthProvider } from '../contexts/AuthContext'
@@ -23,6 +23,20 @@ function TestConsumer() {
   )
 }
 
+function StatusConsumer() {
+  const sync = useSync()
+  return (
+    <div>
+      <div data-testid="status-progress">{sync.syncStatus.progress ?? 'none'}</div>
+      <div data-testid="status-step">{sync.syncStatus.step || 'none'}</div>
+    </div>
+  )
+}
+
+function statusCallsCount() {
+  return mockApiInstance.get.mock.calls.filter(call => call[0] === '/sync/status').length
+}
+
 describe('SyncContext', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -31,6 +45,10 @@ describe('SyncContext', () => {
       headers: { get: () => 'application/json' },
       json: () => Promise.resolve({ id: 1, email: 'test@test.com' }),
     })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   it('renders without crashing', async () => {
@@ -114,5 +132,52 @@ describe('SyncContext', () => {
     await waitFor(() => {
       expect(screen.getByTestId('data-kpi').textContent).toBe('loaded')
     })
+  })
+
+  it('exposes in-progress sync progress and step from status endpoint', async () => {
+    vi.useFakeTimers()
+    mockApiInstance.get.mockImplementation((url) => {
+      if (url === '/sync/status') {
+        return Promise.resolve({ data: { in_progress: true, progress: 42, step: 'решения: загрузка', last_sync: null } })
+      }
+      return Promise.resolve({ data: {} })
+    })
+
+    render(
+      <AuthProvider>
+        <SyncProvider>
+          <StatusConsumer />
+        </SyncProvider>
+      </AuthProvider>
+    )
+
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(screen.getByTestId('status-progress').textContent).toBe('42')
+    expect(screen.getByTestId('status-step').textContent).toBe('решения: загрузка')
+  })
+
+  it('polls sync status every 2s while sync is in progress', async () => {
+    vi.useFakeTimers()
+    mockApiInstance.get.mockImplementation((url) => {
+      if (url === '/sync/status') {
+        return Promise.resolve({ data: { in_progress: true, progress: 10, step: 'курсы', last_sync: null } })
+      }
+      return Promise.resolve({ data: {} })
+    })
+
+    render(
+      <AuthProvider>
+        <SyncProvider>
+          <div data-testid="mounted">mounted</div>
+        </SyncProvider>
+      </AuthProvider>
+    )
+
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(statusCallsCount()).toBe(1)
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(statusCallsCount()).toBe(3)
   })
 })

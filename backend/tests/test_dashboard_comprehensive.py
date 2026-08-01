@@ -1,11 +1,12 @@
 import uuid
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
+
 from fastapi.testclient import TestClient
 
-from app.main import app
-from app.database import get_db
-from app.models import User, Course, StudentEnrollment, Submission, FinancialSnapshot
 from app.api.auth import get_user
+from app.database import get_db
+from app.main import app
+from app.models import Course, FinancialSnapshot, StudentEnrollment, Submission, User
 from app.services.crypto import encrypt_token
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -17,7 +18,7 @@ def _make_user_in_db(session, user_id=None, stepik_id=12345):
         stepik_id=stepik_id,
         access_token=encrypt_token("test_token"),
         refresh_token=encrypt_token("refresh"),
-        token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        token_expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     session.add(user)
     return user
@@ -38,13 +39,16 @@ def _make_course_in_db(session, user_id, stepik_course_id=100, title="Test Cours
 def _setup_overrides(db_session, user):
     async def override_db():
         yield db_session
+
     async def override_user():
         return user
+
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_user] = override_user
 
 
 # ─── Submissions endpoint tests ─────────────────────────────────────────
+
 
 class TestDashboardSubmissions:
     async def test_returns_months(self, db_session):
@@ -52,7 +56,7 @@ class TestDashboardSubmissions:
         course = _make_course_in_db(db_session, user.id)
         await db_session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         sub = Submission(
             id=uuid.uuid4(),
             stepik_submission_id=10001,
@@ -82,7 +86,7 @@ class TestDashboardSubmissions:
         course = _make_course_in_db(db_session, user.id)
         await db_session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         sub_author = Submission(
             id=uuid.uuid4(),
             stepik_submission_id=10002,
@@ -121,16 +125,26 @@ class TestDashboardSubmissions:
         course = _make_course_in_db(db_session, user.id)
         await db_session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         sub_correct = Submission(
-            id=uuid.uuid4(), stepik_submission_id=10004, stepik_step_id=1001,
-            course_id=course.id, status="correct", score=1.0,
-            submission_time=now, is_author=False,
+            id=uuid.uuid4(),
+            stepik_submission_id=10004,
+            stepik_step_id=1001,
+            course_id=course.id,
+            status="correct",
+            score=1.0,
+            submission_time=now,
+            is_author=False,
         )
         sub_wrong = Submission(
-            id=uuid.uuid4(), stepik_submission_id=10005, stepik_step_id=1001,
-            course_id=course.id, status="wrong", score=0.0,
-            submission_time=now, is_author=False,
+            id=uuid.uuid4(),
+            stepik_submission_id=10005,
+            stepik_step_id=1001,
+            course_id=course.id,
+            status="wrong",
+            score=0.0,
+            submission_time=now,
+            is_author=False,
         )
         db_session.add_all([sub_correct, sub_wrong])
         await db_session.flush()
@@ -162,18 +176,28 @@ class TestDashboardSubmissions:
         course = _make_course_in_db(db_session, user.id)
         await db_session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         last_month = (now.replace(day=1) - timedelta(days=1)).replace(day=15)
 
         sub1 = Submission(
-            id=uuid.uuid4(), stepik_submission_id=10006, stepik_step_id=1001,
-            course_id=course.id, status="correct", score=1.0,
-            submission_time=last_month, is_author=False,
+            id=uuid.uuid4(),
+            stepik_submission_id=10006,
+            stepik_step_id=1001,
+            course_id=course.id,
+            status="correct",
+            score=1.0,
+            submission_time=last_month,
+            is_author=False,
         )
         sub2 = Submission(
-            id=uuid.uuid4(), stepik_submission_id=10007, stepik_step_id=1001,
-            course_id=course.id, status="correct", score=1.0,
-            submission_time=now, is_author=False,
+            id=uuid.uuid4(),
+            stepik_submission_id=10007,
+            stepik_step_id=1001,
+            course_id=course.id,
+            status="correct",
+            score=1.0,
+            submission_time=now,
+            is_author=False,
         )
         db_session.add_all([sub1, sub2])
         await db_session.flush()
@@ -193,26 +217,43 @@ class TestDashboardSubmissions:
         course = _make_course_in_db(db_session, user.id)
         await db_session.flush()
 
-        old = datetime(2025, 3, 10, tzinfo=timezone.utc)
-        recent = datetime(2026, 1, 5, tzinfo=timezone.utc)
+        old = datetime(2025, 3, 10, tzinfo=UTC)
+        recent = datetime(2026, 1, 5, tzinfo=UTC)
 
-        db_session.add_all([
-            Submission(
-                id=uuid.uuid4(), stepik_submission_id=10008, stepik_step_id=1001,
-                course_id=course.id, status="correct", score=1.0,
-                submission_time=old, is_author=False,
-            ),
-            Submission(
-                id=uuid.uuid4(), stepik_submission_id=10009, stepik_step_id=1001,
-                course_id=course.id, status="wrong", score=0.0,
-                submission_time=old, is_author=False,
-            ),
-            Submission(
-                id=uuid.uuid4(), stepik_submission_id=10010, stepik_step_id=1001,
-                course_id=course.id, status="correct", score=1.0,
-                submission_time=recent, is_author=False,
-            ),
-        ])
+        db_session.add_all(
+            [
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=10008,
+                    stepik_step_id=1001,
+                    course_id=course.id,
+                    status="correct",
+                    score=1.0,
+                    submission_time=old,
+                    is_author=False,
+                ),
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=10009,
+                    stepik_step_id=1001,
+                    course_id=course.id,
+                    status="wrong",
+                    score=0.0,
+                    submission_time=old,
+                    is_author=False,
+                ),
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=10010,
+                    stepik_step_id=1001,
+                    course_id=course.id,
+                    status="correct",
+                    score=1.0,
+                    submission_time=recent,
+                    is_author=False,
+                ),
+            ]
+        )
         await db_session.flush()
 
         _setup_overrides(db_session, user)
@@ -231,6 +272,7 @@ class TestDashboardSubmissions:
 
 # ─── KPI trend tests ────────────────────────────────────────────────────
 
+
 class TestDashboardKPITrends:
     async def test_revenue_change_pct(self, db_session):
         user = _make_user_in_db(db_session)
@@ -243,15 +285,22 @@ class TestDashboardKPITrends:
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
             data={
-                "summary": {"current_month_income": 10000, "total_income": 18000,
-                            "total_turnover": 20000, "total_refunds": 0, "total_payments": 18,
-                            "net_income": 18000, "total_refunds_count": 3,
-                            "current_month_turnover": 12000, "current_month_payments": 10},
+                "summary": {
+                    "current_month_income": 10000,
+                    "total_income": 18000,
+                    "total_turnover": 20000,
+                    "total_refunds": 0,
+                    "total_payments": 18,
+                    "net_income": 18000,
+                    "total_refunds_count": 3,
+                    "current_month_turnover": 12000,
+                    "current_month_payments": 10,
+                },
                 "months": months_data,
                 "courses": [],
                 "recent_payments": [],
             },
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
         db_session.add(snapshot)
         await db_session.flush()
@@ -275,15 +324,22 @@ class TestDashboardKPITrends:
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
             data={
-                "summary": {"current_month_income": 10000, "total_income": 18000,
-                            "total_turnover": 20000, "total_refunds": 0, "total_payments": 15,
-                            "net_income": 18000, "total_refunds_count": 3,
-                            "current_month_turnover": 12000, "current_month_payments": 10},
+                "summary": {
+                    "current_month_income": 10000,
+                    "total_income": 18000,
+                    "total_turnover": 20000,
+                    "total_refunds": 0,
+                    "total_payments": 15,
+                    "net_income": 18000,
+                    "total_refunds_count": 3,
+                    "current_month_turnover": 12000,
+                    "current_month_payments": 10,
+                },
                 "months": months_data,
                 "courses": [],
                 "recent_payments": [],
             },
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
         db_session.add(snapshot)
         await db_session.flush()
@@ -307,15 +363,22 @@ class TestDashboardKPITrends:
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
             data={
-                "summary": {"current_month_income": 0, "total_income": 0,
-                            "total_turnover": 0, "total_refunds": 0, "total_payments": 0,
-                            "net_income": 0, "total_refunds_count": 0,
-                            "current_month_turnover": 0, "current_month_payments": 0},
+                "summary": {
+                    "current_month_income": 0,
+                    "total_income": 0,
+                    "total_turnover": 0,
+                    "total_refunds": 0,
+                    "total_payments": 0,
+                    "net_income": 0,
+                    "total_refunds_count": 0,
+                    "current_month_turnover": 0,
+                    "current_month_payments": 0,
+                },
                 "months": months_data,
                 "courses": [],
                 "recent_payments": [],
             },
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
         db_session.add(snapshot)
         await db_session.flush()
@@ -338,15 +401,22 @@ class TestDashboardKPITrends:
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
             data={
-                "summary": {"current_month_income": 5000, "total_income": 5000,
-                            "total_turnover": 6000, "total_refunds": 0, "total_payments": 5,
-                            "net_income": 5000, "total_refunds_count": 0,
-                            "current_month_turnover": 6000, "current_month_payments": 5},
+                "summary": {
+                    "current_month_income": 5000,
+                    "total_income": 5000,
+                    "total_turnover": 6000,
+                    "total_refunds": 0,
+                    "total_payments": 5,
+                    "net_income": 5000,
+                    "total_refunds_count": 0,
+                    "current_month_turnover": 6000,
+                    "current_month_payments": 5,
+                },
                 "months": months_data,
                 "courses": [],
                 "recent_payments": [],
             },
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
         db_session.add(snapshot)
         await db_session.flush()
@@ -364,7 +434,7 @@ class TestDashboardKPITrends:
         course = _make_course_in_db(db_session, user.id)
         await db_session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         if now.month == 1:
             prev_year, prev_month = now.year - 1, 12
         else:
@@ -372,18 +442,26 @@ class TestDashboardKPITrends:
 
         for i in range(5):
             sub = Submission(
-                id=uuid.uuid4(), stepik_submission_id=20000 + i, stepik_step_id=1001,
-                course_id=course.id, status="correct", score=1.0,
-                submission_time=datetime(prev_year, prev_month, 15, tzinfo=timezone.utc),
+                id=uuid.uuid4(),
+                stepik_submission_id=20000 + i,
+                stepik_step_id=1001,
+                course_id=course.id,
+                status="correct",
+                score=1.0,
+                submission_time=datetime(prev_year, prev_month, 15, tzinfo=UTC),
                 is_author=False,
             )
             db_session.add(sub)
 
         for i in range(10):
             sub = Submission(
-                id=uuid.uuid4(), stepik_submission_id=20010 + i, stepik_step_id=1001,
-                course_id=course.id, status="correct", score=1.0,
-                submission_time=datetime(now.year, now.month, 15, tzinfo=timezone.utc),
+                id=uuid.uuid4(),
+                stepik_submission_id=20010 + i,
+                stepik_step_id=1001,
+                course_id=course.id,
+                status="correct",
+                score=1.0,
+                submission_time=datetime(now.year, now.month, 15, tzinfo=UTC),
                 is_author=False,
             )
             db_session.add(sub)
@@ -403,7 +481,7 @@ class TestDashboardKPITrends:
         user = _make_user_in_db(db_session)
         course = _make_course_in_db(db_session, user.id)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         cur_key = f"{now.year}-{now.month:02d}"
         if now.month == 1:
             prev_key = f"{now.year - 1}-12"
@@ -413,10 +491,17 @@ class TestDashboardKPITrends:
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
             data={
-                "summary": {"current_month_income": 0, "total_income": 0,
-                            "total_turnover": 0, "total_refunds": 0, "total_payments": 0,
-                            "net_income": 0, "total_refunds_count": 0,
-                            "current_month_turnover": 0, "current_month_payments": 0},
+                "summary": {
+                    "current_month_income": 0,
+                    "total_income": 0,
+                    "total_turnover": 0,
+                    "total_refunds": 0,
+                    "total_payments": 0,
+                    "net_income": 0,
+                    "total_refunds_count": 0,
+                    "current_month_turnover": 0,
+                    "current_month_payments": 0,
+                },
                 "months": [],
                 "courses": [],
                 "recent_payments": [],
@@ -425,7 +510,7 @@ class TestDashboardKPITrends:
                     "comments_monthly": {prev_key: 10, cur_key: 20},
                 },
             },
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
         db_session.add(snapshot)
         await db_session.flush()
@@ -446,10 +531,17 @@ class TestDashboardKPITrends:
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
             data={
-                "summary": {"current_month_income": 0, "total_income": 0,
-                            "total_turnover": 0, "total_refunds": 0, "total_payments": 0,
-                            "net_income": 0, "total_refunds_count": 0,
-                            "current_month_turnover": 0, "current_month_payments": 0},
+                "summary": {
+                    "current_month_income": 0,
+                    "total_income": 0,
+                    "total_turnover": 0,
+                    "total_refunds": 0,
+                    "total_payments": 0,
+                    "net_income": 0,
+                    "total_refunds_count": 0,
+                    "current_month_turnover": 0,
+                    "current_month_payments": 0,
+                },
                 "months": [],
                 "courses": [],
                 "recent_payments": [],
@@ -459,7 +551,7 @@ class TestDashboardKPITrends:
                     "average_rating": 4.5,
                 },
             },
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
         )
         db_session.add(snapshot)
         await db_session.flush()
@@ -477,29 +569,42 @@ class TestDashboardKPITrends:
 
 # ─── Cohorts with Zombie tests ──────────────────────────────────────────
 
+
 class TestDashboardCohortsZombie:
     async def test_zombie_counted_separately(self, db_session):
         user = _make_user_in_db(db_session)
         course = _make_course_in_db(db_session, user.id)
         await db_session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         zombie = StudentEnrollment(
-            id=uuid.uuid4(), course_id=course.id, student_id="z1",
-            cohort_status="Zombie", points_earned=0, certificate_issued=False,
+            id=uuid.uuid4(),
+            course_id=course.id,
+            student_id="z1",
+            cohort_status="Zombie",
+            points_earned=0,
+            certificate_issued=False,
             last_viewed_at=now - timedelta(days=100),
             date_joined=now - timedelta(days=100),
         )
         sleeping = StudentEnrollment(
-            id=uuid.uuid4(), course_id=course.id, student_id="s1",
-            cohort_status="Sleeping", points_earned=0, certificate_issued=False,
+            id=uuid.uuid4(),
+            course_id=course.id,
+            student_id="s1",
+            cohort_status="Sleeping",
+            points_earned=0,
+            certificate_issued=False,
             last_viewed_at=now - timedelta(days=100),
             date_joined=now - timedelta(days=200),
         )
         active = StudentEnrollment(
-            id=uuid.uuid4(), course_id=course.id, student_id="a1",
-            cohort_status="Active", points_earned=50, certificate_issued=False,
+            id=uuid.uuid4(),
+            course_id=course.id,
+            student_id="a1",
+            cohort_status="Active",
+            points_earned=50,
+            certificate_issued=False,
             last_viewed_at=now - timedelta(days=3),
         )
 
@@ -523,17 +628,25 @@ class TestDashboardCohortsZombie:
         course = _make_course_in_db(db_session, user.id)
         await db_session.flush()
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
 
         zombie = StudentEnrollment(
-            id=uuid.uuid4(), course_id=course.id, student_id="z1",
-            cohort_status="Zombie", points_earned=0, certificate_issued=False,
+            id=uuid.uuid4(),
+            course_id=course.id,
+            student_id="z1",
+            cohort_status="Zombie",
+            points_earned=0,
+            certificate_issued=False,
             last_viewed_at=now - timedelta(days=100),
             date_joined=now - timedelta(days=100),
         )
         sleeping = StudentEnrollment(
-            id=uuid.uuid4(), course_id=course.id, student_id="s1",
-            cohort_status="Sleeping", points_earned=0, certificate_issued=False,
+            id=uuid.uuid4(),
+            course_id=course.id,
+            student_id="s1",
+            cohort_status="Sleeping",
+            points_earned=0,
+            certificate_issued=False,
             last_viewed_at=now - timedelta(days=100),
             date_joined=now - timedelta(days=200),
         )
@@ -552,6 +665,7 @@ class TestDashboardCohortsZombie:
 
 
 # ─── KPI with no snapshot ──────────────────────────────────────────────
+
 
 class TestDashboardKPINoSnapshot:
     async def test_no_snapshot_returns_zeros(self, db_session):

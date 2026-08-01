@@ -6,12 +6,12 @@ Usage:
     python scripts/sync_raw.py submissions        # sync specific endpoint
     python scripts/sync_raw.py courses sections   # sync multiple
 """
+
 import argparse
 import asyncio
 import json
 import re
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -22,19 +22,19 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import get_settings
 from app.services.crypto import decrypt_token
-from app.services.stepik_api import STEPIK_API_BASE
+from app.services.stepik_api import STEPIK_API_BASE, STEPIK_OAUTH_TOKEN_URL
 
 settings = get_settings()
 
 IDS_SOURCE_MAP = {
-    "sections":                ("raw_course",  "section_ids"),
-    "units":                   ("raw_section", "units"),
-    "lessons":                 ("raw_unit",    "lesson_id"),
-    "steps":                   ("raw_lesson",  "steps"),
-    "course_review_summaries": ("raw_course",  "review_summary_json"),
-    "progresses":              ("raw_step",    "progress"),
-    "users":                   ("__multi__",   "user"),
-    "profiles":                ("raw_user",    "profile"),
+    "sections": ("raw_course", "section_ids"),
+    "units": ("raw_section", "units"),
+    "lessons": ("raw_unit", "lesson_id"),
+    "steps": ("raw_lesson", "steps"),
+    "course_review_summaries": ("raw_course", "review_summary_json"),
+    "progresses": ("raw_step", "progress"),
+    "users": ("__multi__", "user"),
+    "profiles": ("raw_user", "profile"),
 }
 STEP_COURSE_ENDPOINTS = {"submissions"}  # per-course author submission pass
 
@@ -42,9 +42,7 @@ STEP_COURSE_ENDPOINTS = {"submissions"}  # per-course author submission pass
 async def get_user_token() -> str | None:
     engine = create_async_engine(settings.database_url)
     async with engine.begin() as conn:
-        r = await conn.execute(
-            text("SELECT access_token FROM users ORDER BY created_at DESC LIMIT 1")
-        )
+        r = await conn.execute(text("SELECT access_token FROM users ORDER BY created_at DESC LIMIT 1"))
         row = r.fetchone()
     await engine.dispose()
     if row:
@@ -57,7 +55,7 @@ async def get_client_token() -> str | None:
         return None
     async with httpx.AsyncClient() as client:
         resp = await client.post(
-            "https://stepik.org/oauth2/token/",
+            STEPIK_OAUTH_TOKEN_URL,
             data={
                 "grant_type": "client_credentials",
                 "client_id": settings.stepik_finance_client_id,
@@ -108,8 +106,9 @@ async def resolve_ids(engine, endpoint_name: str) -> list[str]:
     if raw_table == "__multi__":
         queries = {
             "user": [
+                "SELECT DISTINCT student_id FROM student_enrollments WHERE student_id IS NOT NULL",
+                "SELECT DISTINCT user_id FROM submissions WHERE user_id IS NOT NULL",
                 "SELECT DISTINCT user_id FROM raw_course_grade WHERE user_id IS NOT NULL",
-                "SELECT DISTINCT user FROM raw_comment WHERE user IS NOT NULL",
                 "SELECT DISTINCT user_id FROM raw_certificate WHERE user_id IS NOT NULL",
                 "SELECT DISTINCT user FROM raw_course_review WHERE user IS NOT NULL",
             ],
@@ -174,14 +173,21 @@ def guess_api_object(api_path: str) -> str:
 
 
 def extract_objects(data: dict, api_path: str) -> list[dict]:
-    obj_name = guess_api_object(api_path)
     for key in data:
         if key != "meta":
             return data[key]
     return []
 
 
-async def sync_full_reload(engine, token, endpoint: dict, raw_table: str, api_path: str, page_size: int, auth_method: str):
+async def sync_full_reload(
+    engine,
+    token,
+    endpoint: dict,
+    raw_table: str,
+    api_path: str,
+    page_size: int,
+    auth_method: str,
+):
     """TRUNCATE + full paginated reload. Determines query mode from api_path."""
     clean = clean_path(api_path)
     ep_name = endpoint["endpoint_name"]
@@ -203,7 +209,7 @@ async def sync_full_reload(engine, token, endpoint: dict, raw_table: str, api_pa
             batch_size = 100
             all_objects = []
             for start in range(0, len(ids), batch_size):
-                batch = ids[start:start + batch_size]
+                batch = ids[start : start + batch_size]
                 data = await fetch_page(clean, token, {"ids[]": batch})
                 all_objects.extend(extract_objects(data, api_path))
                 print(f"    ... {len(all_objects)} records")
@@ -214,7 +220,7 @@ async def sync_full_reload(engine, token, endpoint: dict, raw_table: str, api_pa
             else:
                 print(f"  {raw_table}: no data")
             return
-        print(f"  (no ID source, falling back to bare)")
+        print("  (no ID source, falling back to bare)")
         mode = None
 
     if mode == "course":
@@ -273,7 +279,7 @@ async def sync_full_reload(engine, token, endpoint: dict, raw_table: str, api_pa
     if mode == "teacher":
         teacher_id = get_settings().stepik_user_id
         if not teacher_id:
-            print(f"  SKIP: STEPIK_USER_ID not set")
+            print("  SKIP: STEPIK_USER_ID not set")
             return
         all_objects = []
         page = 1
@@ -332,10 +338,13 @@ async def _replace_table(engine, raw_table: str, objects: list[dict]):
             return
         ep_name = ep_row[0]
 
-        r = await conn.execute(text("""
+        r = await conn.execute(
+            text("""
             SELECT api_field, db_column FROM meta_field_mapping
             WHERE endpoint_name = :ep AND is_loaded = True
-        """), {"ep": ep_name})
+        """),
+            {"ep": ep_name},
+        )
         mapping = {row[0]: row[1] for row in r}
 
         if not mapping:
@@ -346,10 +355,13 @@ async def _replace_table(engine, raw_table: str, objects: list[dict]):
         all_db_cols = set(v for v in mapping.values())
 
         # Check which db columns are serial PKs
-        pk_r = await conn.execute(text("""
+        pk_r = await conn.execute(
+            text("""
             SELECT column_name FROM information_schema.columns
             WHERE table_name = :t AND column_default LIKE 'nextval(%'
-        """), {"t": raw_table})
+        """),
+            {"t": raw_table},
+        )
         serial_pks = {row[0] for row in pk_r}
 
         col_names = [c for c in all_db_cols if c not in serial_pks] + ["_raw_json"]
@@ -361,7 +373,6 @@ async def _replace_table(engine, raw_table: str, objects: list[dict]):
 
         # TRUNCATE
         await conn.execute(text(f'TRUNCATE TABLE "{raw_table}" RESTART IDENTITY CASCADE'))
-
 
         for obj in objects:
             raw_json = json.dumps(obj, ensure_ascii=False)
@@ -384,19 +395,21 @@ async def _replace_table(engine, raw_table: str, objects: list[dict]):
 
 async def _ensure_sync_state_table(engine):
     async with engine.begin() as conn:
-        await conn.execute(text("""
+        await conn.execute(
+            text("""
             CREATE TABLE IF NOT EXISTS raw_sync_state (
                 endpoint_name text NOT NULL,
                 key text NOT NULL,
                 value text NOT NULL,
                 PRIMARY KEY (endpoint_name, key)
             )
-        """))
+        """)
+        )
 
 
 async def sync_incremental_page(engine, token, endpoint: dict, raw_table: str, api_path: str):
     """Incremental sync by page number (submissions, attempts).
-    Uses step_sync_state for step_id → last_page tracking."""
+    Tracks step_id → last_page in raw_sync_state."""
     clean = clean_path(api_path)
     step_ids = await get_step_ids(engine)
     if not step_ids:
@@ -437,7 +450,11 @@ async def sync_incremental_page(engine, token, endpoint: dict, raw_table: str, a
             # Update state after each page
             async with engine.begin() as conn:
                 await conn.execute(
-                    text("INSERT INTO raw_sync_state (endpoint_name, key, value) VALUES (:ep, :k, :v) ON CONFLICT (endpoint_name, key) DO UPDATE SET value = :v2"),
+                    text(
+                        "INSERT INTO raw_sync_state (endpoint_name, key, value) "
+                        "VALUES (:ep, :k, :v) "
+                        "ON CONFLICT (endpoint_name, key) DO UPDATE SET value = :v2"
+                    ),
                     {"ep": endpoint["endpoint_name"], "k": f"step_{sid}", "v": str(page), "v2": str(page)},
                 )
 
@@ -447,7 +464,7 @@ async def sync_incremental_page(engine, token, endpoint: dict, raw_table: str, a
             await asyncio.sleep(0.3)
 
         if step_new > 0:
-            print(f"    step {sid}: +{step_new} (page {last_page+1}→{page})")
+            print(f"    step {sid}: +{step_new} (page {last_page + 1}→{page})")
 
     print(f"  {raw_table}: +{total_new} rows (incremental_page, steps)")
 
@@ -525,7 +542,11 @@ async def sync_incremental_time(engine, token, endpoint: dict, raw_table: str, a
                 # Update last_time for this course (ISO text comparison is safe)
                 async with engine.begin() as conn:
                     await conn.execute(
-                        text("INSERT INTO raw_sync_state (endpoint_name, key, value) VALUES (:ep, :k, :v) ON CONFLICT (endpoint_name, key) DO UPDATE SET value = :v2"),
+                        text(
+                            "INSERT INTO raw_sync_state (endpoint_name, key, value) "
+                            "VALUES (:ep, :k, :v) "
+                            "ON CONFLICT (endpoint_name, key) DO UPDATE SET value = :v2"
+                        ),
                         {"ep": ep_name, "k": f"last_time_course_{cid}", "v": max_time_str, "v2": max_time_str},
                     )
 
@@ -558,20 +579,26 @@ async def _upsert_objects(engine, raw_table: str, api_path: str, objects: list[d
             return
         ep_name = ep_row[0]
 
-        r = await conn.execute(text("""
+        r = await conn.execute(
+            text("""
             SELECT api_field, db_column FROM meta_field_mapping
             WHERE endpoint_name = :ep AND is_loaded = True
-        """), {"ep": ep_name})
+        """),
+            {"ep": ep_name},
+        )
         mapping = {row[0]: row[1] for row in r}
 
         if not mapping:
             mapping = {k: k for k in sample}
 
         all_db_cols = set(v for v in mapping.values())
-        pk_r = await conn.execute(text("""
+        pk_r = await conn.execute(
+            text("""
             SELECT column_name FROM information_schema.columns
             WHERE table_name = :t AND column_default LIKE 'nextval(%'
-        """), {"t": raw_table})
+        """),
+            {"t": raw_table},
+        )
         serial_pks = {row[0] for row in pk_r}
 
         col_names = [c for c in all_db_cols if c not in serial_pks] + ["_raw_json"]
@@ -609,13 +636,14 @@ async def main():
     async with engine.begin() as conn:
         if args.endpoints:
             r = await conn.execute(
-                text("SELECT * FROM meta_endpoint WHERE endpoint_name = ANY(:names) AND is_active = True ORDER BY endpoint_name"),
+                text(
+                    "SELECT * FROM meta_endpoint "
+                    "WHERE endpoint_name = ANY(:names) AND is_active = True ORDER BY endpoint_name"
+                ),
                 {"names": args.endpoints},
             )
         else:
-            r = await conn.execute(
-                text("SELECT * FROM meta_endpoint WHERE is_active = True ORDER BY endpoint_name")
-            )
+            r = await conn.execute(text("SELECT * FROM meta_endpoint WHERE is_active = True ORDER BY endpoint_name"))
         endpoints = [dict(row._mapping) for row in r]
 
     if not endpoints:
@@ -650,7 +678,7 @@ async def main():
             token = user_token
 
         if not token:
-            print(f"  SKIP: no token")
+            print("  SKIP: no token")
             continue
 
         try:
@@ -664,6 +692,7 @@ async def main():
                 print(f"  SKIP: unknown strategy '{strategy}'")
         except Exception as e:
             import traceback
+
             print(f"  ERROR: {e}")
             traceback.print_exc()
 

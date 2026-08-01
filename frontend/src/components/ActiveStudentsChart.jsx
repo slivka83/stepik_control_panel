@@ -2,6 +2,7 @@ import { useState, useId } from 'react'
 import { createPortal } from 'react-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts'
 import { CHART_COLORS } from '../constants.jsx'
+import { buildMonthWindow } from '../utils/monthWindow.js'
 
 const COLOR_BRIGHT = '#dc2626'
 const COLOR_DIM = '#8b2040'
@@ -49,7 +50,7 @@ export default function ActiveStudentsChart({
   const bright = primaryColor || COLOR_BRIGHT
   const dim = secondaryColor || COLOR_DIM
 
-  const months = (data.months || []).slice(-18)
+  const months = buildMonthWindow(data.months || [])
 
   if (!months.length) {
     return (

@@ -1,12 +1,12 @@
-import pytest
 import time
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.services.rate_limiter import (
-    handle_rate_limit,
     acquire_token,
     check_auth_rate_limit,
-    TOKEN_BUCKET_CAPACITY,
+    handle_rate_limit,
 )
 
 

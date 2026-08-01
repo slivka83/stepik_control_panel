@@ -1,9 +1,10 @@
 """Tests: Postgres compatibility — no SQLite-isms in transform/raw_sync."""
+
 import json
 import re
 import uuid
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import text
@@ -136,10 +137,10 @@ def _extract_sql_strings(source: str) -> list[str]:
                 buf = []
             continue
 
-        if stripped.startswith('text("""') or stripped.startswith('text(\"""'):
+        if stripped.startswith('text("""') or stripped.startswith('text("""'):
             in_triple = True
             buf = [line]
-            if '"""' in stripped.lstrip('text(\n ')[4:]:
+            if '"""' in stripped[9:]:
                 in_triple = False
                 block = "\n".join(buf)
                 m = re.search(r'"""\s*(.*?)\s*"""', block, re.DOTALL)
@@ -176,10 +177,8 @@ def _check_file_for_sqlite_functions(filepath: str) -> list[dict]:
     return hits
 
 
-TRANSFORM_PATH = __import__("app.services.transform",
-                            fromlist=[""]).__file__ or "app/services/transform.py"
-RAW_SYNC_PATH = __import__("app.services.raw_sync",
-                           fromlist=[""]).__file__ or "app/services/raw_sync.py"
+TRANSFORM_PATH = __import__("app.services.transform", fromlist=[""]).__file__ or "app/services/transform.py"
+RAW_SYNC_PATH = __import__("app.services.raw_sync", fromlist=[""]).__file__ or "app/services/raw_sync.py"
 
 
 class TestNoSqliteInTransform:
@@ -224,24 +223,37 @@ async def test_transform_financials_with_dict_raw_json(db_session):
         "count_course_payments": 5,
         "count_invoice_payments": 0,
     }
-    await db_session.execute(text("""
+    await db_session.execute(
+        text("""
         DELETE FROM raw_course_benefit_by_month
-    """))
-    await db_session.execute(text("""
+    """)
+    )
+    await db_session.execute(
+        text("""
         INSERT INTO raw_course_benefit_by_month (_raw_json)
         VALUES (:j)
-    """), {"j": json.dumps(raw_json)})
+    """),
+        {"j": json.dumps(raw_json)},
+    )
 
     benefit_json = {
-        "id": 999, "course": 100, "time": "2026-01-15T10:00:00Z",
-        "amount": "4000.00", "payment_amount": "5000.00",
-        "status": "paid", "promo_code": None, "buyer": 999999,
+        "id": 999,
+        "course": 100,
+        "time": "2026-01-15T10:00:00Z",
+        "amount": "4000.00",
+        "payment_amount": "5000.00",
+        "status": "paid",
+        "promo_code": None,
+        "buyer": 999999,
     }
     await db_session.execute(text("DELETE FROM raw_course_benefit"))
-    await db_session.execute(text("""
+    await db_session.execute(
+        text("""
         INSERT INTO raw_course_benefit (_raw_json)
         VALUES (:j)
-    """), {"j": json.dumps(benefit_json)})
+    """),
+        {"j": json.dumps(benefit_json)},
+    )
     await db_session.commit()
 
     await transform_financials(db_session)
@@ -257,7 +269,7 @@ async def test_transform_financials_with_dict_raw_json(db_session):
 # ─── datetime naivety in INSERT/UPDATE params ────────────────────────────
 
 
-DT_AWARE = datetime.now(timezone.utc)
+DT_AWARE = datetime.now(UTC)
 DT_NAIVE = DT_AWARE.replace(tzinfo=None)
 
 
@@ -265,6 +277,7 @@ DT_NAIVE = DT_AWARE.replace(tzinfo=None)
 async def test_financial_snapshot_insert_with_naive_dt(db_session):
     """Regression: timestamptz column must accept naive UTC datetime (asyncpg compat)."""
     from app.services.transform import transform_financials
+
     user = _make_user(db_session)
     await _make_course(db_session, user.id, stepik_course_id=100)
 
@@ -286,29 +299,42 @@ async def test_financial_snapshot_insert_with_naive_dt(db_session):
         "count_invoice_payments": 0,
     }
     await db_session.execute(text("DELETE FROM raw_course_benefit_by_month"))
-    await db_session.execute(text("""
+    await db_session.execute(
+        text("""
         INSERT INTO raw_course_benefit_by_month (_raw_json)
         VALUES (:j)
-    """), {"j": json.dumps(raw_json)})
+    """),
+        {"j": json.dumps(raw_json)},
+    )
 
     benefit_json = {
-        "id": 888, "course": 100, "time": "2026-01-15T10:00:00Z",
-        "amount": "2500.00", "payment_amount": "3000.00",
-        "status": "paid", "promo_code": None, "buyer": 888888,
+        "id": 888,
+        "course": 100,
+        "time": "2026-01-15T10:00:00Z",
+        "amount": "2500.00",
+        "payment_amount": "3000.00",
+        "status": "paid",
+        "promo_code": None,
+        "buyer": 888888,
     }
     await db_session.execute(text("DELETE FROM raw_course_benefit"))
-    await db_session.execute(text("""
+    await db_session.execute(
+        text("""
         INSERT INTO raw_course_benefit (_raw_json)
         VALUES (:j)
-    """), {"j": json.dumps(benefit_json)})
+    """),
+        {"j": json.dumps(benefit_json)},
+    )
     await db_session.commit()
 
     await transform_financials(db_session)
     await db_session.commit()
 
-    r = await db_session.execute(text("""
+    r = await db_session.execute(
+        text("""
         SELECT updated_at FROM financial_snapshots LIMIT 1
-    """))
+    """)
+    )
     row = r.fetchone()
     assert row is not None
     # SQLite returns str, PG returns datetime — either is fine
@@ -330,46 +356,66 @@ async def test_transform_submissions_with_dict_raw_json(db_session):
 
     # Need a step-course mapping: raw_step.lesson → raw_unit.lesson_id → raw_section.course
     await db_session.execute(text("DELETE FROM raw_step"))
-    await db_session.execute(text("""
+    await db_session.execute(
+        text("""
         INSERT INTO raw_step (step_id, lesson, _raw_json)
         VALUES (:sid, :lid, :j)
-    """), {"sid": 10, "lid": 20, "j": json.dumps({"id": 10, "lesson": 20})})
+    """),
+        {"sid": 10, "lid": 20, "j": json.dumps({"id": 10, "lesson": 20})},
+    )
     await db_session.execute(text("DELETE FROM raw_unit"))
-    await db_session.execute(text("""
+    await db_session.execute(
+        text("""
         INSERT INTO raw_unit (unit_id, lesson_id, section_id, _raw_json)
         VALUES (1, 20, 1, :j)
-    """), {"j": json.dumps({"id": 30, "lesson": 20, "section": 1})})
+    """),
+        {"j": json.dumps({"id": 30, "lesson": 20, "section": 1})},
+    )
     await db_session.execute(text("DELETE FROM raw_section"))
-    await db_session.execute(text("""
+    await db_session.execute(
+        text("""
         INSERT INTO raw_section (section_id, course, units, _raw_json)
         VALUES (1, 400, '[1]', :j)
-    """), {"j": json.dumps({"id": 1, "course": 400})})
+    """),
+        {"j": json.dumps({"id": 1, "course": 400})},
+    )
 
     raw_sub = {
-        "id": 1000, "step": 10, "user": 99999,
-        "time": "2026-07-15T12:00:00Z", "status": "correct",
+        "id": 1000,
+        "step": 10,
+        "user": 99999,
+        "time": "2026-07-15T12:00:00Z",
+        "status": "correct",
         "attempt": 555,
     }
     await db_session.execute(text("DELETE FROM raw_submission"))
-    await db_session.execute(text("""
+    await db_session.execute(
+        text("""
         INSERT INTO raw_submission (_raw_json)
         VALUES (:j)
-    """), {"j": json.dumps(raw_sub)})
+    """),
+        {"j": json.dumps(raw_sub)},
+    )
 
     raw_attempt = {"id": 555, "user": 99999}
     await db_session.execute(text("DELETE FROM raw_attempt"))
-    await db_session.execute(text("""
+    await db_session.execute(
+        text("""
         INSERT INTO raw_attempt (attempt_id, _raw_json)
         VALUES (:aid, :j)
-    """), {"aid": 555, "j": json.dumps(raw_attempt)})
+    """),
+        {"aid": 555, "j": json.dumps(raw_attempt)},
+    )
     await db_session.commit()
 
     await transform_submissions(db_session)
     await db_session.commit()
 
-    r = await db_session.execute(text("""
+    r = await db_session.execute(
+        text("""
         SELECT status FROM submissions WHERE stepik_step_id = 10
-    """))
+    """)
+    )
     row = r.fetchone()
     assert row is not None
     assert row[0] == "correct"
@@ -386,33 +432,55 @@ async def test_transform_community_with_dict_raw_json(db_session):
 
     # Pre-create a financial snapshot
     snap_id = str(uuid.uuid4())
-    await db_session.execute(text("""
+    await db_session.execute(
+        text("""
         INSERT INTO financial_snapshots (id, data, updated_at)
         VALUES (:id, :data, :now)
-    """), {
-        "id": snap_id,
-        "data": json.dumps({"summary": {"total_turnover": 10000}}),
-        "now": datetime.now(timezone.utc).replace(tzinfo=None),
-    })
+    """),
+        {
+            "id": snap_id,
+            "data": json.dumps({"summary": {"total_turnover": 10000}}),
+            "now": datetime.now(UTC).replace(tzinfo=None),
+        },
+    )
 
     # Insert raw course review summary
     await db_session.execute(text("DELETE FROM raw_course_review_summary"))
-    await db_session.execute(text("""
+    await db_session.execute(
+        text("""
         INSERT INTO raw_course_review_summary (_raw_json)
         VALUES (:j)
-    """), {"j": json.dumps({
-        "id": 500, "course": 500, "average": "4.5", "count": 10,
-    })})
+    """),
+        {
+            "j": json.dumps(
+                {
+                    "id": 500,
+                    "course": 500,
+                    "average": "4.5",
+                    "count": 10,
+                }
+            )
+        },
+    )
 
     # Insert raw comment
     await db_session.execute(text("DELETE FROM raw_comment"))
-    await db_session.execute(text("""
+    await db_session.execute(
+        text("""
         INSERT INTO raw_comment (_raw_json)
         VALUES (:j)
-    """), {"j": json.dumps({
-        "id": 1, "course": 500, "time": "2026-07-20T10:00:00Z",
-        "thread": "step-10",
-    })})
+    """),
+        {
+            "j": json.dumps(
+                {
+                    "id": 1,
+                    "course": 500,
+                    "time": "2026-07-20T10:00:00Z",
+                    "thread": "step-10",
+                }
+            )
+        },
+    )
     await db_session.commit()
 
     await transform_community(db_session)
@@ -432,11 +500,13 @@ async def test_transform_community_with_dict_raw_json(db_session):
 def _make_user(session, stepik_id=12345):
     from app.models import User
     from app.services.crypto import encrypt_token
+
     user = User(
-        id=uuid.uuid4(), stepik_id=stepik_id,
+        id=uuid.uuid4(),
+        stepik_id=stepik_id,
         access_token=encrypt_token("token"),
         refresh_token=encrypt_token("refresh"),
-        token_expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        token_expires_at=datetime.now(UTC) + timedelta(hours=1),
     )
     session.add(user)
     return user
@@ -444,11 +514,18 @@ def _make_user(session, stepik_id=12345):
 
 async def _make_course(session, user_id, stepik_course_id=100, title="Test"):
     cid = str(uuid.uuid4())
-    await session.execute(text("""
+    await session.execute(
+        text("""
         INSERT INTO courses (id, user_id, stepik_course_id, title, status, created_at)
         VALUES (:id, :uid, :sid, :t, :s, :now)
-    """), {
-        "id": cid, "uid": str(user_id), "sid": stepik_course_id,
-        "t": title, "s": "Published", "now": datetime.now(timezone.utc),
-    })
+    """),
+        {
+            "id": cid,
+            "uid": str(user_id),
+            "sid": stepik_course_id,
+            "t": title,
+            "s": "Published",
+            "now": datetime.now(UTC),
+        },
+    )
     return cid

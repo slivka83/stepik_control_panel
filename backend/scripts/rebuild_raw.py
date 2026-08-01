@@ -5,13 +5,17 @@ Usage: python scripts/rebuild_raw.py <endpoint_name>
 
 Example: python scripts/rebuild_raw.py units
 """
-import asyncio, json, sys, re
+
+import asyncio
+import json
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
+
 from app.config import get_settings
 
 

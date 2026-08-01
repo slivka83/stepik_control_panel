@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
-from app.main import app
 
+from app.main import app
 
 client = TestClient(app)
 
@@ -68,17 +68,20 @@ class TestAuthLogout:
 class TestSessionSigning:
     def test_create_and_verify_session_token(self):
         from app.api.auth import create_session_token, verify_session_token
+
         token = create_session_token("user-123")
         result = verify_session_token(token)
         assert result == "user-123"
 
     def test_verify_invalid_token_returns_none(self):
         from app.api.auth import verify_session_token
+
         result = verify_session_token("invalid.token")
         assert result is None
 
     def test_verify_tampered_token_returns_none(self):
         from app.api.auth import create_session_token, verify_session_token
+
         token = create_session_token("user-123")
         tampered = token[:-5] + "XXXXX"
         result = verify_session_token(tampered)
@@ -86,11 +89,13 @@ class TestSessionSigning:
 
     def test_verify_empty_string_returns_none(self):
         from app.api.auth import verify_session_token
+
         result = verify_session_token("")
         assert result is None
 
     def test_verify_no_dot_returns_none(self):
         from app.api.auth import verify_session_token
+
         result = verify_session_token("nodothere")
         assert result is None
 

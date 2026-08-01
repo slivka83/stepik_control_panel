@@ -1,14 +1,52 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { useSync } from '../contexts/SyncContext'
 import { NAV_ITEMS } from '../constants.jsx'
 import api from '../api'
 
+function formatDuration(totalSeconds) {
+  const s = Math.max(0, Math.round(totalSeconds))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const sec = s % 60
+  if (h > 0) return `${h} ч ${m} мин`
+  if (m > 0) return `${m} мин ${sec} с`
+  return `${sec} с`
+}
+
 function Sidebar() {
   const { user, loading, login, logout } = useAuth()
+  const { syncStatus } = useSync()
   const [syncing, setSyncing] = useState(false)
   const [progress, setProgress] = useState(0)
-  const [syncStep, setSyncStep] = useState('')
+  const startRef = useRef(null)
+  const [now, setNow] = useState(Date.now())
+
+  const isSyncing = syncing || syncStatus.in_progress
+  const displayProgress = syncing ? progress : (syncStatus.progress || 0)
+
+  useEffect(() => {
+    if (!isSyncing) {
+      startRef.current = null
+      return
+    }
+    if (startRef.current === null) startRef.current = Date.now()
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [isSyncing])
+
+  const buildSyncTooltip = () => {
+    if (!isSyncing) return 'Обновить'
+    const elapsed = startRef.current ? (now - startRef.current) / 1000 : 0
+    const pct = displayProgress
+    const remaining = pct > 0 ? (elapsed * (100 - pct)) / pct : null
+    return [
+      `Завершено: ${Math.round(pct)}%`,
+      `Прошло: ${formatDuration(elapsed)}`,
+      `Осталось: ${remaining !== null ? `~${formatDuration(remaining)}` : '…'}`,
+    ].join('\n')
+  }
 
   const handleSync = async () => {
     setSyncing(true)
@@ -24,7 +62,6 @@ function Sidebar() {
         await new Promise(r => setTimeout(r, 1000))
         const { data } = await api.get('/sync/status')
         setProgress(data.progress || 0)
-        setSyncStep(data.step || '')
         if (!data.in_progress) break
       }
     } catch (err) {
@@ -32,7 +69,6 @@ function Sidebar() {
     } finally {
       setSyncing(false)
       setProgress(0)
-      setSyncStep('')
     }
   }
 
@@ -54,7 +90,13 @@ function Sidebar() {
               }`
             }
           >
-            <span className="text-lg" aria-hidden="true">{item.icon}</span>
+            <span
+              className="text-lg"
+              aria-hidden="true"
+              style={item.iconScale ? { transform: `scale(${item.iconScale})`, display: 'inline-block' } : undefined}
+            >
+              {item.icon}
+            </span>
             <span className="hidden text-sm font-medium">{item.label}</span>
           </NavLink>
         ))}
@@ -67,17 +109,17 @@ function Sidebar() {
           <>
             <button
               onClick={handleSync}
-              title={syncing ? `${syncStep} (${progress}%)` : 'Обновить'}
+              title={buildSyncTooltip()}
               className="relative w-10 h-10 flex items-center justify-center border border-cyber-blue/30 rounded-lg overflow-hidden text-lg group"
-              disabled={syncing}
+              disabled={isSyncing}
             >
-              {syncing && (
+              {isSyncing && (
                 <span
                   className="absolute bottom-0 left-0 w-full bg-cyber-blue/25"
-                  style={{ height: `${progress}%`, transition: 'height 1.5s ease-out' }}
+                  style={{ height: `${displayProgress}%`, transition: 'height 1.5s ease-out' }}
                 />
               )}
-              <span className={`relative z-10 inline-block text-cyber-blue transition-colors duration-300 ${syncing ? 'animate-spin' : 'group-hover:text-white'}`}>↻</span>
+              <span className={`relative z-10 inline-block text-cyber-blue transition-colors duration-300 ${isSyncing ? 'animate-spin' : 'group-hover:text-white'}`}>↻</span>
             </button>
             <button
               onClick={logout}

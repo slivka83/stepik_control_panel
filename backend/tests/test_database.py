@@ -1,10 +1,9 @@
 """Tests for database engine configuration."""
-import os
-import pytest
-from unittest.mock import patch
 
-from app.database import engine, async_session, get_db
-from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine
+import pytest
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
+
+from app.database import async_session, engine, get_db
 
 
 class TestEngineConfig:
@@ -16,10 +15,12 @@ class TestEngineConfig:
 
     def test_async_session_is_async_sessionmaker(self):
         from sqlalchemy.ext.asyncio import async_sessionmaker
+
         assert isinstance(async_session, async_sessionmaker)
 
     def test_async_session_produces_async_session(self):
         from sqlalchemy.ext.asyncio import AsyncSession
+
         session = async_session()
         assert isinstance(session, AsyncSession)
 

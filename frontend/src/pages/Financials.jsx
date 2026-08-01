@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useSync } from '../contexts/SyncContext'
-import { STATUS_LABELS, STATUS_COLORS } from '../constants.jsx'
 import { formatCurrency } from '../utils/formatNumber'
 import ErrorBanner from '../components/ErrorBanner'
 import KpiCard from '../components/KpiCard'
@@ -13,8 +12,17 @@ const TABS = [
   { key: 'years', label: 'По годам' },
   { key: 'courses', label: 'По курсам' },
   { key: 'promo', label: 'По промокодам' },
+  { key: 'utms', label: 'По UTM' },
   { key: 'recent', label: 'Последние операции' },
 ]
+
+function formatUtmTooltip(raw) {
+  const utm = raw?.last_course_click_utm
+  if (!utm || typeof utm !== 'object') return ''
+  return Object.entries(utm)
+    .map(([k, v]) => `${k}: ${v ?? ''}`)
+    .join('\n')
+}
 
 function Pagination({ page, totalPages, setPage }) {
   if (totalPages <= 1) return null
@@ -118,7 +126,7 @@ export default function Financials() {
     )
   }
 
-  const { summary, months, years, courses, promos, recent_payments } = financials || {}
+  const { summary, months, years, courses, promos, utms, recent_payments } = financials || {}
   const hasData = (summary?.total_payments || 0) > 0
 
   const reversedMonths = [...(months || [])].reverse()
@@ -134,6 +142,9 @@ export default function Financials() {
 
   const promosTotalPages = Math.ceil((promos || []).length / rowsPerPage)
   const paginatedPromos = (promos || []).slice((page - 1) * rowsPerPage, page * rowsPerPage)
+
+  const utmsTotalPages = Math.ceil((utms || []).length / rowsPerPage)
+  const paginatedUtms = (utms || []).slice((page - 1) * rowsPerPage, page * rowsPerPage)
 
   const paymentsTotalPages = Math.ceil((recent_payments?.length || 0) / rowsPerPage)
   const paginatedPayments = (recent_payments || []).slice(
@@ -315,6 +326,43 @@ export default function Financials() {
             </div>
           )}
 
+          {activeTab === 'utms' && (
+            <div className="glass-panel p-4 flex flex-col flex-1 min-h-0">
+
+              <div ref={tableRef} className="overflow-hidden flex-1 min-h-0">
+                <table className="w-full text-sm table-fixed fin-table">
+                  <thead>
+                    <tr className="border-b border-gray-700">
+                      <th className="text-left text-gray-400 py-2 font-normal w-[18%]">UTM</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[12%]">Покупок</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[18%]">Оборот</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[16%]">Доход</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[14%]">Возвраты</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[22%]">Последнее применение</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {paginatedUtms.map((u) => (
+                      <tr key={`utm-${u.utm_source}`} className="border-b border-gray-800">
+                        <td className="py-2 text-white truncate">{u.utm_source}</td>
+                        <td className="py-2 text-right font-mono text-gray-300">{u.payments}</td>
+                        <td className="py-2 text-right font-mono text-white">{formatCurrency(u.turnover)}</td>
+                        <td className="py-2 text-right font-mono text-neon-green">{formatCurrency(u.income)}</td>
+                        <td className="py-2 text-right font-mono text-crimson-alert">
+                          {u.refunds > 0 ? `-${formatCurrency(u.refunds)}` : '—'}
+                        </td>
+                        <td className="py-2 text-right text-gray-400 truncate">
+                          {u.last_used ? new Date(u.last_used).toLocaleDateString('ru-RU') : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <Pagination page={page} totalPages={utmsTotalPages} setPage={setPage} />
+            </div>
+          )}
+
           {activeTab === 'recent' && (
             <div className="glass-panel p-4 flex flex-col flex-1 min-h-0">
 
@@ -322,27 +370,35 @@ export default function Financials() {
                 <table className="w-full text-sm table-fixed fin-table">
                   <thead>
                     <tr className="border-b border-gray-700">
-                      <th className="text-left text-gray-400 py-2 font-normal w-[14%]">Дата</th>
-                      <th className="text-left text-gray-400 py-2 font-normal w-[30%]">Курс</th>
-                      <th className="text-right text-gray-400 py-2 font-normal w-[17%]">Сумма покупки</th>
-                      <th className="text-right text-gray-400 py-2 font-normal w-[15%]">Ваш доход</th>
-                      <th className="text-center text-gray-400 py-2 font-normal w-[12%]">Статус</th>
-                      <th className="text-center text-gray-400 py-2 font-normal w-[12%]">Промокод</th>
+                      <th className="text-left text-gray-400 py-2 font-normal pr-4 w-[12%]">Дата</th>
+                      <th className="text-left text-gray-400 py-2 font-normal pr-4">Курс</th>
+                      <th className="text-right text-gray-400 py-2 font-normal pr-4 w-[14%]">Студент</th>
+                      <th className="text-right text-gray-400 py-2 font-normal pr-4 w-[8%]">Оплата</th>
+                      <th className="text-right text-gray-400 py-2 font-normal pr-4 w-[8%]">Доход</th>
+                      <th className="text-right text-gray-400 py-2 font-normal pr-4 w-[6%]">Канал</th>
+                      <th className="text-right text-gray-400 py-2 font-normal pr-4 w-[12%]">Промокод</th>
+                      <th className="text-right text-gray-400 py-2 font-normal pr-4 w-[4%]">Подарок</th>
+                      <th className="text-right text-gray-400 py-2 font-normal w-[10%]">UTM</th>
                     </tr>
                   </thead>
                   <tbody>
                     {paginatedPayments.map((p) => (
                       <tr key={`payment-${p.id}`} className="border-b border-gray-800">
-                        <td className="py-2 text-gray-300 truncate">{new Date(p.time).toLocaleDateString('ru-RU')}</td>
-                        <td className="py-2 text-white truncate" title={p.course}>{p.course}</td>
-                        <td className="py-2 text-right font-mono text-white truncate">{formatCurrency(p.payment_amount)}</td>
-                        <td className={`py-2 text-right font-mono truncate ${p.status === 'refunded' ? 'text-crimson-alert' : 'text-neon-green'}`}>
-                          {p.status === 'refunded' ? '−' : ''}{formatCurrency(p.amount)}
+                        <td className="py-2 text-gray-300 truncate pr-4">
+                          {`${new Date(p.time).toLocaleDateString('ru-RU')} ${new Date(p.time).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`}
                         </td>
-                        <td className={`py-2 text-center text-sm font-medium truncate ${STATUS_COLORS[p.status] || 'text-gray-400'}`}>
-                          {STATUS_LABELS[p.status] || p.status}
+                        <td className="py-2 text-white truncate pr-4" title={p.course}>{p.course}</td>
+                        <td className="py-2 text-right text-gray-300 truncate pr-4" title={p.student || ''}>{p.student || '—'}</td>
+                        <td className="py-2 text-right font-mono text-white truncate pr-4">{formatCurrency(p.payment_amount)}</td>
+                        <td className={`py-2 text-right font-mono truncate pr-4 ${p.status === 'refunded' ? 'text-crimson-alert line-through' : 'text-neon-green'}`}>
+                          {formatCurrency(p.amount)}
                         </td>
-                        <td className="py-2 text-center text-gray-500 text-sm truncate">{p.promo_code || '—'}</td>
+                        <td className="py-2 text-right text-gray-500 text-sm truncate pr-4">{p.channel || '—'}</td>
+                        <td className="py-2 text-right text-gray-500 text-sm truncate pr-4">{p.promo_code || '—'}</td>
+                        <td className="py-2 text-right text-gray-500 text-sm truncate pr-4">{p.is_gift ? 'Да' : '—'}</td>
+                        <td className="py-2 text-right text-gray-500 text-sm truncate" title={formatUtmTooltip(p.raw)}>
+                          {p.utm_source_label || '—'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

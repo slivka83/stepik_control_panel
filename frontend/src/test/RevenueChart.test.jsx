@@ -44,7 +44,7 @@ describe('RevenueChart', () => {
     expect(figure).toHaveAttribute('aria-label', 'Диаграмма доходов по месяцам')
   })
 
-  it('renders figcaption with total income summary', () => {
+  it('renders figcaption with window size and total income summary', () => {
     const data = [
       { month: 'Январь 2026', income: 1000, year: 2026 },
       { month: 'Февраль 2026', income: 2000, year: 2026 },
@@ -52,6 +52,7 @@ describe('RevenueChart', () => {
     const { container } = render(<RevenueChart data={data} />)
     const figcaption = container.querySelector('figcaption')
     expect(figcaption).toBeInTheDocument()
-    expect(figcaption.textContent).toContain('3')
+    expect(figcaption.textContent).toContain('18')
+    expect(figcaption.textContent).toMatch(/3\s*000/)
   })
 })

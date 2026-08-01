@@ -10,8 +10,10 @@ Create Date: 2026-07-31
 - raw_sync_state: таблица состояния инкрементального sync (использовалась
   в raw_sync.py, но отсутствовала в PostgreSQL)
 """
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "011"
 down_revision = "010"

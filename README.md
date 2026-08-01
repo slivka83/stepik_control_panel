@@ -107,11 +107,11 @@ alembic current
 ### Тестирование
 
 ```bash
-# Backend — 102 теста
+# Backend — 319 тестов (нужен docker-compose для live-PG)
 cd backend
 python -m pytest tests/ -v
 
-# Frontend — 78 тестов
+# Frontend — 192 теста
 cd frontend
 npx vitest run
 ```
@@ -121,10 +121,11 @@ npx vitest run
 | Таблица | Описание |
 |---|---|
 | `users` | Авторы, зашифрованные OAuth2 токены (Fernet) |
-| `courses` | Курсы автора, health_score |
+| `courses` | Курсы автора |
 | `student_enrollments` | Прогресс и когортный статус студентов |
 | `submissions` | Отправки решений по шагам (correct/wrong) |
 | `financial_snapshots` | Финансовая сводка по месяцам и курсам (JSONB) |
+| `raw_sync_state` | Инкрементальное состояние загрузки (PK: endpoint_name, key) |
 
 PK — UUID. Токены шифруются через `cryptography.fernet`, ключ `ENCRYPTION_KEY` из `.env`.
 
@@ -147,5 +148,6 @@ alembic downgrade -1
 
 | Файл | Описание |
 |---|---|
-| [`docs/brd.md`](docs/brd.md) | Бизнес-требования, функциональные модули |
-| [`docs/api.md`](docs/api.md) | Справочник по Stepik API |
+| [`docs/api_propose.md`](docs/api_propose.md) | Предложенные эндпоинты Stepik API |
+| `docs/fields_*.md` | Описания полей эндпоинтов |
+| [`AGENTS.md`](AGENTS.md) | Архитектура, синхронизация, тесты |

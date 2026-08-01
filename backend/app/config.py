@@ -1,18 +1,17 @@
 import logging
-import sys
+from functools import lru_cache
 from pathlib import Path
 
-from pydantic_settings import BaseSettings
 from pydantic import model_validator
-from functools import lru_cache
+from pydantic_settings import BaseSettings
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql+asyncpg://stepik_panel:stepik_panel@localhost:5432/stepik_panel"
-    redis_url: str = "redis://localhost:6379/0"
+    database_url: str = "postgresql+asyncpg://stepik_panel:stepik_panel@localhost:5433/stepik_panel"
+    redis_url: str = "redis://localhost:6380/0"
 
     stepik_client_id: str = ""
     stepik_client_secret: str = ""
@@ -34,8 +33,7 @@ class Settings(BaseSettings):
         if self.app_env == "production":
             if not self.secret_key or self.secret_key == "dev-secret-key":
                 raise RuntimeError(
-                    "SECRET_KEY must be set in production (not 'dev-secret-key'). "
-                    "Generate with: openssl rand -hex 32"
+                    "SECRET_KEY must be set in production (not 'dev-secret-key'). Generate with: openssl rand -hex 32"
                 )
             if len(self.secret_key) < 32:
                 raise RuntimeError("SECRET_KEY must be at least 32 characters in production")

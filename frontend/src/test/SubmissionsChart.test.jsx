@@ -64,16 +64,18 @@ describe('SubmissionsChart', () => {
     const { container } = render(<SubmissionsChart data={data} />)
     const figcaption = container.querySelector('figcaption')
     expect(figcaption).toBeInTheDocument()
-    expect(figcaption.textContent).toContain('2')
+    expect(figcaption.textContent).toContain('18')
   })
 
-  it('limits displayed months to last 18', () => {
+  it('shows the 18-month window ending with the current month', () => {
     const months = Array.from({ length: 25 }, (_, i) => ({
       month: `Месяц ${i + 1}`,
       total: i * 10,
       correct: i * 8,
     }))
     const { container } = render(<SubmissionsChart data={{ months }} />)
+    const figcaption = container.querySelector('figcaption')
+    expect(figcaption.textContent).toContain('18')
     expect(screen.getByText('Отправленные решения')).toBeInTheDocument()
   })
 

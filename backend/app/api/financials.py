@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import get_user
 from app.database import get_db
 from app.models import FinancialSnapshot, User
-from app.api.auth import get_user
 
 router = APIRouter(prefix="/api/financials", tags=["financials"])
 
@@ -18,8 +18,17 @@ async def get_financials(
     snapshot = snapshot_result.scalar_one_or_none()
     if not snapshot:
         return {
-            "summary": {"total_turnover": 0, "total_income": 0, "total_refunds": 0, "total_payments": 0, "net_income": 0},
-            "months": [], "years": [], "courses": [], "recent_payments": [],
+            "summary": {
+                "total_turnover": 0,
+                "total_income": 0,
+                "total_refunds": 0,
+                "total_payments": 0,
+                "net_income": 0,
+            },
+            "months": [],
+            "years": [],
+            "courses": [],
+            "recent_payments": [],
         }
     data = dict(snapshot.data)
     year_stats = {}

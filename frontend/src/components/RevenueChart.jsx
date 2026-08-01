@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { createPortal } from 'react-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts'
 import { CHART_COLORS } from '../constants.jsx'
+import { buildMonthWindow } from '../utils/monthWindow.js'
 
 const COLOR = '#4ade80'
 
@@ -44,12 +45,14 @@ export default function RevenueChart({ data = [] }) {
     )
   }
 
-  const chartData = data.map(d => ({
+  const windowed = buildMonthWindow(data)
+
+  const chartData = windowed.map(d => ({
     ...d,
     commission: Math.max((d.turnover || 0) - (d.income || 0), 0),
   }))
 
-  const totalIncome = data.reduce((sum, d) => sum + (d.income || 0), 0)
+  const totalIncome = windowed.reduce((sum, d) => sum + (d.income || 0), 0)
   const activeEntry = activeMonth ? chartData.find(d => d.month === activeMonth) : null
 
   const handleBarEnter = (month, cx, cy) => {
@@ -59,7 +62,7 @@ export default function RevenueChart({ data = [] }) {
 
   return (
     <figure role="img" aria-label="Диаграмма доходов по месяцам" className="glass-panel p-4 flex flex-col min-h-0">
-      <figcaption className="sr-only">Доходы за {data.length} месяцев, всего {totalIncome.toLocaleString('ru-RU')} ₽</figcaption>
+      <figcaption className="sr-only">Доходы за {windowed.length} месяцев, всего {totalIncome.toLocaleString('ru-RU')} ₽</figcaption>
       <div className="flex items-center justify-between mb-2 shrink-0">
         <h3 className="text-white font-medium">Доход по месяцам</h3>
         <div className="flex items-center gap-4">

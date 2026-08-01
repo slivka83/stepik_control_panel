@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Index
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -17,15 +17,13 @@ class Course(Base):
     title: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str | None] = mapped_column(String, default="Draft")
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     user: Mapped["User"] = relationship(back_populates="courses")
     enrollments: Mapped[list["StudentEnrollment"]] = relationship(back_populates="course")
     submissions: Mapped[list["Submission"]] = relationship(back_populates="course")
 
-    __table_args__ = (
-        Index("ix_courses_user_id", "user_id"),
-    )
+    __table_args__ = (Index("ix_courses_user_id", "user_id"),)
 
     def __repr__(self) -> str:
         return f"<Course id={self.id} title={self.title!r}>"

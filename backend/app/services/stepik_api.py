@@ -1,13 +1,15 @@
-import httpx
 import asyncio
 import logging
 import time
 from contextvars import ContextVar
 from typing import Any
 
+import httpx
+
 from app.services.rate_limiter import acquire_token, handle_rate_limit
 
 STEPIK_API_BASE = "https://stepik.org/api"
+STEPIK_OAUTH_TOKEN_URL = "https://stepik.org/oauth2/token/"
 MAX_RETRIES = 5
 
 logger = logging.getLogger(__name__)
@@ -74,18 +76,24 @@ async def _request(
     if response.status_code == 429:
         if retries >= MAX_RETRIES:
             raise StepikRateLimitError(f"Exceeded {MAX_RETRIES} retries for {path}")
-        retry_after_header = int(response.headers.get("Retry-After", 2 ** retries))
-        retry_after = min(retry_after_header, 2 ** retries)
+        retry_after_header = int(response.headers.get("Retry-After", 2**retries))
+        retry_after = min(retry_after_header, 2**retries)
         logger.warning("Rate limited on %s, retry %d/%d after %ds", path, retries + 1, MAX_RETRIES, retry_after)
         await asyncio.sleep(retry_after)
         return await _request(method, path, token, params, retries + 1)
 
-    if response.status_code >= 500:
-        if retries < MAX_RETRIES:
-            wait = 2 ** retries
-            logger.warning("Server error %d on %s, retry %d/%d after %ds", response.status_code, path, retries + 1, MAX_RETRIES, wait)
-            await asyncio.sleep(wait)
-            return await _request(method, path, token, params, retries + 1)
+    if response.status_code >= 500 and retries < MAX_RETRIES:
+        wait = 2**retries
+        logger.warning(
+            "Server error %d on %s, retry %d/%d after %ds",
+            response.status_code,
+            path,
+            retries + 1,
+            MAX_RETRIES,
+            wait,
+        )
+        await asyncio.sleep(wait)
+        return await _request(method, path, token, params, retries + 1)
 
     if response.status_code >= 400:
         raise StepikAPIError(response.status_code, response.text)
@@ -108,7 +116,7 @@ async def refresh_access_token(refresh_token: str, client_id: str, client_secret
     """Exchange refresh_token for a new access_token via Stepik OAuth2."""
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            "https://stepik.org/oauth2/token/",
+            STEPIK_OAUTH_TOKEN_URL,
             data={
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
@@ -127,7 +135,7 @@ async def exchange_code_for_token(code: str, client_id: str, client_secret: str,
     """Exchange OAuth2 authorization code for access/refresh tokens."""
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            "https://stepik.org/oauth2/token/",
+            STEPIK_OAUTH_TOKEN_URL,
             data={
                 "grant_type": "authorization_code",
                 "code": code,
@@ -160,7 +168,7 @@ async def get_finance_token(client_id: str, client_secret: str) -> str:
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            "https://stepik.org/oauth2/token/",
+            STEPIK_OAUTH_TOKEN_URL,
             data={
                 "grant_type": "client_credentials",
                 "client_id": client_id,

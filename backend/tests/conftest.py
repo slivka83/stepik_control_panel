@@ -8,13 +8,11 @@ os.environ["REDIS_URL"] = "redis://localhost:6379/1"
 os.environ["STEPIK_CLIENT_ID"] = "test_client_id"
 os.environ["STEPIK_CLIENT_SECRET"] = "test_client_secret"
 
-import pytest
 import pytest_asyncio
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-from app.models import Base, User, Course, StudentEnrollment, Submission, FinancialSnapshot  # noqa: F401
-from app.database import engine, get_db, async_session
+from app.database import async_session, engine
+from app.models import Base, Course, FinancialSnapshot, StudentEnrollment, Submission, User  # noqa: F401
 
 RAW_TABLES = {
     # NOTE: column names AND types mirror the real PostgreSQL schema
@@ -190,6 +188,17 @@ RAW_TABLES = {
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """,
+    "raw_user": """
+        CREATE TABLE IF NOT EXISTS raw_user (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT UNIQUE,
+            first_name TEXT,
+            last_name TEXT,
+            full_name TEXT,
+            _raw_json TEXT,
+            _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """,
     "raw_sync_state": """
         CREATE TABLE IF NOT EXISTS raw_sync_state (
             endpoint_name TEXT NOT NULL,
@@ -223,4 +232,5 @@ async def db_session():
 async def override_get_db(db_session):
     async def _override():
         yield db_session
+
     return _override

@@ -1,4 +1,5 @@
 import logging
+
 from cryptography.fernet import Fernet, InvalidToken
 
 from app.config import get_settings
@@ -15,13 +16,14 @@ def get_fernet() -> Fernet:
     settings = get_settings()
     key = settings.encryption_key
     if not key:
-        raise RuntimeError("ENCRYPTION_KEY is not set. Generate with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\"")
+        gen_hint = 'python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"'
+        raise RuntimeError(f"ENCRYPTION_KEY is not set. Generate with: {gen_hint}")
 
     key_bytes = key.encode() if isinstance(key, str) else key
     try:
         _fernet_instance = Fernet(key_bytes)
     except Exception as e:
-        raise RuntimeError(f"Invalid ENCRYPTION_KEY: {e}. Must be a 32-byte URL-safe base64-encoded key.")
+        raise RuntimeError(f"Invalid ENCRYPTION_KEY: {e}. Must be a 32-byte URL-safe base64-encoded key.") from e
 
     return _fernet_instance
 
@@ -36,4 +38,4 @@ def decrypt_token(encrypted_token: str) -> str:
     try:
         return fernet.decrypt(encrypted_token.encode()).decode()
     except InvalidToken:
-        raise RuntimeError("Failed to decrypt token — ENCRYPTION_KEY may have changed or data is corrupted")
+        raise RuntimeError("Failed to decrypt token — ENCRYPTION_KEY may have changed or data is corrupted") from None

@@ -84,18 +84,21 @@ curl -X POST \
 - При 429: извлечь `Retry-After`, `await asyncio.sleep(retry_after)`, вернуть фронтенду `202 Accepted`
 - Не прерывать сессию пользователя
 
-## База данных (6 таблиц)
+## База данных (7 таблиц)
 
 | Таблица | Назначение |
 |---|---|
 | `users` | Авторы/владельцы, зашифрованные токены (Fernet) |
-| `courses` | Курсы, health_score |
+| `courses` | Курсы автора (без health_score — удалён миграцией 010) |
 | `student_enrollments` | Прогресс студентов, когортный статус |
 | `submissions` | Отправки решений по шагам (correct/wrong), `is_author` |
-| `financial_snapshots` | Снапшоты финансовой сводки + community (отзывы, рейтинг, комментарии по месяцам, `last_comment_time` для инкрементального sync) |
-| `step_sync_state` | Состояние инкрементальной загрузки submissions (`step_id` → `last_page`) |
+| `financial_snapshots` | Снапшоты финансовой сводки + community (отзывы, рейтинг, комментарии по месяцам) |
+| `student_marts` | Витрина студентов: одна строка на студента (имя, статус, курсы, сертификаты, решения, комментарии, активность). Пересобирается в конце синка |
+| `raw_sync_state` | Состояние инкрементальной загрузки (`endpoint_name`, `key`, `value`) — step_id → last_page для submissions, last_time_course_X для comments |
 
-PK — UUID. Токены шифруются через `cryptography.fernet`, ключ `ENCRYPTION_KEY` из `.env`.
+PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токены шифруются через `cryptography.fernet`, ключ `ENCRYPTION_KEY` из `.env`.
+
+Плюс служебные таблицы raw-слоя (`raw_*`, 24 шт.), реестр `meta_endpoint` и `meta_field_mapping` (создаются скриптами/mиграцией `20fc60296db6`).
 
 ## Синхронизация (пайплайн API → raw → app)
 
@@ -107,6 +110,7 @@ PK — UUID. Токены шифруются через `cryptography.fernet`, �
 - `sync_submissions()` — отправки + попытки (инкрементально)
 - `sync_financials()` — финансы (course-benefit-by-months + course-benefits)
 - `sync_community()` — рейтинги + комментарии
+- `sync_users()` — анкеты (`/users?ids[]=`, батчи по 100) в raw_user; ID из `student_enrollments.student_id` + `submissions.user_id` + raw_course_grade/raw_certificate/raw_course_review (`USER_ID_SOURCES`); не-цифровые ID фильтруются (raw_comment.user хранит имя OAuth-клиента, не user id)
 - Использует `_request()` из `stepik_api.py`, пишет в `raw_*` таблицы
 - `_replace_raw_table()` (TRUNCATE + INSERT) для full_reload
 - `_upsert_raw_table()` (INSERT ON CONFLICT) для incremental
@@ -120,15 +124,19 @@ PK — UUID. Токены шифруются через `cryptography.fernet`, �
 - `transform_enrollments()` — raw_course_grade + raw_certificate → student_enrollments
 - `transform_submissions()` — raw_submission + raw_attempt → submissions (upsert)
 - `transform_financials()` — raw_course_benefit_by_month + raw_course_benefit → financial_snapshots
+  - Снапшот: `summary`, `months`, `courses`, `promos`, `utms` (агрегат по UTM-метке: payments/turnover/income/refunds/last_used), `recent_payments` (все платежи, без лимита), `community`
+  - `recent_payments[i]`: id, course, amount, payment_amount, status, time, buyer, student (имя из raw_user по buyer), promo_code, currency, channel («А-ссылка»/«Stepik»/«По счету» из is_z_link_used/is_invoice_payment), is_gift, utm_source, utm_source_label, raw (полный объект API)
+  - Возвраты в агрегациях (courses/promos/utms) хранятся положительными (`abs(amount)`)
 - `transform_community()` — raw_course_review_summary + raw_comment → financial_snapshots community data
+- `transform_students()` — student_enrollments + submissions + raw_comment + raw_user → student_marts (полная пересборка в конце синка)
 - Использует сырой SQL (`text()`), UUID-параметры конвертируются в `str()` для SQLite-совместимости
 - Для SQLite-совместимости JSON-обращения используют `json_extract(_raw_json, '$.field')` вместо PG `->>`
 
 ### Оркестратор (`app/services/sync.py`)
 - `sync_all_sync()` — вызывает raw_sync.* → transform.* последовательно, обновляя прогресс (0% → 100%)
 - Этапы: courses/enrollments (40%), submissions (85%), financials (95%), community (100%)
-- Хранит `SYNC_COOLDOWN_SECONDS=300`, `can_sync()` проверяет соoldown
-- Сохраняет `calculate_cohort_status()`, `MONTH_NAMES` для обратной совместимости импортов
+- Хранит `SYNC_COOLDOWN_SECONDS=60`, `can_sync()` проверяет соoldown
+- Когортная сегментация и названия месяцев — единый источник `app/constants.py` + `transform.calculate_cohort_status`
 
 ### Порядок этапов
 
@@ -137,6 +145,7 @@ sync_all:
   1. sync_courses_and_enrollments  (0→40%)
      - raw_sync.sync_courses_structure + sync_course_grades_and_certs
      - transform.transform_courses + transform_enrollments
+     - raw_sync.sync_users (анкеты студентов — после свежих зачислений)
   2. sync_submissions (40→85%)
      - raw_sync.sync_submissions
      - transform.transform_submissions
@@ -146,11 +155,12 @@ sync_all:
   4. sync_community_stats (95→100%)
      - raw_sync.sync_community
      - transform.transform_community
+     - transform.transform_students (витрина студентов — все входные данные свежие)
 ```
 
 ### Инкрементальная загрузка submissions
 
-- Таблица `step_sync_state`: `step_id` (PK) → `last_page` (номер последней загруженной страницы)
+- Таблица `raw_sync_state`: `(endpoint_name='submissions', key='step_{id}')` → `value` = последняя загруженная страница
 - При первом sync: загрузка с страницы 1 до `has_next=false`
 - При повторном sync: загрузка с `last_page` (перезаписывается), продолжение до `has_next=false`
 - **Важно:** `DELETE FROM courses` каскадно удаляет submissions (`ON DELETE CASCADE` в FK)
@@ -269,7 +279,7 @@ Y-ось графиков:
 | Стратегия | Описание | Эндпоинты |
 |---|---|---|
 | `full_reload` | TRUNCATE + перезагрузка всех страниц | 21 эндпоинт (courses, sections, users, ...) |
-| `incremental_page` | Догрузка по `last_page` (step_sync_state) | submissions, attempts |
+| `incremental_page` | Догрузка по `last_page` (raw_sync_state) | submissions, attempts |
 | `incremental_time` | Догрузка по дате (фильтр на клиенте) | comments |
 
 Скрипт: `backend/scripts/sync_raw.py`:
@@ -277,6 +287,12 @@ Y-ось графиков:
 python scripts/sync_raw.py              # все активные
 python scripts/sync_raw.py submissions  # конкретный
 ```
+
+Скрипт пересборки витрин из raw-слоя (без API-запросов): `backend/scripts/rebuild_marts.py`:
+```
+python scripts/rebuild_marts.py
+```
+Порядок как в `sync_all`: courses → enrollments → submissions → financials → community → students. Abort, если `raw_course` пуст.
 
 Особенности:
 - `full_reload` с `?ids[]=` — батчи по 100 ID, без ID пробует bare endpoint
@@ -302,7 +318,7 @@ python scripts/sync_raw.py submissions  # конкретный
 | raw_course_review | 20 | 16 | ✓ | full_reload |
 | raw_enrollment | — | — | пусто | — |
 | raw_progress | 659 | 9 | ✓ | full_reload |
-| raw_user | 742 | 25 | ✓ | full_reload |
+| raw_user | 7603 | 28 | ✓ | full_reload |
 | raw_achievement | 62 | 5 | ✓ | full_reload |
 | raw_achievement_progress | 100 | 10 | ✓ | full_reload |
 | raw_author_list | 1 | 7 | ✓ | full_reload |
@@ -319,7 +335,7 @@ python scripts/sync_raw.py submissions  # конкретный
 - steps ← raw_lesson.steps
 - course_review_summaries ← raw_course.review_summary_json
 - progresses ← raw_step.progress
-- users ← __multi__ (4 raw-таблицы)
+- users ← __multi__ (student_enrollments + submissions + raw-таблицы)
 - profiles ← raw_user.profile
 
 **COURSE_ENDPOINTS:** course_grades, certificates, comments, course_reviews, enrollments, course_period_statistics, course_total_statistics, course_ranks
@@ -332,26 +348,38 @@ python scripts/sync_raw.py submissions  # конкретный
 
 ## Документация
 
-- `docs/brd.md` — бизнес-требования, модули, бизнес-правила
-- `docs/api.md` — справочник по Stepik API
+- `docs/api_propose.md` — предложенные эндпоинты Stepik API
+- `docs/fields_*.md` — описания полей эндпоинтов
+- `docs/` — прочие рабочие заметки
+
+## Константы
+
+Единый источник `app/constants.py`: `MONTH_NAMES` (1–12), когортные пороги
+(`COHORT_ACTIVE_DAYS=7`, `COHORT_PASSIVE_DAYS=30`, `COHORT_FADING_DAYS=90`,
+`ZOMBIE_DAYS_AFTER_JOIN=3`), `UTM_SOURCE_LABELS` (метки источников для колонки UTM:
+`yandex_stpk`/`ya_stpk` → «Я.Директ», email-источники → «E-mail», `stepik_telegram` → «Telegram»,
+`stepik_vk_smm` → «VK», `notification` → «Уведомления»; неизвестные — как есть).
+Когортная сегментация — `transform.calculate_cohort_status()`.
+URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/stepik_api.py`.
 
 ## Тесты
 
-296 тестов, 0 skipped, 0 failures (`pytest -v`).
+333 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
 
 | Файл | Тестов | Что тестирует |
 |---|---|---|
 | `tests/test_stepik_api.py` | 20 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` |
 | `tests/test_stepik_api_comprehensive.py` | 14 | `get_finance_token`, 5xx retries, constants |
-| `tests/test_raw_sync.py` | 11 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions` (+404-шаги, конфликтные upsert'ы, str-bind для TEXT-колонок), `sync_financials`, `sync_community`, регрессии `became_published_at` и stale sequence |
+| `tests/test_raw_sync.py` | 15 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions` (+404-шаги, конфликтные upsert'ы, str-bind для TEXT-колонок), `sync_financials`, `sync_community`, регрессии `became_published_at` и stale sequence |
 | `tests/test_raw_sync_edge_cases.py` | 12 | `_paginated_fetch`, пустые/ошибочные данные transform и raw_sync |
-| `tests/test_transform.py` | 11 | `transform_courses/enrollments/submissions/financials/community` |
+| `tests/test_transform.py` | 17 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита) |
 | `tests/test_sync_integration.py` | 18 | `sync_all`, cohort status, интеграция raw_sync → transform, stepwise-коммиты raw_sync внутри sync-этапов |
-| `tests/test_sync_comprehensive.py` | 20 | `sync_all`, `sync_community_stats`, `sync_financials` |
+| `tests/test_sync_comprehensive.py` | 21 | `sync_all`, `sync_community_stats`, `sync_financials` |
 | `tests/test_sync_edge_cases.py` | 22 | Разрешение конфликтов, отсутствие данных, ошибки API |
-| `tests/test_data_contract.py` | 5 | Глобальные контракты снапшота/API/фронта (price, per_course, поля страниц) |
+| `tests/test_data_contract.py` | 5 | Глобальные контракты снапшота/API/фронта (price, per_course, поля страниц, recent_payments/utms) |
 | `tests/test_schema_contract.py` | 8 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот) |
-| Остальные | 155 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
+| `tests/test_architecture.py` | 19 | Архитектурные гарантии: один alembic head, нет dead-артефактов (step_sync_state, orphan-скрипты), единый источник констант, дефолты конфига = docker-compose, сплит dashboard-пакета, rebuild_marts.py (все трансформы, без API) |
+| Остальные | 162 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).
 

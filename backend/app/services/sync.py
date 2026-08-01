@@ -1,17 +1,17 @@
-import logging
-import time
 import asyncio
+import logging
 import threading
-from datetime import datetime, timezone
+import time
 
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker as _sessionmaker
+from sqlalchemy.ext.asyncio import async_sessionmaker as _sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine
 
-from app.config import get_settings
 import app.database as _db
+from app.config import get_settings
 from app.models import User
-from app.services.crypto import decrypt_token
 from app.services import raw_sync, transform
+from app.services.crypto import decrypt_token
 
 logger = logging.getLogger(__name__)
 
@@ -26,12 +26,6 @@ _last_sync_completed_at: float = 0
 
 SYNC_COOLDOWN_SECONDS = 60  # 1 minute
 
-MONTH_NAMES = {  # kept for test imports
-    1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
-    5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
-    9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
-}
-
 
 async def _get_user_token(user_id=None) -> str | None:
     async with async_session() as session:
@@ -44,26 +38,6 @@ async def _get_user_token(user_id=None) -> str | None:
             logger.warning("No user found")
             return None
         return decrypt_token(users[0].access_token)
-
-def calculate_cohort_status(last_viewed_at: datetime | None, date_joined: datetime | None = None) -> str:
-    if last_viewed_at is None:
-        return "Sleeping"
-    if last_viewed_at.tzinfo is None:
-        last_viewed_at = last_viewed_at.replace(tzinfo=timezone.utc)
-    days = (datetime.now(timezone.utc) - last_viewed_at).days
-    if days <= 7:
-        return "Active"
-    if days <= 30:
-        return "Passive"
-    if days <= 90:
-        return "Fading"
-    if date_joined is not None:
-        if date_joined.tzinfo is None:
-            date_joined = date_joined.replace(tzinfo=timezone.utc)
-        days_after_join = (last_viewed_at.date() - date_joined.date()).days
-        if 0 <= days_after_join <= 3:
-            return "Zombie"
-    return "Sleeping"
 
 
 def can_sync() -> bool:
@@ -86,9 +60,8 @@ async def sync_courses_and_enrollments(user_id=None):
 
     _sync_step = "курсы: структура"
     _sync_progress = 3
-    async with async_session() as session:
-        async with session.begin():
-            await raw_sync.sync_courses_structure(session, token)
+    async with async_session() as session, session.begin():
+        await raw_sync.sync_courses_structure(session, token)
     logger.info("Course structure synced")
 
     _sync_step = "курсы: оценки и сертификаты"
@@ -96,19 +69,20 @@ async def sync_courses_and_enrollments(user_id=None):
     async with async_session() as session:
         r = await session.execute(text("SELECT course_id FROM raw_course"))
         course_ids = [int(row[0]) for row in r if row[0] is not None]
-    async with async_session() as session:
-        async with session.begin():
-            await raw_sync.sync_course_grades_and_certs(session, token, course_ids)
+    async with async_session() as session, session.begin():
+        await raw_sync.sync_course_grades_and_certs(session, token, course_ids)
     logger.info("Course grades & certs synced")
 
     _sync_step = "курсы: трансформация"
     _sync_progress = 30
-    async with async_session() as session:
-        async with session.begin():
-            await transform.transform_courses(session, user_id_db)
-    async with async_session() as session:
-        async with session.begin():
-            await transform.transform_enrollments(session)
+    async with async_session() as session, session.begin():
+        await transform.transform_courses(session, user_id_db)
+    async with async_session() as session, session.begin():
+        await transform.transform_enrollments(session)
+
+    _sync_step = "студенты: анкеты"
+    async with async_session() as session, session.begin():
+        await raw_sync.sync_users(session, token)
     _sync_progress = 40
     logger.info("Courses & enrollments transformed")
 
@@ -131,9 +105,8 @@ async def sync_submissions(user_id=None):
     logger.info("Raw submissions synced")
 
     _sync_step = "решения: трансформация"
-    async with async_session() as session:
-        async with session.begin():
-            await transform.transform_submissions(session)
+    async with async_session() as session, session.begin():
+        await transform.transform_submissions(session)
     _sync_progress = 85
     logger.info("Submissions transformed")
 
@@ -143,16 +116,14 @@ async def sync_financials(user_id=None):
     global _sync_progress, _sync_step
 
     _sync_step = "финансы: загрузка"
-    async with async_session() as session:
-        async with session.begin():
-            await raw_sync.sync_financials(session)
+    async with async_session() as session, session.begin():
+        await raw_sync.sync_financials(session)
     _sync_progress = 90
     logger.info("Raw financials synced")
 
     _sync_step = "финансы: трансформация"
-    async with async_session() as session:
-        async with session.begin():
-            await transform.transform_financials(session)
+    async with async_session() as session, session.begin():
+        await transform.transform_financials(session)
     _sync_progress = 95
     logger.info("Financials transformed")
 
@@ -173,9 +144,12 @@ async def sync_community_stats(user_id=None):
     logger.info("Raw community synced")
 
     _sync_step = "сообщество: трансформация"
-    async with async_session() as session:
-        async with session.begin():
-            await transform.transform_community(session)
+    async with async_session() as session, session.begin():
+        await transform.transform_community(session)
+
+    _sync_step = "студенты: витрина"
+    async with async_session() as session, session.begin():
+        await transform.transform_students(session)
     _sync_progress = 100
     logger.info("Community transformed")
 

@@ -1,12 +1,12 @@
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
 from app.config import get_settings
 from app.database import async_session
 from app.models import User
-from app.services.crypto import encrypt_token, decrypt_token
+from app.services.crypto import decrypt_token, encrypt_token
 from app.services.stepik_api import refresh_access_token
 
 logger = logging.getLogger(__name__)
@@ -35,11 +35,11 @@ async def refresh_user_tokens():
                     if not user:
                         continue
 
-                    now = datetime.now(timezone.utc)
+                    now = datetime.now(UTC)
                     expires_at = user.token_expires_at
                     if expires_at:
                         if expires_at.tzinfo is None:
-                            expires_at = expires_at.replace(tzinfo=timezone.utc)
+                            expires_at = expires_at.replace(tzinfo=UTC)
                         if expires_at > now + timedelta(seconds=TOKEN_EXPIRY_BUFFER_SECONDS):
                             continue
 
@@ -56,7 +56,7 @@ async def refresh_user_tokens():
 
                     user.access_token = encrypt_token(new_access)
                     user.refresh_token = encrypt_token(new_refresh)
-                    user.token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+                    user.token_expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
                     await session.commit()
                     refreshed += 1
                     logger.info("Token refreshed for user %s", user.stepik_id)

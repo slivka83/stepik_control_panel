@@ -1,14 +1,16 @@
-import app.services.sync as sync_mod
+import uuid
+from datetime import UTC, datetime
+
 import pytest
 from fastapi.testclient import TestClient
-from app.main import app
-from app.database import get_db
-from app.models import FinancialSnapshot, User
-from app.api.auth import get_user
-from app.services.crypto import encrypt_token
-from datetime import datetime, timezone
-import uuid
 
+import app.services.sync as sync_mod
+from app.api.auth import get_user
+from app.constants import MONTH_NAMES
+from app.database import get_db
+from app.main import app
+from app.models import User
+from app.services.crypto import encrypt_token
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -16,10 +18,11 @@ client = TestClient(app, raise_server_exceptions=False)
 class TestSyncStatus:
     async def test_status_returns_fields(self, db_session):
         user = User(
-            id=uuid.uuid4(), stepik_id=64381531,
+            id=uuid.uuid4(),
+            stepik_id=64381531,
             access_token=encrypt_token("test_access"),
             refresh_token=encrypt_token("test_refresh"),
-            token_expires_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            token_expires_at=datetime.now(UTC).replace(tzinfo=None),
         )
         db_session.add(user)
         await db_session.commit()
@@ -45,10 +48,11 @@ class TestSyncStatus:
 
     async def test_status_no_snapshot(self, db_session):
         user = User(
-            id=uuid.uuid4(), stepik_id=64381531,
+            id=uuid.uuid4(),
+            stepik_id=64381531,
             access_token=encrypt_token("test_access"),
             refresh_token=encrypt_token("test_refresh"),
-            token_expires_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            token_expires_at=datetime.now(UTC).replace(tzinfo=None),
         )
         db_session.add(user)
         await db_session.commit()
@@ -96,9 +100,9 @@ class TestSyncModule:
         sync_mod._sync_in_progress = False
 
     def test_sync_month_names(self):
-        assert sync_mod.MONTH_NAMES[1] == "Январь"
-        assert sync_mod.MONTH_NAMES[7] == "Июль"
-        assert sync_mod.MONTH_NAMES[12] == "Декабрь"
+        assert MONTH_NAMES[1] == "Январь"
+        assert MONTH_NAMES[7] == "Июль"
+        assert MONTH_NAMES[12] == "Декабрь"
 
     def test_sync_cooldown_constant(self):
         assert sync_mod.SYNC_COOLDOWN_SECONDS == 60

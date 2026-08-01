@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, act } from '@testing-library/react'
 import TestRouter from './TestRouter'
 import Layout from '../components/Layout'
 
@@ -32,10 +32,10 @@ function mockAuthMe(authenticated) {
   })
 }
 
-function renderLayout(authenticated) {
+function renderLayout(authenticated, syncValue) {
   mockAuthMe(authenticated)
   return render(
-    <TestRouter syncValue={defaultSyncValue}>
+    <TestRouter syncValue={syncValue || defaultSyncValue}>
       <Layout><div>Content</div></Layout>
     </TestRouter>
   )
@@ -94,5 +94,62 @@ describe('Layout', () => {
     await waitFor(() => {
       expect(screen.getByRole('link', { name: 'Дашборд' })).toHaveClass('text-cyber-blue')
     })
+  })
+
+  it('shows background sync progress and disables the button on page open mid-sync', async () => {
+    const syncingValue = {
+      ...defaultSyncValue,
+      syncStatus: { in_progress: true, progress: 57, step: 'решения: загрузка', last_sync: '2026-07-21T10:00:00' },
+    }
+    renderLayout(true, syncingValue)
+    await waitFor(() => {
+      expect(screen.getByTitle(/Завершено: 57%/)).toBeInTheDocument()
+    })
+    const btn = screen.getByTitle(/Завершено: 57%/)
+    expect(btn).toBeDisabled()
+    expect(btn.querySelector('.animate-spin')).toBeInTheDocument()
+    expect(btn.querySelector('span[style]')).toHaveStyle('height: 57%')
+    expect(btn.getAttribute('title')).toContain('Прошло: 0 с')
+    expect(btn.getAttribute('title')).toContain('Осталось: ~0 с')
+    expect(btn.getAttribute('title')).not.toContain('решения')
+  })
+
+  it('updates elapsed and remaining time in tooltip while syncing', async () => {
+    vi.useFakeTimers()
+    try {
+      const syncingValue = {
+        ...defaultSyncValue,
+        syncStatus: { in_progress: true, progress: 57, step: '', last_sync: null },
+      }
+      renderLayout(true, syncingValue)
+      await act(async () => {})
+      expect(screen.getByTitle(/Завершено: 57%/)).toBeInTheDocument()
+
+      act(() => { vi.advanceTimersByTime(3000) })
+      const btn = screen.getByTitle(/Прошло: 3 с/)
+      expect(btn.getAttribute('title')).toContain('Осталось: ~2 с')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('keeps the sync button idle and enabled when no sync is running', async () => {
+    renderLayout(true)
+    await waitFor(() => {
+      expect(screen.getByTitle('Обновить')).toBeInTheDocument()
+    })
+    expect(screen.getByTitle('Обновить')).not.toBeDisabled()
+    expect(screen.getByTitle('Обновить').querySelector('.animate-spin')).not.toBeInTheDocument()
+  })
+
+  it('applies visual scale to course and student icons only', async () => {
+    renderLayout(false)
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Курсы' })).toBeInTheDocument()
+    })
+    expect(screen.getByRole('link', { name: 'Курсы' }).querySelector('span')).toHaveStyle('transform: scale(0.75)')
+    expect(screen.getByRole('link', { name: 'Студенты' }).querySelector('span')).toHaveStyle('transform: scale(0.85)')
+    expect(screen.getByRole('link', { name: 'Дашборд' }).querySelector('span')).not.toHaveStyle('transform: scale(0.75)')
+    expect(screen.getByRole('link', { name: 'Решения' }).querySelector('span')).not.toHaveStyle('transform: scale(0.75)')
   })
 })

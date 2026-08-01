@@ -1,16 +1,19 @@
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock, MagicMock
-import httpx
+
 from app.services.stepik_api import (
+    StepikAPIError,
     _request,
-    get_user_profile, refresh_access_token,
-    exchange_code_for_token, StepikAPIError, STEPIK_API_BASE
+    exchange_code_for_token,
+    get_user_profile,
+    refresh_access_token,
 )
 
 
 def _mock_request_client(mock_client_class, mock_response):
     """Set up httpx.AsyncClient mock for _request tests.
-    _request uses _get_client() which calls httpx.AsyncClient() and 
+    _request uses _get_client() which calls httpx.AsyncClient() and
     uses the returned client directly (not as context manager).
     """
     instance = mock_client_class.return_value
@@ -49,8 +52,8 @@ class TestRequestGuard:
 
     @pytest.mark.asyncio
     async def test_get_lowercase_works(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("httpx.AsyncClient") as mock_client:
                 mock_response = MagicMock()
                 mock_response.status_code = 200
                 mock_response.json.return_value = {"courses": [{"id": 1}]}
@@ -61,8 +64,8 @@ class TestRequestGuard:
 
     @pytest.mark.asyncio
     async def test_get_uppercase_works(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("httpx.AsyncClient") as mock_client:
                 mock_response = MagicMock()
                 mock_response.status_code = 200
                 mock_response.json.return_value = {"courses": [{"id": 1}]}
@@ -75,9 +78,9 @@ class TestRequestGuard:
 class TestRateLimitHandling:
     @pytest.mark.asyncio
     async def test_429_retries_with_sleep(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
-                with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                with patch("httpx.AsyncClient") as mock_client:
                     mock_response_429 = MagicMock()
                     mock_response_429.status_code = 429
                     mock_response_429.headers = {"Retry-After": "2"}
@@ -95,9 +98,9 @@ class TestRateLimitHandling:
 
     @pytest.mark.asyncio
     async def test_429_default_retry_after(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('asyncio.sleep', new_callable=AsyncMock) as mock_sleep:
-                with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                with patch("httpx.AsyncClient") as mock_client:
                     mock_response_429 = MagicMock()
                     mock_response_429.status_code = 429
                     mock_response_429.headers = {}
@@ -116,8 +119,8 @@ class TestRateLimitHandling:
 class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_400_raises_error(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("httpx.AsyncClient") as mock_client:
                 mock_response = MagicMock()
                 mock_response.status_code = 400
                 mock_response.text = "Bad Request"
@@ -129,8 +132,8 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_401_raises_error(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("httpx.AsyncClient") as mock_client:
                 mock_response = MagicMock()
                 mock_response.status_code = 401
                 mock_response.text = "Unauthorized"
@@ -141,8 +144,8 @@ class TestErrorHandling:
 
     @pytest.mark.asyncio
     async def test_500_raises_error(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("httpx.AsyncClient") as mock_client:
                 mock_response = MagicMock()
                 mock_response.status_code = 500
                 mock_response.text = "Internal Server Error"
@@ -155,8 +158,8 @@ class TestErrorHandling:
 class TestTokenAuth:
     @pytest.mark.asyncio
     async def test_token_added_to_headers(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("httpx.AsyncClient") as mock_client:
                 mock_response = MagicMock()
                 mock_response.status_code = 200
                 mock_response.json.return_value = {}
@@ -169,8 +172,8 @@ class TestTokenAuth:
 
     @pytest.mark.asyncio
     async def test_no_token_no_auth_header(self):
-        with patch('app.services.stepik_api.acquire_token', new_callable=AsyncMock, return_value=True):
-            with patch('httpx.AsyncClient') as mock_client:
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("httpx.AsyncClient") as mock_client:
                 mock_response = MagicMock()
                 mock_response.status_code = 200
                 mock_response.json.return_value = {}
@@ -185,13 +188,13 @@ class TestTokenAuth:
 class TestExchangeCodeForToken:
     @pytest.mark.asyncio
     async def test_exchange_success(self):
-        with patch('httpx.AsyncClient') as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
                 "access_token": "test_access",
                 "refresh_token": "test_refresh",
-                "expires_in": 3600
+                "expires_in": 3600,
             }
             _mock_async_client(mock_client, mock_response)
 
@@ -207,7 +210,7 @@ class TestExchangeCodeForToken:
 
     @pytest.mark.asyncio
     async def test_exchange_failure(self):
-        with patch('httpx.AsyncClient') as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
             mock_response.status_code = 400
             mock_response.text = "Invalid code"
@@ -222,7 +225,7 @@ class TestExchangeCodeForToken:
 class TestGetUserProfile:
     @pytest.mark.asyncio
     async def test_returns_profile_from_profiles_endpoint(self):
-        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
+        with patch("app.services.stepik_api._request", new_callable=AsyncMock) as mock_req:
             mock_req.return_value = {"profiles": [{"id": 123, "email": "test@test.com"}]}
             result = await get_user_profile("my_token")
             assert result == {"id": 123, "email": "test@test.com"}
@@ -230,7 +233,7 @@ class TestGetUserProfile:
 
     @pytest.mark.asyncio
     async def test_falls_back_to_users_endpoint(self):
-        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
+        with patch("app.services.stepik_api._request", new_callable=AsyncMock) as mock_req:
             mock_req.side_effect = [
                 {"profiles": []},
                 {"users": [{"id": 456, "first_name": "John"}]},
@@ -240,7 +243,7 @@ class TestGetUserProfile:
 
     @pytest.mark.asyncio
     async def test_returns_empty_dict_when_no_data(self):
-        with patch('app.services.stepik_api._request', new_callable=AsyncMock) as mock_req:
+        with patch("app.services.stepik_api._request", new_callable=AsyncMock) as mock_req:
             mock_req.side_effect = [{"profiles": []}, {"users": []}]
             result = await get_user_profile("my_token")
             assert result == {}
@@ -249,7 +252,7 @@ class TestGetUserProfile:
 class TestRefreshAccessToken:
     @pytest.mark.asyncio
     async def test_refresh_success(self):
-        with patch('httpx.AsyncClient') as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
             mock_response.status_code = 200
             mock_response.json.return_value = {
@@ -267,7 +270,7 @@ class TestRefreshAccessToken:
 
     @pytest.mark.asyncio
     async def test_refresh_failure(self):
-        with patch('httpx.AsyncClient') as mock_client:
+        with patch("httpx.AsyncClient") as mock_client:
             mock_response = MagicMock()
             mock_response.status_code = 400
             mock_response.text = "Invalid refresh token"

@@ -23,8 +23,16 @@ const mockFinancials = {
   courses: [
     { course_id: 68260, title: 'Тестовый курс', turnover: 70000, income: 50000, refunds: 0, payments: 15 },
   ],
+  promos: [
+    { promo_code: 'DISCOUNT10', payments: 1, turnover: 5000, income: 4000, refunds: 0, last_used: '2026-01-15T10:00:00' },
+  ],
+  utms: [
+    { utm_source: 'Я.Директ', payments: 1, turnover: 7000, income: 5000, refunds: 0, last_used: '2026-01-15T10:00:00' },
+  ],
   recent_payments: [
-    { id: 'p1', course: 'Тестовый курс', amount: 5000, payment_amount: 7000, status: 'debited', time: '2026-01-15T10:00:00', promo_code: 'WELCOME' },
+    { id: 'p1', course: 'Тестовый курс', amount: 5000, payment_amount: 7000, status: 'debited', time: '2026-01-15T10:00:00', promo_code: 'WELCOME', channel: 'Stepik', is_gift: false, student: 'Иван Петров', utm_source: 'yandex_stpk', utm_source_label: 'Я.Директ', raw: { id: 1, time: '2026-01-15T10:00:00', course: 68260, amount: 5000, status: 'debited', last_course_click_utm: { utm_source: 'yandex_stpk', utm_medium: 'cpc' } } },
+    { id: 'p2', course: 'Второй курс', amount: -500, payment_amount: 7000, status: 'refunded', time: '2026-01-14T09:30:00', promo_code: null, channel: 'А-ссылка', is_gift: false, student: 'Петр Иванов' },
+    { id: 'p3', course: 'Третий курс', amount: 3000, payment_amount: 4000, status: 'debited', time: '2026-01-13T08:00:00', promo_code: null, channel: 'По счету', is_gift: true, student: null },
   ],
 }
 
@@ -107,5 +115,38 @@ describe('Financials', () => {
     await user.click(screen.getByText('Последние операции'))
     expect(screen.getByText('WELCOME')).toBeInTheDocument()
     expect(screen.getByText('Тестовый курс')).toBeInTheDocument()
+    expect(screen.getByText('UTM')).toBeInTheDocument()
+    expect(screen.getByText('Канал')).toBeInTheDocument()
+    expect(screen.getByText('Студент')).toBeInTheDocument()
+    const headers = screen.getAllByRole('columnheader').map((th) => th.textContent)
+    expect(headers).toEqual(expect.arrayContaining(['Оплата', 'Доход', 'Подарок', 'UTM']))
+    expect(screen.getByText('Иван Петров')).toBeInTheDocument()
+    expect(screen.getByText('Подарок')).toBeInTheDocument()
+    expect(screen.getByText('Я.Директ')).toBeInTheDocument()
+    expect(screen.getByText('Stepik')).toBeInTheDocument()
+    expect(screen.getByText('А-ссылка')).toBeInTheDocument()
+    expect(screen.getByText('По счету')).toBeInTheDocument()
+    expect(screen.getByText('Да')).toBeInTheDocument()
+    const tooltip = screen.getByTitle(/utm_source: yandex_stpk/)
+    expect(tooltip).toHaveAttribute('title', expect.stringContaining('utm_medium: cpc'))
+    expect(tooltip.getAttribute('title')).not.toContain('amount')
+    expect(screen.getByText(/10:00/)).toBeInTheDocument()
+  })
+
+  it('switches to utm tab on click', async () => {
+    const user = userEvent.setup()
+    renderFinancials()
+    await user.click(screen.getByText('По UTM'))
+    expect(screen.getByText('Я.Директ')).toBeInTheDocument()
+    expect(screen.getByText('Последнее применение')).toBeInTheDocument()
+    expect(screen.getByText('7 000 ₽')).toBeInTheDocument()
+  })
+
+  it('renders refunded amount in red with line-through', async () => {
+    const user = userEvent.setup()
+    renderFinancials()
+    await user.click(screen.getByText('Последние операции'))
+    expect(screen.getByText('-500 ₽')).toHaveClass('line-through', 'text-crimson-alert')
+    expect(screen.queryByText('Возврат')).not.toBeInTheDocument()
   })
 })

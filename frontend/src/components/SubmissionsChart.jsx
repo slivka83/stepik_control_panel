@@ -2,6 +2,7 @@ import { useState, useId } from 'react'
 import { createPortal } from 'react-dom'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts'
 import { CHART_COLORS } from '../constants.jsx'
+import { buildMonthWindow } from '../utils/monthWindow.js'
 
 const COLOR_BRIGHT = '#38bdf8'
 const COLOR_DIM = '#1a6a9e'
@@ -44,7 +45,7 @@ export default function SubmissionsChart({
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
   const uid = useId()
 
-  const months = (data.months || []).slice(-18)
+  const months = buildMonthWindow(data.months || [])
 
   if (!months.length) {
     return (

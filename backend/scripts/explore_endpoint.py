@@ -11,6 +11,7 @@ Examples:
     python scripts/explore_endpoint.py courses --create-table
     python scripts/explore_endpoint.py courses --create-table --load
 """
+
 import argparse
 import asyncio
 import json
@@ -26,7 +27,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import get_settings
 from app.services.crypto import decrypt_token
-from app.services.stepik_api import STEPIK_API_BASE, StepikAPIError, _request
+from app.services.stepik_api import STEPIK_API_BASE, STEPIK_OAUTH_TOKEN_URL
 
 settings = get_settings()
 
@@ -34,21 +35,26 @@ settings = get_settings()
 # source_db_column is the actual column name in the source raw table (from meta_field_mapping.db_column).
 # Use "__multi__" as table name for endpoints that aggregate IDs from multiple sources.
 IDS_SOURCE_MAP = {
-    "sections":               ("raw_course",  "section_ids"),
-    "units":                  ("raw_section", "units"),
-    "lessons":                ("raw_unit",    "lesson_id"),   # raw_unit.lesson_id holds single lesson ID
-    "steps":                  ("raw_lesson",  "steps"),       # raw_lesson.steps is JSONB array
+    "sections": ("raw_course", "section_ids"),
+    "units": ("raw_section", "units"),
+    "lessons": ("raw_unit", "lesson_id"),  # raw_unit.lesson_id holds single lesson ID
+    "steps": ("raw_lesson", "steps"),  # raw_lesson.steps is JSONB array
     "course_review_summaries": ("raw_course", "review_summary_json"),
-    "progresses":              ("raw_step",   "progress"),
-    "users":                  ("__multi__",   "user"),
-    "profiles":               ("raw_user",    "profile"),
+    "progresses": ("raw_step", "progress"),
+    "users": ("__multi__", "user"),
+    "profiles": ("raw_user", "profile"),
 }
 # Endpoints that need a specific step_id (?step=X param)
 STEP_ENDPOINTS = {"attempts", "submissions"}
 # Endpoints that need a course_id (?course=X param)
 COURSE_ENDPOINTS = {
-    "course_grades", "certificates", "comments", "course_reviews",
-    "enrollments", "course_period_statistics", "course_total_statistics",
+    "course_grades",
+    "certificates",
+    "comments",
+    "course_reviews",
+    "enrollments",
+    "course_period_statistics",
+    "course_total_statistics",
     "course_ranks",
 }
 
@@ -57,9 +63,7 @@ async def get_user_token() -> str | None:
     """Get decrypted user token from DB."""
     engine = create_async_engine(settings.database_url)
     async with engine.begin() as conn:
-        r = await conn.execute(
-            text("SELECT access_token FROM users ORDER BY created_at DESC LIMIT 1")
-        )
+        r = await conn.execute(text("SELECT access_token FROM users ORDER BY created_at DESC LIMIT 1"))
         row = r.fetchone()
     await engine.dispose()
     if row:
@@ -72,7 +76,7 @@ async def get_client_token() -> str | None:
     if settings.stepik_finance_client_id:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                "https://stepik.org/oauth2/token/",
+                STEPIK_OAUTH_TOKEN_URL,
                 data={
                     "grant_type": "client_credentials",
                     "client_id": settings.stepik_finance_client_id,
@@ -88,7 +92,7 @@ async def get_client_token() -> str | None:
     if settings.stepik_client_id:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
-                "https://stepik.org/oauth2/token/",
+                STEPIK_OAUTH_TOKEN_URL,
                 data={
                     "grant_type": "client_credentials",
                     "client_id": settings.stepik_client_id,
@@ -181,7 +185,7 @@ async def resolve_ids_for_endpoint(engine, endpoint_name: str, limit: int | None
                     r = await conn.execute(text(q))
                     for row in r:
                         sid = str(row[0])
-                        if not sid.lstrip('-').isdigit():
+                        if not sid.lstrip("-").isdigit():
                             continue  # skip non-numeric IDs
                         if sid not in seen:
                             seen.add(sid)
@@ -247,9 +251,8 @@ async def resolve_params(engine, api_path: str, endpoint_name: str) -> dict | No
     """Build query params for the API call, resolving IDs from DB when needed."""
     params = {}
 
-    if "?teacher=" in api_path:
-        if settings.stepik_user_id:
-            params["teacher"] = settings.stepik_user_id
+    if "?teacher=" in api_path and settings.stepik_user_id:
+        params["teacher"] = settings.stepik_user_id
 
     if "?course=X" in api_path or "?course=" in api_path:
         ids = await get_course_ids(engine, limit=1)
@@ -315,23 +318,27 @@ def compare_fields(api_obj: dict, endpoint_name: str, mapping_rows: list[dict]) 
 
     # Fields in API but not in mapping
     for key in sorted(api_keys - mapped_keys):
-        results.append({
-            "api_field": key,
-            "db_column": key,
-            "db_type": guess_db_type(api_obj[key]),
-            "status": "NEW",
-            "note": f"value={describe_value(api_obj[key])}",
-        })
+        results.append(
+            {
+                "api_field": key,
+                "db_column": key,
+                "db_type": guess_db_type(api_obj[key]),
+                "status": "NEW",
+                "note": f"value={describe_value(api_obj[key])}",
+            }
+        )
 
     # Fields in mapping but not in API
     for key in sorted(mapped_keys - api_keys):
-        results.append({
-            "api_field": key,
-            "db_column": next(r["db_column"] for r in mapping_rows if r["api_field"] == key),
-            "db_type": next(r["db_type"] for r in mapping_rows if r["api_field"] == key),
-            "status": "MISSING",
-            "note": "not in API response",
-        })
+        results.append(
+            {
+                "api_field": key,
+                "db_column": next(r["db_column"] for r in mapping_rows if r["api_field"] == key),
+                "db_type": next(r["db_type"] for r in mapping_rows if r["api_field"] == key),
+                "status": "MISSING",
+                "note": "not in API response",
+            }
+        )
 
     # Fields that match
     for key in sorted(api_keys & mapped_keys):
@@ -349,15 +356,17 @@ def compare_fields(api_obj: dict, endpoint_name: str, mapping_rows: list[dict]) 
                 status = "TYPE_MISMATCH"
                 note = f"mapped={mapped_type} actual={guessed_type}"
 
-        results.append({
-            "api_field": key,
-            "db_column": mr["db_column"],
-            "db_type": guessed_type,
-            "mapped_type": mapped_type if status == "TYPE_MISMATCH" else "",
-            "is_loaded": mr["is_loaded"],
-            "status": status,
-            "note": note,
-        })
+        results.append(
+            {
+                "api_field": key,
+                "db_column": mr["db_column"],
+                "db_type": guessed_type,
+                "mapped_type": mapped_type if status == "TYPE_MISMATCH" else "",
+                "is_loaded": mr["is_loaded"],
+                "status": status,
+                "note": note,
+            }
+        )
 
     return results
 
@@ -408,9 +417,7 @@ def extract_objects(data: dict) -> list[dict]:
 
 
 async def load_data(
-    engine, raw_table: str, path: str, token: str,
-    api_path: str, params: dict | None,
-    fields: list[dict]
+    engine, raw_table: str, path: str, token: str, api_path: str, params: dict | None, fields: list[dict]
 ) -> int:
     """Load paginated data into the raw table. Returns total records loaded."""
     total = 0
@@ -427,7 +434,7 @@ async def load_data(
             return 0
         batch_size = 100
         for batch_start in range(0, len(full_ids), batch_size):
-            batch = full_ids[batch_start:batch_start + batch_size]
+            batch = full_ids[batch_start : batch_start + batch_size]
             batch_params = {"ids[]": batch}
             data = await fetch_page(path, token, batch_params)
             objects = extract_objects(data)
@@ -438,9 +445,6 @@ async def load_data(
             print(f"  ... {total} records loaded so far")
             await asyncio.sleep(0.3)  # rate limit buffer
         return total
-
-    # Determine object name from path
-    obj_name = extract_api_name(path)
 
     while page <= max_pages:
         page_params = dict(params) if params else {}
@@ -471,7 +475,7 @@ async def load_data(
 
 async def _insert_objects(engine, raw_table: str, objects: list[dict], loaded_fields: list[dict]):
     """Insert a batch of objects into the raw table."""
-    col_names = [f['db_column'] for f in loaded_fields] + ["_raw_json"]
+    col_names = [f["db_column"] for f in loaded_fields] + ["_raw_json"]
     placeholders = ", ".join(f":{c}" for c in col_names)
     cols = ", ".join(f'"{c}"' for c in col_names)
     insert_sql = f'INSERT INTO "{raw_table}" ({cols}) VALUES ({placeholders}) ON CONFLICT DO NOTHING'
@@ -489,7 +493,7 @@ async def _insert_objects(engine, raw_table: str, objects: list[dict], loaded_fi
                 else:
                     values.append(None)
 
-            param_dict = dict(zip(col_names, values + [raw_json]))
+            param_dict = dict(zip(col_names, values + [raw_json], strict=False))
             await conn.execute(text(insert_sql), param_dict)
 
 
@@ -515,7 +519,10 @@ async def main():
             return
 
         r = await conn.execute(
-            text("SELECT api_field, db_column, db_type, is_loaded, skip_reason FROM meta_field_mapping WHERE endpoint_name = :en ORDER BY id"),
+            text(
+                "SELECT api_field, db_column, db_type, is_loaded, skip_reason "
+                "FROM meta_field_mapping WHERE endpoint_name = :en ORDER BY id"
+            ),
             {"en": args.endpoint_name},
         )
         mapping = [dict(r._mapping) for r in r.fetchall()]
@@ -561,7 +568,7 @@ async def main():
     if params:
         print(f"  Params: {params}")
     else:
-        print(f"  No params resolved — trying bare endpoint")
+        print("  No params resolved — trying bare endpoint")
 
     # Fetch one page
     print("  Fetching API...")
@@ -594,26 +601,29 @@ async def main():
     ok_fields = [f for f in comparison if f["status"] == "OK"]
 
     print()
-    print(f"  Comparison: {len(ok_fields)} OK, {len(new_fields)} NEW, {len(missing_fields)} MISSING, {len(type_mismatches)} TYPE_MISMATCH")
+    print(
+        f"  Comparison: {len(ok_fields)} OK, {len(new_fields)} NEW, "
+        f"{len(missing_fields)} MISSING, {len(type_mismatches)} TYPE_MISMATCH"
+    )
 
     if new_fields:
-        print(f"\n  --- NEW FIELDS (in API but not in mapping) ---")
+        print("\n  --- NEW FIELDS (in API but not in mapping) ---")
         for f in new_fields:
             print(f"    + {f['api_field']:30s} → {f['db_column']:30s} ({f['db_type']})")
 
     if missing_fields:
-        print(f"\n  --- MISSING FIELDS (in mapping but not in API) ---")
+        print("\n  --- MISSING FIELDS (in mapping but not in API) ---")
         for f in missing_fields:
             print(f"    - {f['api_field']:30s} (skipped: {f.get('note', '')})")
 
     if type_mismatches:
-        print(f"\n  --- TYPE MISMATCHES ---")
+        print("\n  --- TYPE MISMATCHES ---")
         for f in type_mismatches:
             print(f"    ~ {f['api_field']:30s} mapped={f['mapped_type']:15s} actual={f['db_type']}")
 
     # Print sample data for new fields
     if new_fields:
-        print(f"\n  --- Sample values for new fields ---")
+        print("\n  --- Sample values for new fields ---")
         for f in new_fields[:5]:
             val = sample.get(f["api_field"])
             print(f"    {f['api_field']} = {json.dumps(val, ensure_ascii=False, default=str)[:200]}")
@@ -682,10 +692,12 @@ async def update_meta_mapping(engine, endpoint_name: str, fields: list[dict]):
                     {"en": endpoint_name, "af": api_field, "dt": db_type},
                 )
 
-        count = (await conn.execute(
-            text("SELECT COUNT(*) FROM meta_field_mapping WHERE endpoint_name = :en"),
-            {"en": endpoint_name},
-        )).scalar()
+        count = (
+            await conn.execute(
+                text("SELECT COUNT(*) FROM meta_field_mapping WHERE endpoint_name = :en"),
+                {"en": endpoint_name},
+            )
+        ).scalar()
         print(f"  Meta mapping updated: {count} fields for '{endpoint_name}'")
 
 

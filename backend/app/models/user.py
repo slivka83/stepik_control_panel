@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import String, Integer, DateTime, Text, Index
+from sqlalchemy import DateTime, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -20,13 +20,11 @@ class User(Base):
     financial_inn: Mapped[str | None] = mapped_column(String)
     financial_bik: Mapped[str | None] = mapped_column(String)
     taxation_system: Mapped[str | None] = mapped_column(String)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
     courses: Mapped[list["Course"]] = relationship(back_populates="user")
 
-    __table_args__ = (
-        Index("ix_users_stepik_id", "stepik_id"),
-    )
+    __table_args__ = (Index("ix_users_stepik_id", "stepik_id"),)
 
     def __repr__(self) -> str:
         return f"<User id={self.id} stepik_id={self.stepik_id}>"

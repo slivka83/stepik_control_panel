@@ -3,13 +3,15 @@
 Uses an atomic Lua script to avoid race conditions in GET-then-SET pattern.
 Fails open (allows requests) when Redis is unavailable.
 """
+
 import asyncio
 import logging
-import time
 import threading
+import time
 
 import redis.asyncio as redis
-from redis.exceptions import RedisError, ConnectionError
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import RedisError
 
 from app.config import get_settings
 
@@ -71,7 +73,7 @@ async def acquire_token() -> bool:
             args=[TOKEN_BUCKET_CAPACITY, TOKEN_BUCKET_REFILL_RATE, now],
         )
         return bool(result)
-    except (RedisError, ConnectionError) as e:
+    except (RedisError, RedisConnectionError) as e:
         logger.warning("Redis unavailable, allowing request (fail-open): %s", e)
         return True
 
@@ -107,6 +109,6 @@ async def check_auth_rate_limit(ip: str, max_requests: int = 5, window_seconds: 
                 return False, max(retry_after, 1)
             return False, window_seconds
         return True, 0
-    except (RedisError, ConnectionError) as e:
+    except (RedisError, RedisConnectionError) as e:
         logger.warning("Redis unavailable, allowing auth request (fail-open): %s", e)
         return True, 0

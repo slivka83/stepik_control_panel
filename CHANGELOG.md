@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Features (Финансы — «Последние операции»)
+- Вкладка «По UTM»: агрегация по метке источника (payments/turnover/income/refunds/last_used)
+- Колонка UTM: метки источников вместо сырых значений (`UTM_SOURCE_LABELS` в `app/constants.py`: Я.Директ, E-mail, Telegram, VK, Уведомления)
+- Колонка «Канал»: «А-ссылка» / «Stepik» / «По счету» (из `is_z_link_used` / `is_invoice_payment`)
+- Колонка «Подарок» (`is_gift`) и «Студент» (имя покупателя из `raw_user` по `buyer`)
+- Колонка «Дата» с временем (чч:мм), удалена колонка «Статус» — возвраты красным + зачёркнутые
+- Лимит 30 убран: в `recent_payments` попадают все платежи (сортировка по времени)
+- Возвраты в агрегациях (courses/promos/utms) хранятся положительными (`abs(amount)`) — раньше колонка «Возвраты» всегда показывала «—»
+- Тултип в колонке UTM: только поля UTM-метки (`last_course_click_utm`)
+- Тултип кнопки «Обновить»: Завершено % / Прошло / Осталось (расчётно по линейной экстраполяции)
+- Скрипт `scripts/rebuild_marts.py`: пересборка всех витрин из raw-слоя без API-запросов (abort при пустом `raw_course`)
+
+### Architecture / Refactoring
+- Split `app/api/dashboard.py` (694 строк, 10 эндпоинтов) в пакет `app/api/dashboard/` (alerts, kpi, cohorts, charts, students, steps, common)
+- Добавлен единый источник констант `app/constants.py` (MONTH_NAMES, когортные пороги); убраны дубли `MONTH_LABELS_RU`/`MONTH_NAMES`/`calculate_cohort_status`
+- Удалена мёртвая модель `StepSyncState` (таблица никогда не использовалась — состояние живёт в `raw_sync_state`)
+- Удалены orphan-скрипты: `transform.py`, `full_load.py`, `batch_explore.py`, `populate_meta.py`, `rebuild_raw_course.py`, `reload_courses.py`, `test_page_sizes.py`
+- Исправлен форк alembic-миграций: `20fc60296db6` переподчинена на `012` — единственный head
+- `STEPIK_OAUTH_TOKEN_URL` вынесена в константу `stepik_api.py` (была захардкожена в 3 местах)
+- Дефолты конфига приведены к docker-compose (PG 5433, Redis 6380)
+- Убраны неиспользуемые зависимости: `gunicorn`, `python-dotenv`
+- Ruff: `app/` и `scripts/` — 0 ошибок; настроены per-file-ignores для идиом FastAPI/тестов; удалена мёртвая pytest-конфигурация из pyproject
+- Добавлены архитектурные тесты `tests/test_architecture.py` (18): один alembic head, отсутствие dead-артефактов, единый источник констант, дефолты конфига, сплит dashboard-пакета
+
 ### Security
 - Session token moved from URL query params to HttpOnly cookies
 - Removed plaintext Stepik token endpoint (`GET /api/auth/token`)

@@ -1,6 +1,6 @@
 import logging
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -66,6 +66,7 @@ def _get_token_from_request(request: Request) -> str | None:
 async def _is_blacklisted(token: str) -> bool:
     try:
         from app.services.rate_limiter import redis_client
+
         return bool(await redis_client.get(f"{BLACKLIST_KEY_PREFIX}{token}"))
     except Exception:
         return False
@@ -74,6 +75,7 @@ async def _is_blacklisted(token: str) -> bool:
 async def _blacklist_token(token: str, ttl_seconds: int) -> None:
     try:
         from app.services.rate_limiter import redis_client
+
         await redis_client.setex(f"{BLACKLIST_KEY_PREFIX}{token}", ttl_seconds, "1")
     except Exception as e:
         logger.warning("Failed to blacklist token: %s", e)
@@ -203,7 +205,7 @@ async def callback(
 
     encrypted_access = encrypt_token(access_token)
     encrypted_refresh = encrypt_token(refresh_token)
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+    expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
 
     result = await db.execute(select(User).where(User.stepik_id == stepik_id))
     user = result.scalar_one_or_none()

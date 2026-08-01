@@ -1,20 +1,23 @@
 """add meta tables (endpoint registry + field mapping)
 
 Revision ID: 20fc60296db6
-Revises: 010
+Revises: 012
 Create Date: 2026-07-29 21:14:11
 """
-from alembic import op
+
 import sqlalchemy as sa
 
+from alembic import op
+
 revision = "20fc60296db6"
-down_revision = "010"
+down_revision = "012"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table("meta_endpoint",
+    op.create_table(
+        "meta_endpoint",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("endpoint_name", sa.String(length=100), nullable=False),
         sa.Column("api_path", sa.String(length=500), nullable=False),
@@ -29,7 +32,8 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("endpoint_name"),
     )
-    op.create_table("meta_field_mapping",
+    op.create_table(
+        "meta_field_mapping",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("endpoint_name", sa.String(length=100), nullable=False),
         sa.Column("api_field", sa.String(length=100), nullable=False),

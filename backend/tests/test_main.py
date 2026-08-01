@@ -1,9 +1,11 @@
 """Tests for app.main: lifespan, CORS, scheduler, startup tasks."""
-import pytest
-from unittest.mock import patch, AsyncMock
-from fastapi.testclient import TestClient
-from app.main import app, scheduler
 
+from unittest.mock import AsyncMock, patch
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.main import app, scheduler
 
 client = TestClient(app)
 
@@ -79,11 +81,11 @@ class TestRouterRegistration:
     def _collect_paths(self):
         paths = set()
         for route in app.routes:
-            if hasattr(route, 'path'):
+            if hasattr(route, "path"):
                 paths.add(route.path)
-            if hasattr(route, 'original_router'):
+            if hasattr(route, "original_router"):
                 for r in route.original_router.routes:
-                    if hasattr(r, 'path'):
+                    if hasattr(r, "path"):
                         paths.add(r.path)
         return paths
 
@@ -114,6 +116,7 @@ class TestScheduler:
 
     def test_scheduler_interval_50_minutes(self):
         from app.main import lifespan
+
         assert lifespan.__name__ == "lifespan"
 
 
@@ -121,8 +124,10 @@ class TestStartupTasks:
     @pytest.mark.asyncio
     async def test_startup_runs_token_refresh(self):
         with patch("app.main.refresh_user_tokens", new_callable=AsyncMock) as mock_refresh:
+
             async def _fake_startup():
                 await mock_refresh()
+
             await _fake_startup()
             mock_refresh.assert_awaited_once()
 
