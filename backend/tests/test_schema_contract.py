@@ -357,6 +357,32 @@ def test_transform_reads_raw_columns_as_text():
     assert not problems, "Нетекстовые raw-колонки, читаемые трансформациями:\n" + "\n".join(problems)
 
 
+def test_raw_queries_bind_params_as_str():
+    """Regression: int-параметры в raw-запросы падают на live PostgreSQL.
+
+    asyncpg строгая типизация: сравнение TEXT-колонки raw-слоя с int
+    даёт DataError "expected str, got int" (raw_step.step_id IN (int...)).
+    SQLite этого не воспроизводит, поэтому проверяем статически:
+    любой text(...) SQL с FROM raw_* и построением params = {...} обязан
+    биндить значения через str(...).
+    """
+    problems = []
+    for path in sorted((APP_ROOT / "app").rglob("*.py")):
+        src = path.read_text(encoding="utf-8")
+        for m in re.finditer(r'text\(\s*(?:f|r|rf|fr)?(?:"""(.*?)"""|"(.*?)")', src, re.S):
+            sql = m.group(1) or m.group(2)
+            if not sql or not re.search(r"\bFROM\s+raw_", sql):
+                continue
+            window = src[max(0, m.start() - 2000) : m.end() + 2000]
+            params_m = re.search(r"params\s*=\s*\{[^\n]*\}", window)
+            if params_m and "str(" not in params_m.group(0):
+                problems.append(f"{path.name}: raw-запрос биндит параметры без str(...)")
+    assert not problems, (
+        "Raw-слой хранится TEXT в PG; int в text-колонку → DataError "
+        "(asyncpg). Биндь значения через str(...):\n" + "\n".join(problems)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Live-PostgreSQL тесты (пропускаются без .env DATABASE_URL)
 # ---------------------------------------------------------------------------
@@ -470,6 +496,11 @@ async def test_pg_meta_field_mapping_columns_exist():
     assert not problems, "Дрейф meta_field_mapping:\n" + "\n".join(problems)
 
 
+# Колонки, которые loader пишет из контекста запроса, а не из ответа API
+# (например, submissions.step из ?step=). Маппинга нет — это норма.
+LOADER_INJECTED_COLUMNS = {"raw_submission": {"step"}}
+
+
 @needs_pg
 async def test_pg_mapping_covers_transform_read_columns():
     """Каждая raw-колонка, читаемая трансформациями, обязана писаться loader'ом.
@@ -478,6 +509,8 @@ async def test_pg_mapping_covers_transform_read_columns():
     meta_field_mapping — если маппинга нет, колонка молча остаётся NULL.
     Regression: courses.published_at пустел («Опубликован» = «—»), потому что
     в mapping не было became_published_at, хотя колонка существовала.
+    Исключение — LOADER_INJECTED_COLUMNS: контекстные значения, которых нет
+    в ответе API (submissions.step из ?step=).
     """
     engine = await _pg_engine()
     try:
@@ -505,6 +538,8 @@ async def test_pg_mapping_covers_transform_read_columns():
     for table, cols in sorted(used.items()):
         for col in sorted(cols):
             if col in {"id", "_loaded_at", "_raw_json"}:
+                continue
+            if col in LOADER_INJECTED_COLUMNS.get(table, set()):
                 continue
             if col not in mapped_cols.get(table, set()):
                 problems.append(
@@ -542,6 +577,84 @@ async def test_full_transform_pipeline_on_pg():
                 await trans.rollback()
     finally:
         await engine.dispose()
+
+
+@needs_pg
+async def test_pg_transforms_produce_fresh_rows():
+    """Трансформы на РЕАЛЬНЫХ данных производят строки и догоняют raw-слой.
+
+    Regression (2026-08-01): transform_submissions молча пропускал ВСЕ строки
+    (шаг читался из _raw_json, которого в ответе API нет) — «0 submissions
+    upserted» при каждом синке, страница «Решения» пустела. Тест на «нет
+    исключений» этого не ловил — нужен контракт на КОЛИЧЕСТВО и СВЕЖЕСТЬ.
+
+    Всё выполняется в транзакции с rollback — данные не изменяются.
+    """
+    from app.services import transform as tr
+
+    engine = create_async_engine(PG_URL)
+    try:
+        session_factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with session_factory() as session:
+            trans = await session.begin()
+            try:
+                await tr.transform_courses(session)
+                await tr.transform_enrollments(session)
+                await tr.transform_submissions(session)
+                await tr.transform_financials(session)
+                await tr.transform_community(session)
+                await tr.transform_students(session)
+
+                r = await session.execute(text("SELECT count(*) FROM courses"))
+                courses = r.scalar()
+                r = await session.execute(text("SELECT count(*) FROM student_enrollments"))
+                enrollments = r.scalar()
+                r = await session.execute(text("SELECT count(*) FROM student_marts"))
+                marts = r.scalar()
+                r = await session.execute(text("SELECT count(*) FROM submissions"))
+                subs = r.scalar()
+                r = await session.execute(
+                    text("""
+                        SELECT count(*) FROM raw_submission
+                        WHERE step IS NOT NULL OR _raw_json ? 'step'
+                    """)
+                )
+                raw_resolvable = r.scalar()
+                r = await session.execute(
+                    text("""
+                        SELECT max(submission_time) FROM submissions
+                    """)
+                )
+                max_sub_time = r.scalar()
+                r = await session.execute(
+                    text("""
+                        SELECT max((_raw_json->>'time')::timestamptz) FROM raw_submission
+                    """)
+                )
+                max_raw_time = r.scalar()
+                r = await session.execute(text("SELECT count(*) FROM raw_attempt WHERE step IS NOT NULL"))
+                attempts_with_step = r.scalar()
+            finally:
+                # begin()-контекст коммитит на выходе — только явный rollback
+                await trans.rollback()
+    finally:
+        await engine.dispose()
+
+    assert courses and courses > 0, "transform_courses не произвёл строк на реальных данных"
+    assert enrollments and enrollments > 0, "transform_enrollments не произвёл строк"
+    assert marts and marts > 0, "transform_students не произвёл строк"
+    assert raw_resolvable and raw_resolvable > 0, "Нет raw_submission с разрешимым step"
+    assert subs and subs > 0, "transform_submissions не произвёл строк — страница «Решения» пустая"
+    assert subs >= raw_resolvable * 0.9, (
+        f"submissions={subs} сильно меньше raw_submission со step={raw_resolvable} — "
+        f"transform_submissions пропускает строки"
+    )
+    assert attempts_with_step and attempts_with_step > 0, "raw_attempt без step — fallback мёртв"
+    assert max_sub_time is not None and max_raw_time is not None, "Нет времени в submissions/raw"
+    assert (max_raw_time - max_sub_time).days <= 2, (
+        f"submissions отстают от raw: max(submission_time)={max_sub_time} vs "
+        f"max(raw time)={max_raw_time} — трансформ не догнал свежие данные"
+    )
 
 
 @needs_pg

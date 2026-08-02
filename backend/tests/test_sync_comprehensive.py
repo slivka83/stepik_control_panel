@@ -8,7 +8,6 @@ from sqlalchemy import text
 from app.models import (
     Course,
     FinancialSnapshot,
-    StudentMart,
     User,
 )
 from app.services.sync import (
@@ -79,10 +78,15 @@ class TestSyncCommunityStats:
         course = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=1000, title="Python", status="Published")
         db_session.add(course)
         await db_session.flush()
-        db_session.add(StudentEnrollment(
-            id=uuid.uuid4(), course_id=course.id, student_id=7,
-            last_viewed_at=datetime.now(UTC).replace(tzinfo=None), cohort_status="Active",
-        ))
+        db_session.add(
+            StudentEnrollment(
+                id=uuid.uuid4(),
+                course_id=course.id,
+                student_id=7,
+                last_viewed_at=datetime.now(UTC).replace(tzinfo=None),
+                cohort_status="Active",
+            )
+        )
         await db_session.commit()
 
         with (

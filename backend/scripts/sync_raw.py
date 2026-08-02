@@ -440,7 +440,12 @@ async def sync_incremental_page(engine, token, endpoint: dict, raw_table: str, a
             if not objects:
                 break
 
-            await _upsert_objects(engine, raw_table, api_path, objects)
+            # API не возвращает step в объекте submission — шаг известен
+            # только из контекста запроса ?step=; пишем его в колонку step
+            for obj in objects:
+                obj["step"] = sid
+
+            await _upsert_objects(engine, raw_table, api_path, objects, extra_columns={"step": str(sid)})
             step_new += len(objects)
             total_new += len(objects)
 
@@ -563,8 +568,13 @@ async def sync_incremental_time(engine, token, endpoint: dict, raw_table: str, a
     print(f"  {raw_table}: +{total_new} rows (incremental_time)")
 
 
-async def _upsert_objects(engine, raw_table: str, api_path: str, objects: list[dict]):
-    """INSERT objects for incremental sync (no conflict handling — incremental shouldn't produce duplicates)."""
+async def _upsert_objects(
+    engine, raw_table: str, api_path: str, objects: list[dict], extra_columns: dict | None = None
+):
+    """INSERT objects for incremental sync (no conflict handling — incremental shouldn't produce duplicates).
+
+    extra_columns — контекстные значения, которых нет в ответе API (например,
+    step для submissions из ?step=)."""
     if not objects:
         return
     sample = objects[0]
@@ -592,6 +602,8 @@ async def _upsert_objects(engine, raw_table: str, api_path: str, objects: list[d
             mapping = {k: k for k in sample}
 
         all_db_cols = set(v for v in mapping.values())
+        if extra_columns:
+            all_db_cols |= set(extra_columns)
         pk_r = await conn.execute(
             text("""
             SELECT column_name FROM information_schema.columns
@@ -614,6 +626,9 @@ async def _upsert_objects(engine, raw_table: str, api_path: str, objects: list[d
             for c in col_names:
                 if c == "_raw_json":
                     values[c] = raw_json
+                    continue
+                if extra_columns and c in extra_columns:
+                    values[c] = extra_columns[c]
                     continue
                 api_field = next((k for k, v in mapping.items() if v == c), c)
                 val = obj.get(api_field)

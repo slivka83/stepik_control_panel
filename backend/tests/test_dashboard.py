@@ -8,7 +8,7 @@ from sqlalchemy import text
 from app.api.auth import get_user
 from app.database import get_db
 from app.main import app
-from app.models import Course, FinancialSnapshot, StudentEnrollment, StudentMart, Submission, User
+from app.models import Course, FinancialSnapshot, StudentEnrollment, StudentMart, User
 from app.services.crypto import encrypt_token
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -424,7 +424,8 @@ class TestDashboardStudents:
     async def test_returns_student_mart_rows(self, db_session):
         user = await _seed_db(db_session)
         self._seed_mart(
-            db_session, 7,
+            db_session,
+            7,
             name="Иван Петров",
             cohort_status="Active",
             courses_count=2,

@@ -261,6 +261,18 @@ async def transform_enrollments(session: AsyncSession):
         logger.info("  course %d: %d enrollments", stepik_cid, len(enrollments))
 
 
+def _merge_submission_row(row) -> dict:
+    """Колонки raw_submission (пишутся loader'ом по маппингу) — источник
+    истины; _raw_json — fallback для колонок-пустышек (например, строки,
+    загруженные до введения колонки step)."""
+    raw = _ensure_json(row[6]) or {}
+    merged = dict(raw)
+    for idx, key in ((0, "id"), (1, "step"), (2, "attempt"), (3, "status"), (4, "time"), (5, "score")):
+        if row[idx] is not None:
+            merged[key] = row[idx]
+    return merged
+
+
 async def transform_submissions(session: AsyncSession):
     logger.info("=== Submissions ===")
 
@@ -274,18 +286,30 @@ async def transform_submissions(session: AsyncSession):
 
     r = await session.execute(
         text("""
-        SELECT _raw_json FROM raw_submission
+        SELECT submission_id, step, attempt, status, time, score, _raw_json
+        FROM raw_submission
     """)
     )
-    submission_rows = sorted((_ensure_json(r[0]) for r in r), key=lambda x: int(x.get("id", 0)))
+    submission_rows = sorted(
+        (_merge_submission_row(row) for row in r),
+        key=lambda x: int(x.get("id", 0) or 0),
+    )
 
     r = await session.execute(
         text("""
-        SELECT attempt_id, "user" FROM raw_attempt
-        WHERE "user" IS NOT NULL
+        SELECT attempt_id, step, "user" FROM raw_attempt
     """)
     )
-    attempt_user = {int(row[0]): int(row[1]) for row in r}
+    attempt_step: dict[int, int] = {}
+    attempt_user: dict[int, int] = {}
+    for row in r:
+        aid = row[0]
+        if aid is None:
+            continue
+        if row[1] is not None:
+            attempt_step[int(aid)] = int(row[1])
+        if row[2] is not None:
+            attempt_user[int(aid)] = int(row[2])
 
     author_uid = get_settings().stepik_user_id
 
@@ -295,7 +319,16 @@ async def transform_submissions(session: AsyncSession):
 
     for sub in submission_rows:
         sid = sub.get("id")
+        attempt_id = sub.get("attempt")
         step_id = sub.get("step")
+        # API не возвращает step в объекте submission — шаг известен только
+        # из контекста запроса ?step= и пишется loader'ом в raw_submission.step.
+        # Fallback: step определяется через attempt (raw_attempt.step).
+        if not step_id and attempt_id is not None:
+            try:
+                step_id = attempt_step.get(int(attempt_id))
+            except (TypeError, ValueError):
+                step_id = None
         if not sid or not step_id:
             continue
         step_cid = step_course.get(int(step_id))
@@ -308,8 +341,14 @@ async def transform_submissions(session: AsyncSession):
         if not sub_time:
             continue
         reply = sub.get("reply") or {}
-        attempt_id = sub.get("attempt")
-        uid = attempt_user.get(attempt_id) if attempt_id else None
+        try:
+            attempt_int = int(attempt_id) if attempt_id is not None else None
+        except (TypeError, ValueError):
+            attempt_int = None
+        try:
+            uid = attempt_user.get(attempt_int) if attempt_int is not None else None
+        except (TypeError, ValueError):
+            uid = None
         sub_user = sub.get("user")
         is_author = bool(sub_user and int(sub_user) == author_uid) or bool(uid and uid == author_uid)
         score = float(sub.get("score") or 0)
@@ -324,7 +363,7 @@ async def transform_submissions(session: AsyncSession):
                 "status": status,
                 "score": score,
                 "lang": reply.get("language"),
-                "attempt": attempt_id,
+                "attempt": attempt_int,
                 "uid": uid,
                 "eta": eta_val,
                 "stime": sub_time,
@@ -766,33 +805,39 @@ async def transform_students(session: AsyncSession):
     """
     logger.info("=== Student marts ===")
 
-    agg = await session.execute(text("""
+    agg = await session.execute(
+        text("""
         SELECT student_id,
                count(*) AS courses_count,
                count(*) FILTER (WHERE certificate_issued) AS certificates,
                max(last_viewed_at) AS last_activity
         FROM student_enrollments
         GROUP BY student_id
-    """))
+    """)
+    )
     agg_rows = list(agg)
 
-    status_rows = await session.execute(text("""
+    status_rows = await session.execute(
+        text("""
         SELECT student_id, cohort_status FROM student_enrollments
         WHERE cohort_status IS NOT NULL
-    """))
+    """)
+    )
     best_status: dict[int, str] = {}
     for sid, st in status_rows:
         if sid not in best_status or STATUS_RANK.get(st, 99) < STATUS_RANK.get(best_status[sid], 99):
             best_status[sid] = st
 
-    sub_rows = await session.execute(text("""
+    sub_rows = await session.execute(
+        text("""
         SELECT user_id,
                count(*) AS cnt,
                count(*) FILTER (WHERE status = 'correct') AS correct_cnt
         FROM submissions
         WHERE user_id IS NOT NULL AND is_author = FALSE
         GROUP BY user_id
-    """))
+    """)
+    )
     subs_by_user = {int(r.user_id): (r.cnt, r.correct_cnt) for r in sub_rows}
 
     # Comments live in the raw layer; the real author is in _raw_json because

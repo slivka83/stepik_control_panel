@@ -4,9 +4,9 @@ export const CHART_COLORS = {
   gridLine: '#1e293b',
   textSecondary: '#64748b',
   panelBg: '#162032',
-}
+};
 
-export const APP_VERSION = '0.2.0'
+export const APP_VERSION = '0.2.0';
 
 export const COHORT_COLORS = {
   active: { text: 'text-neon-green', bg: 'bg-neon-green', hex: '#4ade80' },
@@ -14,9 +14,9 @@ export const COHORT_COLORS = {
   fading: { text: 'text-amber-alert', bg: 'bg-amber-alert', hex: '#f59e0b' },
   sleeping: { text: 'text-gray-400', bg: 'bg-gray-400', hex: '#6b7280' },
   zombie: { text: 'text-gray-400', bg: 'bg-gray-400', hex: '#6b7280' },
-}
+};
 
-export const COHORT_ORDER = ['active', 'passive', 'fading', 'sleeping', 'zombie']
+export const COHORT_ORDER = ['active', 'passive', 'fading', 'sleeping', 'zombie'];
 
 export const COHORT_LABELS = {
   zombie: 'Зомби',
@@ -24,7 +24,7 @@ export const COHORT_LABELS = {
   passive: 'Пассивные',
   fading: 'Затухающие',
   sleeping: 'Спящие',
-}
+};
 
 export const COHORT_DAYS = {
   zombie: 'Никогда не открывали курс',
@@ -32,19 +32,19 @@ export const COHORT_DAYS = {
   passive: 'Активность 8–30 дней назад',
   fading: 'Активность 30–90 дней назад',
   sleeping: 'Активность > 90 дней назад',
-}
+};
 
 export const STATUS_LABELS = {
   debited: 'Зачислен',
   refunded: 'Возврат',
   pending: 'Ожидание',
-}
+};
 
 export const STATUS_COLORS = {
   debited: 'text-neon-green',
   refunded: 'text-crimson-alert',
   pending: 'text-amber-alert',
-}
+};
 
 export const NAV_ITEMS = [
   { to: '/', label: 'Дашборд', icon: '⊞' },
@@ -52,18 +52,32 @@ export const NAV_ITEMS = [
   { to: '/solutions', label: 'Решения', icon: '☑' },
   { to: '/financials', label: 'Финансы', icon: '$' },
   { to: '/students', label: 'Студенты', icon: '🎓︎', iconScale: 0.85 },
-  { to: '/activities', label: 'Активности', icon: (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-    </svg>
-  )},
-]
+  {
+    to: '/activities',
+    label: 'Активности',
+    icon: (
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+      </svg>
+    ),
+  },
+];
 
 export const STEPIK_URLS = {
   course: (id) => `https://stepik.org/course/${id}`,
+  step: (lessonId, stepId) => `https://stepik.org/lesson/${lessonId}/step/${stepId}`,
   courseEdit: (id) => `https://stepik.org/course/${id}/edit`,
   lessonEdit: (courseId, lessonId) => `https://stepik.org/lesson/${lessonId}/edit`,
   announcements: (courseId) => `https://stepik.org/course/${courseId}/announcements`,
   certificates: (courseId) => `https://stepik.org/course/${courseId}/certificates`,
   students: (courseId) => `https://stepik.org/course/${courseId}/students`,
-}
+};

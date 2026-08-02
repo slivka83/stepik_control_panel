@@ -1,5 +1,6 @@
 """Tests for raw_sync service: API → raw table syncing."""
 
+import json
 from datetime import UTC, datetime
 from unittest.mock import patch
 
@@ -223,10 +224,11 @@ class TestSyncSubmissions:
         )
         await db_session.commit()
 
+        # Regression: API НЕ возвращает step в объекте submission — шаг
+        # известен только из контекста ?step= и должен инжектиться в raw
         fake_subs = [
             {
                 "id": 1000,
-                "step": 500,
                 "status": "correct",
                 "time": "2026-07-15T10:00:00Z",
                 "score": 1.0,
@@ -250,6 +252,10 @@ class TestSyncSubmissions:
 
         assert await _count_rows(db_session, "raw_submission") == 1
         assert await _count_rows(db_session, "raw_attempt") == 1
+        r = await db_session.execute(text("SELECT step, _raw_json FROM raw_submission"))
+        step_col, raw = r.fetchone()
+        assert step_col == "500"
+        assert json.loads(raw).get("step") == 500
 
     @pytest.mark.asyncio
     async def test_upsert_with_conflict_clause_deduplicates(self, db_session):
@@ -619,7 +625,12 @@ class TestSyncUsers:
     витрина студентов показывала fallback «Студент {id}»."""
 
     async def _seed_user_mapping(self, db_session):
-        for api_field, db_col in [("id", "user_id"), ("first_name", "first_name"), ("last_name", "last_name"), ("full_name", "full_name")]:
+        for api_field, db_col in [
+            ("id", "user_id"),
+            ("first_name", "first_name"),
+            ("last_name", "last_name"),
+            ("full_name", "full_name"),
+        ]:
             await db_session.execute(
                 text("""
                     INSERT INTO meta_field_mapping
@@ -640,11 +651,19 @@ class TestSyncUsers:
         await db_session.flush()
         now = datetime.now(UTC).replace(tzinfo=None)
         db_session.add(StudentEnrollment(id=_uuid.uuid4(), course_id=course.id, student_id=7, last_viewed_at=now))
-        db_session.add(Submission(
-            id=_uuid.uuid4(), stepik_submission_id=2001, stepik_step_id=10,
-            course_id=course.id, status="correct", score=1.0,
-            submission_time=now, user_id=8, is_author=False,
-        ))
+        db_session.add(
+            Submission(
+                id=_uuid.uuid4(),
+                stepik_submission_id=2001,
+                stepik_step_id=10,
+                course_id=course.id,
+                status="correct",
+                score=1.0,
+                submission_time=now,
+                user_id=8,
+                is_author=False,
+            )
+        )
         await db_session.execute(
             text("INSERT INTO raw_course_grade (user_id, course_id, _raw_json) VALUES (9, 100, '{}')")
         )
@@ -680,6 +699,7 @@ class TestSyncUsers:
         await db_session.commit()
 
         batches = []
+
         async def fake_fetch(path, token, key, extra=None):
             ids = extra.get("ids[]", [])
             batches.append(len(ids))
@@ -708,6 +728,7 @@ class TestSyncUsers:
         await db_session.commit()
 
         fetched_ids = []
+
         async def fake_fetch(path, token, key, extra=None):
             fetched_ids.extend(extra.get("ids[]", []))
             return []

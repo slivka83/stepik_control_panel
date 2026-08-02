@@ -1,43 +1,43 @@
-import axios from 'axios'
+import axios from 'axios';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
   timeout: 30000,
   withCredentials: true,
-})
+});
 
-let isRefreshing = false
-let refreshPromise = null
+let isRefreshing = false;
+let refreshPromise = null;
 
 async function refreshSession() {
   if (!isRefreshing) {
-    isRefreshing = true
+    isRefreshing = true;
     refreshPromise = fetch('/api/auth/refresh', {
       method: 'POST',
       credentials: 'include',
     }).finally(() => {
-      isRefreshing = false
-    })
+      isRefreshing = false;
+    });
   }
-  const res = await refreshPromise
-  return res.ok
+  const res = await refreshPromise;
+  return res.ok;
 }
 
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config
+    const originalRequest = error.config;
 
     if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true
-      const refreshed = await refreshSession()
+      originalRequest._retry = true;
+      const refreshed = await refreshSession();
       if (refreshed) {
-        return api(originalRequest)
+        return api(originalRequest);
       }
-      window.location.href = '/'
+      window.location.href = '/';
     }
-    return Promise.reject(error)
+    return Promise.reject(error);
   },
-)
+);
 
-export default api
+export default api;

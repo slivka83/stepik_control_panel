@@ -1,14 +1,14 @@
-import { lazy, Suspense } from 'react'
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
-import Layout from './components/Layout'
+import { lazy, Suspense } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import Layout from './components/Layout';
 
-const Dashboard = lazy(() => import('./pages/Dashboard'))
-const Courses = lazy(() => import('./pages/Courses'))
-const Solutions = lazy(() => import('./pages/Solutions'))
-const Financials = lazy(() => import('./pages/Financials'))
-const Students = lazy(() => import('./pages/Students'))
-const Activities = lazy(() => import('./pages/Activities'))
-const NotFound = lazy(() => import('./pages/NotFound'))
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const Courses = lazy(() => import('./pages/Courses'));
+const Solutions = lazy(() => import('./pages/Solutions'));
+const Financials = lazy(() => import('./pages/Financials'));
+const Students = lazy(() => import('./pages/Students'));
+const Activities = lazy(() => import('./pages/Activities'));
+const NotFound = lazy(() => import('./pages/NotFound'));
 
 function PageSkeleton() {
   return (
@@ -21,7 +21,7 @@ function PageSkeleton() {
       </div>
       <div className="h-64 bg-space-gray rounded-xl" />
     </div>
-  )
+  );
 }
 
 function App() {
@@ -41,7 +41,7 @@ function App() {
         </Suspense>
       </Layout>
     </Router>
-  )
+  );
 }
 
-export default App
+export default App;

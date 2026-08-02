@@ -11,8 +11,9 @@ raw_comment и raw_user. API /students читает только её — без
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "013"
 down_revision = "20fc60296db6"

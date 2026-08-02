@@ -26,10 +26,7 @@ async def get_students(
     total = total_result.scalar() or 0
 
     result = await db.execute(
-        select(StudentMart)
-        .order_by(StudentMart.last_activity.desc().nullslast())
-        .offset(skip)
-        .limit(limit)
+        select(StudentMart).order_by(StudentMart.last_activity.desc().nullslast()).offset(skip).limit(limit)
     )
 
     students = []

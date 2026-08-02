@@ -1,57 +1,53 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect } from 'react';
 
-const AuthContext = createContext(null)
+const AuthContext = createContext(null);
 
 async function parseJsonResponse(res) {
-  const contentType = res.headers.get('content-type')
+  const contentType = res.headers.get('content-type');
   if (!contentType?.includes('application/json')) {
-    throw new Error(`Server returned non-JSON response (${res.status})`)
+    throw new Error(`Server returned non-JSON response (${res.status})`);
   }
-  return res.json()
+  return res.json();
 }
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' })
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
         if (res.ok) {
-          setUser(await parseJsonResponse(res))
+          setUser(await parseJsonResponse(res));
         } else {
-          setUser(null)
+          setUser(null);
         }
       } catch {
-        setUser(null)
+        setUser(null);
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
-    }
-    checkAuth()
-  }, [])
+    };
+    checkAuth();
+  }, []);
 
   const login = () => {
-    window.location.href = '/api/auth/login'
-  }
+    window.location.href = '/api/auth/login';
+  };
 
   const logout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     } catch {
       // ignore
     }
-    setUser(null)
-  }
+    setUser(null);
+  };
 
-  return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  )
+  return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
-  return useContext(AuthContext)
+  return useContext(AuthContext);
 }

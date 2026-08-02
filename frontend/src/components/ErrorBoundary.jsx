@@ -1,14 +1,14 @@
-import React from 'react'
+import React from 'react';
 
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
-    super(props)
-    this.state = { error: null, errorInfo: null }
+    super(props);
+    this.state = { error: null, errorInfo: null };
   }
 
   componentDidCatch(error, errorInfo) {
-    this.setState({ error, errorInfo })
-    console.error('ErrorBoundary caught:', error, errorInfo)
+    this.setState({ error, errorInfo });
+    console.error('ErrorBoundary caught:', error, errorInfo);
   }
 
   render() {
@@ -16,9 +16,7 @@ export default class ErrorBoundary extends React.Component {
       return (
         <div className="min-h-screen bg-space-black text-white p-8">
           <div className="glass-panel p-6 max-w-2xl mx-auto mt-20">
-            <h1 className="text-crimson-alert text-xl font-bold mb-4">
-              Ошибка приложения
-            </h1>
+            <h1 className="text-crimson-alert text-xl font-bold mb-4">Ошибка приложения</h1>
             <div className="bg-space-black rounded-lg p-4 mb-4 overflow-auto">
               <pre className="text-crimson-alert text-sm font-mono whitespace-pre-wrap">
                 {this.state.error?.message}
@@ -42,8 +40,8 @@ export default class ErrorBoundary extends React.Component {
             </button>
           </div>
         </div>
-      )
+      );
     }
-    return this.props.children
+    return this.props.children;
   }
 }

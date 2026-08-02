@@ -154,6 +154,11 @@ async def _seed_full_pipeline(session):
     )
     await session.execute(
         text("""
+        INSERT INTO raw_lesson (lesson_id, steps, _raw_json) VALUES (10, '[500]', '{}')
+    """)
+    )
+    await session.execute(
+        text("""
         INSERT INTO raw_unit (unit_id, lesson_id, section_id, _raw_json) VALUES (1, 10, 1, '{}')
     """)
     )
@@ -185,11 +190,13 @@ async def _seed_full_pipeline(session):
     )
 
     # 2 submissions on step 500 by non-author students
+    # Regression: API не возвращает "step" в объекте submission — шаг из колонки
+    # raw_submission.step (пишется loader'ом из ?step=) либо из raw_attempt.step
     await session.execute(
         text("""
-        INSERT INTO raw_submission (_raw_json)
-        VALUES ('{"id": 1000, "step": 500, "status": "correct", "time": "' || :t1 || '", "score": 1.0, "reply": {"language": "python"}, "attempt": 10}'),
-               ('{"id": 1001, "step": 500, "status": "wrong", "time": "' || :t2 || '", "score": 0.0, "reply": {}, "attempt": 11}')
+        INSERT INTO raw_submission (submission_id, step, _raw_json)
+        VALUES (1000, 500, '{"id": 1000, "status": "correct", "time": "' || :t1 || '", "score": 1.0, "reply": {"language": "python"}, "attempt": 10}'),
+               (1001, NULL, '{"id": 1001, "status": "wrong", "time": "' || :t2 || '", "score": 0.0, "reply": {}, "attempt": 11}')
     """),
         {
             "t1": (now - timedelta(days=1)).strftime("%Y-%m-%dT10:00:00Z"),
@@ -198,8 +205,8 @@ async def _seed_full_pipeline(session):
     )
     await session.execute(
         text("""
-        INSERT INTO raw_attempt (attempt_id, "user", _raw_json)
-        VALUES (10, 67890, '{}'), (11, 67891, '{}')
+        INSERT INTO raw_attempt (attempt_id, "user", step, _raw_json)
+        VALUES (10, 67890, 500, '{}'), (11, 67891, 500, '{}')
     """)
     )
 

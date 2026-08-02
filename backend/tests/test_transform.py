@@ -247,6 +247,9 @@ class TestTransformEnrollments:
 class TestTransformSubmissions:
     @pytest.mark.asyncio
     async def test_upserts_submissions(self, db_session):
+        """Regression: API не возвращает step в объекте submission — шаг
+        определяется через attempt (raw_attempt.step) либо из инжектированного
+        при загрузке поля step."""
         from app.config import get_settings
         from app.services.transform import transform_submissions
 
@@ -275,18 +278,20 @@ class TestTransformSubmissions:
                 VALUES (1, 101, '[1]', '{}')
             """)
             )
+            # no "step" in submission raw (как в реальном API), шаг из attempts
             await db_session.execute(
                 text("""
-                INSERT INTO raw_submission (_raw_json)
-                VALUES ('{"id": 1000, "step": 500, "status": "correct", "time": "2026-07-15T10:00:00Z", "score": 1.0, "reply": {"language": "python"}, "attempt": 10}'),
-                       ('{"id": 1001, "step": 500, "status": "wrong", "time": "2026-07-16T10:00:00Z", "score": 0.0, "reply": {}, "attempt": 11}')
+                INSERT INTO raw_submission (submission_id, step, _raw_json)
+                VALUES (1000, 500, '{"id": 1000, "status": "correct", "time": "2026-07-15T10:00:00Z", "score": 1.0, "reply": {"language": "python"}, "attempt": 10}'),
+                       (1001, NULL, '{"id": 1001, "status": "wrong", "time": "2026-07-16T10:00:00Z", "score": 0.0, "reply": {}, "attempt": 11}'),
+                       (1002, 500, '{"id": 1002, "status": "correct", "time": "2026-07-17T10:00:00Z", "score": 1.0, "reply": {}, "attempt": 12}')
             """)
             )
             await db_session.execute(
                 text("""
-                INSERT INTO raw_attempt (attempt_id, "user", _raw_json)
-                VALUES (10, 12345, '{}'),
-                       (11, 67890, '{}')
+                INSERT INTO raw_attempt (attempt_id, "user", step, _raw_json)
+                VALUES (10, 12345, 500, '{}'),
+                       (11, 67890, 500, '{}')
             """)
             )
             await db_session.commit()
@@ -298,7 +303,7 @@ class TestTransformSubmissions:
             text("SELECT stepik_submission_id, status, language, is_author, stepik_step_id FROM submissions")
         )
         submissions = list(r)
-        assert len(submissions) == 2
+        assert len(submissions) == 3
         s1 = next(s for s in submissions if s[0] == 1000)
         assert s1[1] == "correct"
         assert s1[2] == "python"
@@ -308,6 +313,10 @@ class TestTransformSubmissions:
         s2 = next(s for s in submissions if s[0] == 1001)
         assert s2[1] == "wrong"
         assert s2[3] == 0  # False
+        assert s2[4] == 500
+
+        s3 = next(s for s in submissions if s[0] == 1002)
+        assert s3[4] == 500
 
 
 # ─── transform_financials ──────────────────────────────────────────────
@@ -481,8 +490,8 @@ class TestTransformFinancials:
 
     @pytest.mark.asyncio
     async def test_channel_and_gift_flags(self, db_session):
-        """Канал платежа: is_invoice_payment → «Оплата по счету»,
-        is_z_link_used → «Переход по A-ссылке», иначе → «Переход через Stepik».
+        """Канал платежа: is_invoice_payment → «По счету»,
+        is_z_link_used → «А-ссылка», иначе → «Stepik».
         Подарок: is_gift → true."""
         from app.services.transform import transform_financials
 
@@ -727,7 +736,7 @@ COLS_BY_RAW_TABLE = {
     "raw_section": {"section_id", "course"},
     "raw_course_grade": {"user_id", "course_id", "score", "last_viewed", "date_joined"},
     "raw_certificate": {"user_id", "course_id"},
-    "raw_attempt": {"attempt_id", "user"},
+    "raw_attempt": {"attempt_id", "step", "user"},
 }
 
 
@@ -761,22 +770,61 @@ class TestTransformStudents:
         await db_session.flush()
 
         now = datetime.now(UTC).replace(tzinfo=None)
-        db_session.add_all([
-            StudentEnrollment(id=uuid.uuid4(), course_id=c1.id, student_id=7, last_viewed_at=now, cohort_status="Active", certificate_issued=True),
-            StudentEnrollment(id=uuid.uuid4(), course_id=c2.id, student_id=7, last_viewed_at=now, cohort_status="Passive", certificate_issued=False),
-            StudentEnrollment(id=uuid.uuid4(), course_id=c1.id, student_id=9, last_viewed_at=now, cohort_status="Active", certificate_issued=True),
-        ])
+        db_session.add_all(
+            [
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=c1.id,
+                    student_id=7,
+                    last_viewed_at=now,
+                    cohort_status="Active",
+                    certificate_issued=True,
+                ),
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=c2.id,
+                    student_id=7,
+                    last_viewed_at=now,
+                    cohort_status="Passive",
+                    certificate_issued=False,
+                ),
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=c1.id,
+                    student_id=9,
+                    last_viewed_at=now,
+                    cohort_status="Active",
+                    certificate_issued=True,
+                ),
+            ]
+        )
         for i, status in [(0, "correct"), (1, "correct"), (2, "wrong")]:
-            db_session.add(Submission(
-                id=uuid.uuid4(), stepik_submission_id=2000 + i, stepik_step_id=10,
-                course_id=c1.id, status=status, score=1.0,
-                submission_time=now, user_id=7, is_author=False,
-            ))
-        db_session.add(Submission(
-            id=uuid.uuid4(), stepik_submission_id=2100, stepik_step_id=10,
-            course_id=c1.id, status="correct", score=1.0,
-            submission_time=now, user_id=7, is_author=True,
-        ))
+            db_session.add(
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=2000 + i,
+                    stepik_step_id=10,
+                    course_id=c1.id,
+                    status=status,
+                    score=1.0,
+                    submission_time=now,
+                    user_id=7,
+                    is_author=False,
+                )
+            )
+        db_session.add(
+            Submission(
+                id=uuid.uuid4(),
+                stepik_submission_id=2100,
+                stepik_step_id=10,
+                course_id=c1.id,
+                status="correct",
+                score=1.0,
+                submission_time=now,
+                user_id=7,
+                is_author=True,
+            )
+        )
         for cid, uid in [(1, 7), (2, 7), (3, 8)]:
             await db_session.execute(
                 text("INSERT INTO raw_comment (comment_id, \"user\", _raw_json) VALUES (:c, 'x', :j)"),
@@ -789,7 +837,11 @@ class TestTransformStudents:
 
         await transform_students(db_session)
 
-        r = await db_session.execute(text("SELECT student_id, name, cohort_status, courses_count, certificates, submissions_count, submissions_successful, comments_count, last_activity FROM student_marts ORDER BY student_id"))
+        r = await db_session.execute(
+            text(
+                "SELECT student_id, name, cohort_status, courses_count, certificates, submissions_count, submissions_successful, comments_count, last_activity FROM student_marts ORDER BY student_id"
+            )
+        )
         rows = [dict(row._mapping) for row in r]
         assert len(rows) == 2
         by_id = {row["student_id"]: row for row in rows}

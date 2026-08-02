@@ -1,76 +1,76 @@
-import { useEffect, useRef, useState } from 'react'
-import { NavLink } from 'react-router-dom'
-import { useAuth } from '../contexts/AuthContext'
-import { useSync } from '../contexts/SyncContext'
-import { NAV_ITEMS } from '../constants.jsx'
-import api from '../api'
+import { useEffect, useRef, useState } from 'react';
+import { NavLink } from 'react-router-dom';
+import { useAuth } from '../contexts/AuthContext';
+import { useSync } from '../contexts/SyncContext';
+import { NAV_ITEMS } from '../constants.jsx';
+import api from '../api';
 
 function formatDuration(totalSeconds) {
-  const s = Math.max(0, Math.round(totalSeconds))
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const sec = s % 60
-  if (h > 0) return `${h} ч ${m} мин`
-  if (m > 0) return `${m} мин ${sec} с`
-  return `${sec} с`
+  const s = Math.max(0, Math.round(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h} ч ${m} мин`;
+  if (m > 0) return `${m} мин ${sec} с`;
+  return `${sec} с`;
 }
 
 function Sidebar() {
-  const { user, loading, login, logout } = useAuth()
-  const { syncStatus } = useSync()
-  const [syncing, setSyncing] = useState(false)
-  const [progress, setProgress] = useState(0)
-  const startRef = useRef(null)
-  const [now, setNow] = useState(Date.now())
+  const { user, loading, login, logout } = useAuth();
+  const { syncStatus } = useSync();
+  const [syncing, setSyncing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const startRef = useRef(null);
+  const [now, setNow] = useState(Date.now());
 
-  const isSyncing = syncing || syncStatus.in_progress
-  const displayProgress = syncing ? progress : (syncStatus.progress || 0)
+  const isSyncing = syncing || syncStatus.in_progress;
+  const displayProgress = syncing ? progress : syncStatus.progress || 0;
 
   useEffect(() => {
     if (!isSyncing) {
-      startRef.current = null
-      return
+      startRef.current = null;
+      return;
     }
-    if (startRef.current === null) startRef.current = Date.now()
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
-  }, [isSyncing])
+    if (startRef.current === null) startRef.current = Date.now();
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [isSyncing]);
 
   const buildSyncTooltip = () => {
-    if (!isSyncing) return 'Обновить'
-    const elapsed = startRef.current ? (now - startRef.current) / 1000 : 0
-    const pct = displayProgress
-    const remaining = pct > 0 ? (elapsed * (100 - pct)) / pct : null
+    if (!isSyncing) return 'Обновить';
+    const elapsed = startRef.current ? (now - startRef.current) / 1000 : 0;
+    const pct = displayProgress;
+    const remaining = pct > 0 ? (elapsed * (100 - pct)) / pct : null;
     return [
       `Завершено: ${Math.round(pct)}%`,
       `Прошло: ${formatDuration(elapsed)}`,
       `Осталось: ${remaining !== null ? `~${formatDuration(remaining)}` : '…'}`,
-    ].join('\n')
-  }
+    ].join('\n');
+  };
 
   const handleSync = async () => {
-    setSyncing(true)
-    setProgress(0)
+    setSyncing(true);
+    setProgress(0);
     try {
-      const { data: trigger } = await api.post('/sync')
+      const { data: trigger } = await api.post('/sync');
       if (trigger.status === 'cooldown' || trigger.status === 'already_in_progress') {
-        await new Promise(r => setTimeout(r, 500))
-        setSyncing(false)
-        return
+        await new Promise((r) => setTimeout(r, 500));
+        setSyncing(false);
+        return;
       }
       while (true) {
-        await new Promise(r => setTimeout(r, 1000))
-        const { data } = await api.get('/sync/status')
-        setProgress(data.progress || 0)
-        if (!data.in_progress) break
+        await new Promise((r) => setTimeout(r, 1000));
+        const { data } = await api.get('/sync/status');
+        setProgress(data.progress || 0);
+        if (!data.in_progress) break;
       }
     } catch (err) {
-      console.error('Sync error:', err)
+      console.error('Sync error:', err);
     } finally {
-      setSyncing(false)
-      setProgress(0)
+      setSyncing(false);
+      setProgress(0);
     }
-  }
+  };
 
   return (
     <aside className="fixed top-0 left-0 h-screen w-16 bg-space-gray border-r border-cyber-blue/10 flex flex-col items-center py-6 z-40">
@@ -119,7 +119,11 @@ function Sidebar() {
                   style={{ height: `${displayProgress}%`, transition: 'height 1.5s ease-out' }}
                 />
               )}
-              <span className={`relative z-10 inline-block text-cyber-blue transition-colors duration-300 ${isSyncing ? 'animate-spin' : 'group-hover:text-white'}`}>↻</span>
+              <span
+                className={`relative z-10 inline-block text-cyber-blue transition-colors duration-300 ${isSyncing ? 'animate-spin' : 'group-hover:text-white'}`}
+              >
+                ↻
+              </span>
             </button>
             <button
               onClick={logout}
@@ -140,16 +144,20 @@ function Sidebar() {
         )}
       </div>
     </aside>
-  )
+  );
 }
 
 export default function Layout({ children }) {
   return (
     <div className="h-screen overflow-hidden bg-space-black">
       <Sidebar />
-      <main role="main" aria-label="Основной контент" className="ml-16 h-full min-h-0 overflow-y-auto p-4 flex flex-col">
+      <main
+        role="main"
+        aria-label="Основной контент"
+        className="ml-16 h-full min-h-0 overflow-y-auto p-4 flex flex-col"
+      >
         {children}
       </main>
     </div>
-  )
+  );
 }

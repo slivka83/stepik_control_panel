@@ -39,6 +39,7 @@ async def get_submissions(
             extract("month", Submission.submission_time).label("month"),
             func.count(Submission.id).label("total"),
             func.count(Submission.id).filter(Submission.status == "correct").label("correct"),
+            func.count(func.distinct(Submission.user_id)).label("students"),
         )
         .where(Submission.course_id.in_(course_ids), Submission.is_author.is_(False))
         .group_by("year", "month")
@@ -54,6 +55,7 @@ async def get_submissions(
                 "month": format_month_label(m, y),
                 "total": row.total,
                 "correct": row.correct,
+                "students": row.students,
             }
         )
 
@@ -63,6 +65,19 @@ async def get_submissions(
         agg = year_stats.setdefault(y, {"year": y, "total": 0, "correct": 0})
         agg["total"] += row.total
         agg["correct"] += row.correct
+
+    year_students_result = await db.execute(
+        select(
+            extract("year", Submission.submission_time).label("year"),
+            func.count(func.distinct(Submission.user_id)).label("students"),
+        )
+        .where(Submission.course_id.in_(course_ids), Submission.is_author.is_(False))
+        .group_by("year")
+    )
+    for row in year_students_result.all():
+        y = int(row.year)
+        if y in year_stats:
+            year_stats[y]["students"] = row.students
     years = [year_stats[y] for y in sorted(year_stats)]
 
     course_result = await db.execute(
@@ -70,6 +85,7 @@ async def get_submissions(
             Submission.course_id,
             func.count(Submission.id).label("total"),
             func.count(Submission.id).filter(Submission.status == "correct").label("correct"),
+            func.count(func.distinct(Submission.user_id)).label("students"),
         )
         .where(Submission.course_id.in_(course_ids), Submission.is_author.is_(False))
         .group_by(Submission.course_id)
@@ -88,6 +104,7 @@ async def get_submissions(
                 "title": course_obj.title if course_obj else "Unknown",
                 "total": course_row.total,
                 "correct": course_row.correct,
+                "students": course_row.students,
             }
         )
 

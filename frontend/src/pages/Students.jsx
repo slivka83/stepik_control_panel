@@ -1,6 +1,6 @@
-import { useSync } from '../contexts/SyncContext'
-import ErrorBanner from '../components/ErrorBanner'
-import StudentsBar from '../components/StudentsBar'
+import { useSync } from '../contexts/SyncContext';
+import ErrorBanner from '../components/ErrorBanner';
+import StudentsBar from '../components/StudentsBar';
 
 const COHORT_COLORS = {
   Active: '#4ade80',
@@ -8,29 +8,18 @@ const COHORT_COLORS = {
   Fading: '#f59e0b',
   Sleeping: '#f43f5e',
   Zombie: '#a855f7',
-}
+};
 
 function formatDate(iso) {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' })
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 export default function Students() {
-  const { data, loading, error, refresh } = useSync()
-  const cohorts = data.cohorts
-  const students = data.students?.students || []
-
-  if (loading) {
-    return (
-      <div className="flex flex-col flex-1 gap-4 min-h-0">
-        <div className="glass-panel p-4 animate-pulse" style={{ height: '7.25rem' }}>
-          <div className="h-3 bg-gray-700 rounded w-28 mb-2"></div>
-          <div className="h-5 bg-gray-700 rounded w-full"></div>
-        </div>
-      </div>
-    )
-  }
+  const { data, error, refresh } = useSync();
+  const cohorts = data.cohorts;
+  const students = data.students?.students || [];
 
   return (
     <div className="flex flex-col flex-1 gap-4 min-h-0">
@@ -54,7 +43,10 @@ export default function Students() {
             </thead>
             <tbody>
               {students.map((s) => (
-                <tr key={s.student_id} className="border-b border-space-gray/30 hover:bg-space-gray/40 transition-colors">
+                <tr
+                  key={s.student_id}
+                  className="border-b border-space-gray/30 hover:bg-space-gray/40 transition-colors"
+                >
                   <td className="py-2 pr-2 max-w-[220px]">
                     <a
                       href={s.profile_url}
@@ -85,7 +77,9 @@ export default function Students() {
                       : '0'}
                   </td>
                   <td className="py-2 pr-2 text-right font-mono text-xs text-gray-300">{s.comments_count}</td>
-                  <td className="py-2 text-right text-xs text-gray-400 whitespace-nowrap">{formatDate(s.last_activity)}</td>
+                  <td className="py-2 text-right text-xs text-gray-400 whitespace-nowrap">
+                    {formatDate(s.last_activity)}
+                  </td>
                 </tr>
               ))}
               {students.length === 0 && (
@@ -100,5 +94,5 @@ export default function Students() {
         </div>
       </div>
     </div>
-  )
+  );
 }

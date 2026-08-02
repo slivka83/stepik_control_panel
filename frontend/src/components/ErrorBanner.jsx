@@ -17,5 +17,5 @@ export default function ErrorBanner({ message, onRetry }) {
         )}
       </div>
     </div>
-  )
+  );
 }

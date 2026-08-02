@@ -108,6 +108,7 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 - `sync_courses_structure()` — курсы + sections/units/lessons/steps
 - `sync_course_grades_and_certs()` — оценки + сертификаты
 - `sync_submissions()` — отправки + попытки (инкрементально)
+- **`/submissions?step=` НЕ возвращает поле `step` в объектах** — шаг известен только из контекста запроса; `sync_submissions()` пишет его в колонку `raw_submission.step` (миграция 015, loader-injected, без маппинга), `transform_submissions()` как fallback определяет шаг через `raw_attempt.step` по `submission.attempt`
 - `sync_financials()` — финансы (course-benefit-by-months + course-benefits)
 - `sync_community()` — рейтинги + комментарии
 - `sync_users()` — анкеты (`/users?ids[]=`, батчи по 100) в raw_user; ID из `student_enrollments.student_id` + `submissions.user_id` + raw_course_grade/raw_certificate/raw_course_review (`USER_ID_SOURCES`); не-цифровые ID фильтруются (raw_comment.user хранит имя OAuth-клиента, не user id)
@@ -215,6 +216,8 @@ snapshot.data = {**snapshot.data, "community": {
 
 «Spaceship Control Panel» — тёмный фон, неоновые акценты, glassmorphism-карточки.
 
+**Никаких loading-заглушек:** страницы всегда рендерят реальные элементы (KPI-карточки, графики, вкладки, таблицы) с пустыми/нулевыми данными по умолчанию — данные подгружаются в уже существующие элементы. Скелетоны, «Загрузка...», подменяющие плейсхолдеры запрещены (дёрганье экрана).
+
 Цвета Tailwind:
 - `space-black` `#0b0f19` — фон
 - `space-gray` `#162032` — панели
@@ -250,6 +253,15 @@ Y-ось графиков:
 - RevenueChart: `0, 2k, 4k, 6k` — `value/1000` + `.0` cleanup
 
 Графики используют `CHART_COLORS` из `frontend/src/constants.js`.
+
+## Страница «Решения» (4 вкладки)
+
+- Вкладки: **По месяцам / По годам / По курсам / Самые сложные** (`frontend/src/pages/Solutions.jsx`)
+- Таблицы: колонки `Группа | Студенты | Всего | Правильно | Неверно | Успех (цвет)` + `Step ID` у hardest
+- **`students`** — уникальные студенты в группировке = `COUNT(DISTINCT submissions.user_id)` (NULL игнорируются, `is_author=False`)
+- Источники: `GET /dashboard/submissions` → `{months, by_course, years}` (в `app/api/dashboard/charts.py`); `GET /dashboard/hardest-steps` → `{steps}` (в `app/api/dashboard/steps.py`). Годы считают `students` **отдельным запросом** (не суммой по месяцам — один студент в нескольких месяцах одного года посчитался бы дважды)
+- Сортировка: первый клик — «естественный порядок» (числа/даты — больше/новые сверху, текст — А→Я), стрелка указывает **на главные значения** (`┴`/`↑` по типу в `NATURAL_DIR_BY_KEY`); повторный клик — наоборот
+- Верхние KPI-плашки: Всего решений / Правильных / Неправильных (белые) + Успех (цвет как в колонке: `successColor` <33 красный, <66 жёлтый, ≥66 зелёный)
 
 ## Критерии приёмки
 
@@ -307,8 +319,8 @@ python scripts/rebuild_marts.py
 | raw_unit | 114 | 12 | ✓ | full_reload |
 | raw_lesson | 114 | 26 | ✓ | full_reload |
 | raw_step | 659 | 23 | ✓ | full_reload |
-| raw_submission | 24272 | 6 | ✓ | incremental_page |
-| raw_attempt | 38223 | 6 | ✓ | incremental_page |
+| raw_submission | 81351 | 7 | ✓ | incremental_page |
+| raw_attempt | 54663 | 6 | ✓ | incremental_page |
 | raw_comment | 1560 | 22 | ✓ | incremental_time |
 | raw_course_grade | 814 | 14 | ✓ | full_reload |
 | raw_certificate | 187 | 20 | ✓ | full_reload |
@@ -364,7 +376,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-333 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
+360 тестов, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
 
 | Файл | Тестов | Что тестирует |
 |---|---|---|
@@ -377,9 +389,10 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 | `tests/test_sync_comprehensive.py` | 21 | `sync_all`, `sync_community_stats`, `sync_financials` |
 | `tests/test_sync_edge_cases.py` | 22 | Разрешение конфликтов, отсутствие данных, ошибки API |
 | `tests/test_data_contract.py` | 5 | Глобальные контракты снапшота/API/фронта (price, per_course, поля страниц, recent_payments/utms) |
-| `tests/test_schema_contract.py` | 8 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот) |
+| `tests/test_schema_contract.py` | 9 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот), **live-PG свежесть данных** (трансформы на реальных данных производят строки и догоняют raw — регрессия «0 submissions upserted») |
 | `tests/test_architecture.py` | 19 | Архитектурные гарантии: один alembic head, нет dead-артефактов (step_sync_state, orphan-скрипты), единый источник констант, дефолты конфига = docker-compose, сплит dashboard-пакета, rebuild_marts.py (все трансформы, без API) |
-| Остальные | 162 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
+| `tests/test_steps.py` | 22 | hardest-steps: `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id) |
+| Остальные | 166 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).
 

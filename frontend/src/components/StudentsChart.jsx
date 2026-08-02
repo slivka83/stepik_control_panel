@@ -1,43 +1,45 @@
-import { useState } from 'react'
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
-import { COHORT_COLORS, COHORT_LABELS, CHART_COLORS } from '../constants.jsx'
+import { useState } from 'react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { COHORT_COLORS, COHORT_LABELS, CHART_COLORS } from '../constants.jsx';
 
 export default function StudentsChart({ data = {} }) {
-  const [hidden, setHidden] = useState(new Set())
+  const [hidden, setHidden] = useState(new Set());
 
   const chartData = Object.entries(data).map(([key, value]) => ({
     name: COHORT_LABELS[key] || key,
     value,
     color: COHORT_COLORS[key]?.hex,
     key,
-  }))
+  }));
 
-  const visibleData = chartData.filter((d) => !hidden.has(d.key))
-  const total = chartData.reduce((sum, item) => sum + (item.value || 0), 0)
-  const visibleTotal = visibleData.reduce((sum, item) => sum + (item.value || 0), 0)
+  const visibleData = chartData.filter((d) => !hidden.has(d.key));
+  const total = chartData.reduce((sum, item) => sum + (item.value || 0), 0);
+  const visibleTotal = visibleData.reduce((sum, item) => sum + (item.value || 0), 0);
 
   const toggleKey = (key) => {
     setHidden((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   if (!total) {
     return (
       <div className="glass-panel p-4">
         <h3 className="text-white font-medium mb-3">Студенты</h3>
-        <div className="flex-1 flex items-center justify-center text-gray-500">
-          Нет данных для отображения
-        </div>
+        <div className="flex-1 flex items-center justify-center text-gray-500">Нет данных для отображения</div>
       </div>
-    )
+    );
   }
 
   return (
-    <figure role="img" aria-label="Диаграмма когортной сегментации студентов" className="glass-panel p-4 flex flex-col min-h-0">
+    <figure
+      role="img"
+      aria-label="Диаграмма когортной сегментации студентов"
+      className="glass-panel p-4 flex flex-col min-h-0"
+    >
       <figcaption className="sr-only">
         Всего студентов: {total}. Активные: {chartData[0]?.value || 0}, пассивные: {chartData[1]?.value || 0},
         затухающие: {chartData[2]?.value || 0}, спящие: {chartData[3]?.value || 0}.
@@ -77,7 +79,7 @@ export default function StudentsChart({ data = {} }) {
         </div>
         <div className="flex flex-col gap-2 shrink-0 pt-[7%]">
           {chartData.map((item) => {
-            const isHidden = hidden.has(item.key)
+            const isHidden = hidden.has(item.key);
             return (
               <div
                 key={item.name}
@@ -92,10 +94,10 @@ export default function StudentsChart({ data = {} }) {
                   {((item.value / total) * 100).toFixed(0)}%
                 </span>
               </div>
-            )
+            );
           })}
         </div>
       </div>
     </figure>
-  )
+  );
 }

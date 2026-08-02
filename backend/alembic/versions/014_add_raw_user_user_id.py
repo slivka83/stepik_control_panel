@@ -10,8 +10,9 @@ raw_user.id — serial-счётчик, а не ID пользователя Stepi
 raw-слой) и переводим mapping `id → user_id`.
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "014"
 down_revision = "013"

@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
-import TestRouter from './TestRouter'
-import Dashboard from '../pages/Dashboard'
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+import TestRouter from './TestRouter';
+import Dashboard from '../pages/Dashboard';
 
 const mockKpi = {
   total_revenue: 50000,
@@ -31,16 +31,16 @@ const mockKpi = {
   certificates_current_month: 7,
   certificates_change_pct: 133,
   steps_average_grade: 4.7,
-}
+};
 
-const mockCohorts = { active: 7000, passive: 400, fading: 200, sleeping: 18 }
+const mockCohorts = { active: 7000, passive: 400, fading: 200, sleeping: 18 };
 
 const mockRevenue = {
   months: [
     { month: '2026-01-01T00:00:00', revenue: 12000 },
     { month: '2026-02-01T00:00:00', revenue: 18000 },
   ],
-}
+};
 
 const fullSyncValue = {
   syncStatus: { in_progress: false, last_sync: null },
@@ -55,7 +55,7 @@ const fullSyncValue = {
   loading: false,
   error: null,
   refresh: vi.fn(),
-}
+};
 
 const zeroKpi = {
   total_revenue: 0,
@@ -85,7 +85,7 @@ const zeroKpi = {
   certificates_current_month: 0,
   certificates_change_pct: null,
   steps_average_grade: 0,
-}
+};
 
 const KPI_TITLES = [
   'Доход /месяц',
@@ -99,39 +99,47 @@ const KPI_TITLES = [
   'Комментарии',
   'Сертификаты',
   'Средняя оценка шагов',
-]
+];
 
 async function cardByTrend(trendText, index = 0) {
-  const trend = (await screen.findAllByText(trendText))[index]
-  return trend.closest('.glass-panel')
+  const trend = (await screen.findAllByText(trendText))[index];
+  return trend.closest('.glass-panel');
 }
 
 describe('Dashboard', () => {
   it('renders all twelve KPI cards', () => {
-    render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
-    ;[...KPI_TITLES, 'Студенты'].forEach(t => {
-      expect(screen.getAllByText(t).length).toBeGreaterThan(0)
-    })
-  })
+    render(
+      <TestRouter syncValue={fullSyncValue}>
+        <Dashboard />
+      </TestRouter>,
+    );
+    [...KPI_TITLES, 'Студенты'].forEach((t) => {
+      expect(screen.getAllByText(t).length).toBeGreaterThan(0);
+    });
+  });
 
   it('renders previous months + current month split with trend', async () => {
-    render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
+    render(
+      <TestRouter syncValue={fullSyncValue}>
+        <Dashboard />
+      </TestRouter>,
+    );
 
-    const studentsCard = await cardByTrend('↑ 45%')
-    await waitFor(() => expect(studentsCard.textContent).toContain('+55'), { timeout: 4000 })
+    const studentsCard = await cardByTrend('↑ 45%');
+    await waitFor(() => expect(studentsCard.textContent).toContain('+55'), { timeout: 4000 });
 
-    const commentsCard = await cardByTrend('↑ 318%')
-    await waitFor(() => expect(commentsCard.textContent).toContain('+71'), { timeout: 4000 })
+    const commentsCard = await cardByTrend('↑ 318%');
+    await waitFor(() => expect(commentsCard.textContent).toContain('+71'), { timeout: 4000 });
 
-    const solutionsCard = await cardByTrend('↑ 25%')
-    await waitFor(() => expect(solutionsCard.textContent).toContain('+5'), { timeout: 4000 })
+    const solutionsCard = await cardByTrend('↑ 25%');
+    await waitFor(() => expect(solutionsCard.textContent).toContain('+5'), { timeout: 4000 });
 
-    const certsCard = await cardByTrend('↑ 133%')
-    await waitFor(() => expect(certsCard.textContent).toContain('+7'), { timeout: 4000 })
+    const certsCard = await cardByTrend('↑ 133%');
+    await waitFor(() => expect(certsCard.textContent).toContain('+7'), { timeout: 4000 });
 
-    expect(await screen.findByText('4,95')).toBeInTheDocument()
-    expect(await screen.findByText('4,70')).toBeInTheDocument()
-  })
+    expect(await screen.findByText('4,95')).toBeInTheDocument();
+    expect(await screen.findByText('4,70')).toBeInTheDocument();
+  });
 
   it('renders with zero KPI values', () => {
     const zeroValue = {
@@ -142,31 +150,45 @@ describe('Dashboard', () => {
         cohorts: { active: 0, passive: 0, fading: 0, sleeping: 0 },
         revenue: { months: [] },
       },
-    }
-    render(<TestRouter syncValue={zeroValue}><Dashboard /></TestRouter>)
-    ;[...KPI_TITLES, 'Студенты'].forEach(t => {
-      expect(screen.getAllByText(t).length).toBeGreaterThan(0)
-    })
-  })
+    };
+    render(
+      <TestRouter syncValue={zeroValue}>
+        <Dashboard />
+      </TestRouter>,
+    );
+    [...KPI_TITLES, 'Студенты'].forEach((t) => {
+      expect(screen.getAllByText(t).length).toBeGreaterThan(0);
+    });
+  });
 
   it('renders chart sections', () => {
-    render(<TestRouter syncValue={fullSyncValue}><Dashboard /></TestRouter>)
-    expect(screen.getByText('Доход по месяцам')).toBeInTheDocument()
-    expect(screen.getByText('Отправленные решения')).toBeInTheDocument()
-  })
+    render(
+      <TestRouter syncValue={fullSyncValue}>
+        <Dashboard />
+      </TestRouter>,
+    );
+    expect(screen.getByText('Доход по месяцам')).toBeInTheDocument();
+    expect(screen.getByText('Отправленные решения')).toBeInTheDocument();
+  });
 
-  it('shows loading skeleton', () => {
+  it('renders KPI cards and charts while loading (no skeleton placeholders)', () => {
     const { container } = render(
       <TestRouter syncValue={{ ...fullSyncValue, loading: true, data: { ...fullSyncValue.data, kpi: null } }}>
         <Dashboard />
       </TestRouter>,
-    )
-    expect(container.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0)
-  })
+    );
+    expect(screen.queryByText(/Загрузка/)).not.toBeInTheDocument();
+    expect(container.querySelectorAll('.animate-pulse').length).toBe(0);
+    expect(screen.getAllByText(/Доход/).length).toBeGreaterThanOrEqual(1);
+  });
 
   it('shows error banner on failure', () => {
-    render(<TestRouter syncValue={{ ...fullSyncValue, error: 'Network error' }}><Dashboard /></TestRouter>)
-    expect(screen.getByText('Ошибка загрузки данных')).toBeInTheDocument()
-    expect(screen.getByText('Network error')).toBeInTheDocument()
-  })
-})
+    render(
+      <TestRouter syncValue={{ ...fullSyncValue, error: 'Network error' }}>
+        <Dashboard />
+      </TestRouter>,
+    );
+    expect(screen.getByText('Ошибка загрузки данных')).toBeInTheDocument();
+    expect(screen.getByText('Network error')).toBeInTheDocument();
+  });
+});

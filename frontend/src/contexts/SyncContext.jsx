@@ -1,16 +1,16 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { useAuth } from './AuthContext'
-import api from '../api'
+import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useAuth } from './AuthContext';
+import api from '../api';
 
-const SyncContext = createContext()
+const SyncContext = createContext();
 
-export { SyncContext }
+export { SyncContext };
 
 export function SyncProvider({ children }) {
-  const { user, loading: authLoading } = useAuth()
-  const [syncStatus, setSyncStatus] = useState({ in_progress: false, last_sync: null })
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const { user, loading: authLoading } = useAuth();
+  const [syncStatus, setSyncStatus] = useState({ in_progress: false, last_sync: null });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [data, setData] = useState({
     kpi: null,
     cohorts: {},
@@ -23,121 +23,137 @@ export function SyncProvider({ children }) {
     activeEnrolled: { months: [] },
     publishedSolutions: { months: [] },
     students: { students: [], total: 0 },
-  })
-const abortRef = useRef(null)
-const pollIntervalRef = useRef(30000)
+  });
+  const abortRef = useRef(null);
+  const pollIntervalRef = useRef(30000);
 
-const SYNC_POLL_INTERVAL_MS = 2000
+  const SYNC_POLL_INTERVAL_MS = 2000;
 
   const fetchAll = useCallback(async (signal) => {
     try {
-      const [kpiRes, cohortsRes, revenueRes, alertsRes, coursesRes, financialsRes, submissionsRes, activeStudentsRes, activeEnrolledRes, publishedSolutionsRes, studentsRes] =
-        await Promise.allSettled([
-          api.get('/dashboard/kpi', { signal }),
-          api.get('/dashboard/cohorts', { signal }),
-          api.get('/dashboard/revenue', { signal }),
-          api.get('/dashboard/alerts', { signal }),
-          api.get('/courses', { signal }),
-          api.get('/financials', { signal }),
-          api.get('/dashboard/submissions', { signal }),
-          api.get('/dashboard/active-students', { signal }),
-          api.get('/dashboard/active-enrolled-students', { signal }),
-          api.get('/dashboard/published-solutions', { signal }),
-          api.get('/dashboard/students?limit=200', { signal }),
-        ])
+      const [
+        kpiRes,
+        cohortsRes,
+        revenueRes,
+        alertsRes,
+        coursesRes,
+        financialsRes,
+        submissionsRes,
+        activeStudentsRes,
+        activeEnrolledRes,
+        publishedSolutionsRes,
+        studentsRes,
+      ] = await Promise.allSettled([
+        api.get('/dashboard/kpi', { signal }),
+        api.get('/dashboard/cohorts', { signal }),
+        api.get('/dashboard/revenue', { signal }),
+        api.get('/dashboard/alerts', { signal }),
+        api.get('/courses', { signal }),
+        api.get('/financials', { signal }),
+        api.get('/dashboard/submissions', { signal }),
+        api.get('/dashboard/active-students', { signal }),
+        api.get('/dashboard/active-enrolled-students', { signal }),
+        api.get('/dashboard/published-solutions', { signal }),
+        api.get('/dashboard/students?limit=200', { signal }),
+      ]);
 
-      setData(prev => {
+      setData((prev) => {
         const next = {
           ...prev,
           kpi: kpiRes.status === 'fulfilled' ? kpiRes.value.data : prev.kpi,
           cohorts: cohortsRes.status === 'fulfilled' ? cohortsRes.value.data : prev.cohorts,
           revenue: revenueRes.status === 'fulfilled' ? revenueRes.value.data : prev.revenue,
-          alerts: alertsRes.status === 'fulfilled'
-            ? (alertsRes.value.data.alerts || [])
-            : prev.alerts,
-          courses: coursesRes.status === 'fulfilled'
-            ? (coursesRes.value.data.courses || [])
-            : prev.courses,
+          alerts: alertsRes.status === 'fulfilled' ? alertsRes.value.data.alerts || [] : prev.alerts,
+          courses: coursesRes.status === 'fulfilled' ? coursesRes.value.data.courses || [] : prev.courses,
           financials: financialsRes.status === 'fulfilled' ? financialsRes.value.data : prev.financials,
           submissions: submissionsRes.status === 'fulfilled' ? submissionsRes.value.data : prev.submissions,
           activeStudents: activeStudentsRes.status === 'fulfilled' ? activeStudentsRes.value.data : prev.activeStudents,
           activeEnrolled: activeEnrolledRes.status === 'fulfilled' ? activeEnrolledRes.value.data : prev.activeEnrolled,
-          publishedSolutions: publishedSolutionsRes.status === 'fulfilled' ? publishedSolutionsRes.value.data : prev.publishedSolutions,
+          publishedSolutions:
+            publishedSolutionsRes.status === 'fulfilled' ? publishedSolutionsRes.value.data : prev.publishedSolutions,
           students: studentsRes.status === 'fulfilled' ? studentsRes.value.data : prev.students,
-        }
-        if (JSON.stringify(prev) === JSON.stringify(next)) return prev
-        return next
-      })
+        };
+        if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+        return next;
+      });
 
-      const failures = [kpiRes, cohortsRes, revenueRes, alertsRes, coursesRes, financialsRes, submissionsRes, activeStudentsRes, activeEnrolledRes, publishedSolutionsRes, studentsRes]
-        .filter(r => r.status === 'rejected')
+      const failures = [
+        kpiRes,
+        cohortsRes,
+        revenueRes,
+        alertsRes,
+        coursesRes,
+        financialsRes,
+        submissionsRes,
+        activeStudentsRes,
+        activeEnrolledRes,
+        publishedSolutionsRes,
+        studentsRes,
+      ].filter((r) => r.status === 'rejected');
       if (failures.length > 0) {
-        setError(`${failures.length} endpoint(s) failed to load`)
+        setError(`${failures.length} endpoint(s) failed to load`);
       } else {
-        setError(null)
+        setError(null);
       }
-      pollIntervalRef.current = 30000
+      pollIntervalRef.current = 30000;
     } catch (err) {
       if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
-        setError(err.message)
-        pollIntervalRef.current = Math.min(pollIntervalRef.current * 2, 300000)
+        setError(err.message);
+        pollIntervalRef.current = Math.min(pollIntervalRef.current * 2, 300000);
       }
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
     if (authLoading || !user) {
-      setLoading(false)
-      return
+      setLoading(false);
+      return;
     }
 
-    const controller = new AbortController()
-    abortRef.current = controller
-    fetchAll(controller.signal)
+    const controller = new AbortController();
+    abortRef.current = controller;
+    fetchAll(controller.signal);
 
-    let lastKnownSync = null
-    let timer = null
+    let lastKnownSync = null;
+    let timer = null;
     const poll = async () => {
       try {
-        const { data: status } = await api.get('/sync/status', { signal: controller.signal })
-        setSyncStatus(prev => {
+        const { data: status } = await api.get('/sync/status', { signal: controller.signal });
+        setSyncStatus((prev) => {
           if (
             prev.in_progress === status.in_progress &&
             prev.last_sync === status.last_sync &&
             prev.progress === status.progress &&
             prev.step === status.step
-          ) return prev
-          return status
-        })
+          )
+            return prev;
+          return status;
+        });
         if (lastKnownSync && status.last_sync && lastKnownSync !== status.last_sync) {
-          fetchAll(controller.signal)
+          fetchAll(controller.signal);
         }
-        lastKnownSync = status.last_sync
-        timer = setTimeout(poll, status.in_progress ? SYNC_POLL_INTERVAL_MS : pollIntervalRef.current)
+        lastKnownSync = status.last_sync;
+        timer = setTimeout(poll, status.in_progress ? SYNC_POLL_INTERVAL_MS : pollIntervalRef.current);
       } catch {
-        timer = setTimeout(poll, pollIntervalRef.current)
+        timer = setTimeout(poll, pollIntervalRef.current);
       }
-    }
+    };
 
-    timer = setTimeout(poll, pollIntervalRef.current)
+    timer = setTimeout(poll, pollIntervalRef.current);
     return () => {
-      clearTimeout(timer)
-      controller.abort()
-    }
-  }, [user, authLoading, fetchAll])
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [user, authLoading, fetchAll]);
 
   const contextValue = useMemo(
     () => ({ syncStatus, data, loading, error, refresh: () => fetchAll() }),
-    [syncStatus, data, loading, error, fetchAll]
-  )
+    [syncStatus, data, loading, error, fetchAll],
+  );
 
-  return (
-    <SyncContext.Provider value={contextValue}>
-      {children}
-    </SyncContext.Provider>
-  )
+  return <SyncContext.Provider value={contextValue}>{children}</SyncContext.Provider>;
 }
 
-export const useSync = () => useContext(SyncContext)
+export const useSync = () => useContext(SyncContext);

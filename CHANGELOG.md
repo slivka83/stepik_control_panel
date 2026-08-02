@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Backend (fix)
+- **Regression fix:** решения не синхронизировались — Stepik API не возвращает `step` в объекте submission (шаг известен только из контекста `?step=`); `transform_submissions` пропускал все строки. Шаг переведён в колонку `raw_submission.step` (миграция 015, loader-injected через `extra_columns`), transform читает колонку, fallback через `raw_attempt.step` по `submission.attempt`. Бэкфилл существующих строк
+- **Архитектура против «молчаливых нулей»:** новый live-PG тест `test_pg_transforms_produce_fresh_rows` — трансформы на реальных данных обязаны производить строки и догонять raw-слой по времени (регрессия «0 submissions upserted» не могла бы пройти незамеченной)
+- `scripts/sync_raw.py` (step-режим): та же запись `step` в колонку при загрузке submissions
+- Маппинг-покрытие schema-contract: allowlist `LOADER_INJECTED_COLUMNS` для контекстных колонок без маппинга
+
 ### Features (Финансы — «Последние операции»)
 - Вкладка «По UTM»: агрегация по метке источника (payments/turnover/income/refunds/last_used)
 - Колонка UTM: метки источников вместо сырых значений (`UTM_SOURCE_LABELS` в `app/constants.py`: Я.Директ, E-mail, Telegram, VK, Уведомления)
@@ -17,6 +23,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Тултип в колонке UTM: только поля UTM-метки (`last_course_click_utm`)
 - Тултип кнопки «Обновить»: Завершено % / Прошло / Осталось (расчётно по линейной экстраполяции)
 - Скрипт `scripts/rebuild_marts.py`: пересборка всех витрин из raw-слоя без API-запросов (abort при пустом `raw_course`)
+
+### Features (Решения — колонка «Студенты»)
+- Колонка «Студенты» во всех 4 вкладках «Решений» (По месяцам / По годам / По курсам / Самые сложные): уникальные студенты, отправлявшие решения в группировке — `COUNT(DISTINCT submissions.user_id)` (`is_author=False`, NULL игнорируются)
+- Годы считают `students` отдельным запросом (не суммой по месяцам — студент с отправками в нескольких месяцах одного года посчитался бы дважды)
+- Верхние KPI-плашки: Всего решений / Правильных / Неправильных (белые) + Успех (цвет как в колонке: красный <33%, жёлтый <66%, зелёный ≥66%)
 
 ### Architecture / Refactoring
 - Split `app/api/dashboard.py` (694 строк, 10 эндпоинтов) в пакет `app/api/dashboard/` (alerts, kpi, cohorts, charts, students, steps, common)
@@ -68,6 +79,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Split models into separate files (`user.py`, `course.py`, etc.)
 
 ### Frontend
+- Убраны loading-заглушки со всех страниц (Dashboard, Courses, Students, Activities, Financials, Solutions): страницы рендерят реальные элементы с пустыми данными, никаких скелетонов и «Загрузка...» — нет дёрганья экрана
+- Вкладки «Финансы» и «Решения» видны всегда (пустые таблицы), без сообщений «данные недоступны»
 - Fixed Provider order: `AuthProvider` > `SyncProvider` (was reversed)
 - `SyncProvider` now skips fetch when unauthenticated
 - Added production `baseURL` from `VITE_API_URL`

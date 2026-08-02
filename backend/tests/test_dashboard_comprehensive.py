@@ -270,6 +270,154 @@ class TestDashboardSubmissions:
             app.dependency_overrides.clear()
 
 
+class TestSubmissionUniqueStudents:
+    async def test_month_counts_distinct_students(self, db_session):
+        user = _make_user_in_db(db_session)
+        course = _make_course_in_db(db_session, user.id)
+        await db_session.flush()
+
+        now = datetime.now(UTC)
+        db_session.add_all(
+            [
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=11001,
+                    stepik_step_id=1001,
+                    course_id=course.id,
+                    status="correct",
+                    user_id=500,
+                    submission_time=now,
+                    is_author=False,
+                ),
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=11002,
+                    stepik_step_id=1001,
+                    course_id=course.id,
+                    status="wrong",
+                    user_id=500,
+                    submission_time=now,
+                    is_author=False,
+                ),
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=11003,
+                    stepik_step_id=1001,
+                    course_id=course.id,
+                    status="wrong",
+                    user_id=501,
+                    submission_time=now,
+                    is_author=False,
+                ),
+            ]
+        )
+        await db_session.flush()
+
+        _setup_overrides(db_session, user)
+        try:
+            response = client.get("/api/dashboard/submissions")
+            data = response.json()
+            assert data["months"][0]["total"] == 3
+            assert data["months"][0]["students"] == 2
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_course_counts_distinct_students(self, db_session):
+        user = _make_user_in_db(db_session)
+        course = _make_course_in_db(db_session, user.id)
+        await db_session.flush()
+
+        now = datetime.now(UTC)
+        db_session.add_all(
+            [
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=11004,
+                    stepik_step_id=1001,
+                    course_id=course.id,
+                    status="correct",
+                    user_id=600,
+                    submission_time=now,
+                    is_author=False,
+                ),
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=11005,
+                    stepik_step_id=1001,
+                    course_id=course.id,
+                    status="wrong",
+                    user_id=600,
+                    submission_time=now,
+                    is_author=False,
+                ),
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=11006,
+                    stepik_step_id=1002,
+                    course_id=course.id,
+                    status="wrong",
+                    user_id=601,
+                    submission_time=now,
+                    is_author=False,
+                ),
+            ]
+        )
+        await db_session.flush()
+
+        _setup_overrides(db_session, user)
+        try:
+            response = client.get("/api/dashboard/submissions")
+            data = response.json()
+            assert data["by_course"][0]["total"] == 3
+            assert data["by_course"][0]["students"] == 2
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_year_students_not_summed_across_months(self, db_session):
+        user = _make_user_in_db(db_session)
+        course = _make_course_in_db(db_session, user.id)
+        await db_session.flush()
+
+        jan = datetime(2026, 1, 10, tzinfo=UTC)
+        feb = datetime(2026, 2, 10, tzinfo=UTC)
+        db_session.add_all(
+            [
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=11007,
+                    stepik_step_id=1001,
+                    course_id=course.id,
+                    status="correct",
+                    user_id=700,
+                    submission_time=jan,
+                    is_author=False,
+                ),
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=11008,
+                    stepik_step_id=1001,
+                    course_id=course.id,
+                    status="wrong",
+                    user_id=700,
+                    submission_time=feb,
+                    is_author=False,
+                ),
+            ]
+        )
+        await db_session.flush()
+
+        _setup_overrides(db_session, user)
+        try:
+            response = client.get("/api/dashboard/submissions")
+            data = response.json()
+            years = data["years"]
+            assert [y["year"] for y in years] == [2026]
+            assert years[0]["students"] == 1
+            assert len(data["months"]) == 2
+        finally:
+            app.dependency_overrides.clear()
+
+
 # ─── KPI trend tests ────────────────────────────────────────────────────
 
 

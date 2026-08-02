@@ -133,7 +133,18 @@ async def _replace_raw_table(session: AsyncSession, raw_table: str, objects: lis
     await _sync_id_sequence(session, raw_table)
 
 
-async def _upsert_raw_table(session: AsyncSession, raw_table: str, objects: list[dict], mapping: dict[str, str]):
+async def _upsert_raw_table(
+    session: AsyncSession,
+    raw_table: str,
+    objects: list[dict],
+    mapping: dict[str, str],
+    extra_columns: dict[str, object] | None = None,
+):
+    """INSERT ... ON CONFLICT для incremental-синков.
+
+    extra_columns — контекстные значения, которых нет в ответе API
+    (например, step для submissions: известен только из ?step=).
+    """
     if not objects:
         return
 
@@ -150,6 +161,8 @@ async def _upsert_raw_table(session: AsyncSession, raw_table: str, objects: list
         table_cols = set()
 
     all_db_cols = [c for c in mapping.values() if not table_cols or c in table_cols]
+    if extra_columns:
+        all_db_cols += [c for c in extra_columns if c not in all_db_cols]
 
     try:
         pk_r = await session.execute(
@@ -189,6 +202,9 @@ async def _upsert_raw_table(session: AsyncSession, raw_table: str, objects: list
         values = {"_raw_json": raw_json}
         for c in col_names:
             if c == "_raw_json":
+                continue
+            if extra_columns and c in extra_columns:
+                values[c] = extra_columns[c]
                 continue
             api_field = next((k for k, v in mapping.items() if v == c), c)
             val = obj.get(api_field)
@@ -346,7 +362,12 @@ async def sync_submissions(session: AsyncSession, token: str):
             objects = data.get("submissions", [])
             if not objects:
                 break
-            await _upsert_raw_table(session, "raw_submission", objects, mapping_subs)
+            # API не возвращает step в объекте submission — шаг известен
+            # только из контекста запроса ?step=; пишем его в колонку step
+            # (и в _raw_json для целостности)
+            for obj in objects:
+                obj["step"] = sid
+            await _upsert_raw_table(session, "raw_submission", objects, mapping_subs, extra_columns={"step": str(sid)})
             step_new += len(objects)
             total += len(objects)
 
