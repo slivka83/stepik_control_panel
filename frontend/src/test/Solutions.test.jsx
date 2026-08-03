@@ -56,8 +56,8 @@ function renderSolutions(submissions) {
 describe('Solutions', () => {
   it('renders months by default', () => {
     renderSolutions();
-    expect(screen.getByText('Январь 2026')).toBeInTheDocument();
-    expect(screen.getByText('Февраль 2026')).toBeInTheDocument();
+    expect(screen.getByText('2026 Январь')).toBeInTheDocument();
+    expect(screen.getByText('2026 Февраль')).toBeInTheDocument();
     expect(screen.getByText('Месяц')).toBeInTheDocument();
   });
 
@@ -109,8 +109,8 @@ describe('Solutions', () => {
   it('shows newest month first by default', () => {
     renderSolutions();
     const rows = screen.getAllByRole('row').slice(1);
-    expect(within(rows[0]).getByText('Февраль 2026')).toBeInTheDocument();
-    expect(within(rows[1]).getByText('Январь 2026')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('2026 Февраль')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('2026 Январь')).toBeInTheDocument();
   });
 
   it('renders students column in months tab and sorts by it', () => {
@@ -132,8 +132,8 @@ describe('Solutions', () => {
     vi.mocked(api.get).mockResolvedValue({
       data: {
         steps: [
-          { stepik_step_id: 1, lesson_id: 100, step_number: 2, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50, students: 8 },
-          { stepik_step_id: 2, lesson_id: 200, step_number: 1, course_title: 'Курс Б', total: 5, correct: 1, wrong: 4, success_pct: 20, students: 3 },
+          { stepik_step_id: 1, lesson_id: 100, step_number: 2, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50, weighted_success_pct: 50, students: 8 },
+          { stepik_step_id: 2, lesson_id: 200, step_number: 1, course_title: 'Курс Б', total: 5, correct: 1, wrong: 4, success_pct: 20, weighted_success_pct: 20, students: 3 },
         ],
       },
     });
@@ -153,17 +153,44 @@ describe('Solutions', () => {
     expect(cellOf(rows[1], 2)).toBe('8');
   });
 
+  it('renders weighted success column only on hardest tab', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.get).mockResolvedValue({
+      data: {
+        steps: [
+          { stepik_step_id: 1, lesson_id: 100, step_number: 2, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50, weighted_success_pct: 40 },
+          { stepik_step_id: 2, lesson_id: 200, step_number: 1, course_title: 'Курс Б', total: 5, correct: 1, wrong: 4, success_pct: 20, weighted_success_pct: 30 },
+        ],
+      },
+    });
+    renderSolutions({
+      months: [{ month: 'Январь 2026', total: 5, correct: 1, success_pct: 3.6, weighted_success_pct: 15.4 }],
+      years: [{ year: 2026, total: 5, correct: 1, success_pct: 3.6, weighted_success_pct: 15.4 }],
+      by_course: [{ course_id: 1, stepik_course_id: 101, title: 'Тестовый курс', total: 5, correct: 1, success_pct: 3.6, weighted_success_pct: 15.4 }],
+    });
+    expect(screen.queryByText('Взв. успех')).not.toBeInTheDocument();
+    await user.click(screen.getByText('По годам'));
+    expect(screen.queryByText('Взв. успех')).not.toBeInTheDocument();
+    await user.click(screen.getByText('По курсам'));
+    expect(screen.queryByText('Взв. успех')).not.toBeInTheDocument();
+    await user.click(screen.getByText('Самые сложные'));
+    await screen.findByText('Курс Б');
+    expect(screen.getAllByText('Взв. успех').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('30%')).toBeInTheDocument();
+    expect(screen.getByText('40%')).toBeInTheDocument();
+  });
+
   it('sorts months chronologically by Месяц on header click', async () => {
     const user = userEvent.setup();
     renderSolutions();
     const header = screen.getByText('Месяц').closest('th');
     await user.click(header);
     const rows = screen.getAllByRole('row').slice(1);
-    expect(within(rows[0]).getByText('Январь 2026')).toBeInTheDocument();
-    expect(within(rows[1]).getByText('Февраль 2026')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('2026 Январь')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('2026 Февраль')).toBeInTheDocument();
     await user.click(header);
     const rowsDesc = screen.getAllByRole('row').slice(1);
-    expect(within(rowsDesc[0]).getByText('Февраль 2026')).toBeInTheDocument();
+    expect(within(rowsDesc[0]).getByText('2026 Февраль')).toBeInTheDocument();
   });
 
   it('sorts months by Всего numeric on header click', async () => {
@@ -173,8 +200,8 @@ describe('Solutions', () => {
     await user.click(header);
     await user.click(header);
     const rows = screen.getAllByRole('row').slice(1);
-    expect(within(rows[0]).getByText('Январь 2026')).toBeInTheDocument();
-    expect(within(rows[1]).getByText('Февраль 2026')).toBeInTheDocument();
+    expect(within(rows[0]).getByText('2026 Январь')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('2026 Февраль')).toBeInTheDocument();
   });
 
   it('shows arrow only in the active sort column', async () => {
@@ -287,13 +314,26 @@ describe('Solutions', () => {
     expect(rows[2].children[5].style.color).toBe('rgb(244, 63, 94)');
   });
 
-  it('sorts hardest steps by success default (worst first) and by Всего', async () => {
+  it('uses backend success_pct (Wilson) when present', () => {
+    renderSolutions({
+      months: [
+        { month: 'Январь 2026', total: 5, correct: 1, success_pct: 3.6 },
+        { month: 'Февраль 2026', total: 1000, correct: 200, success_pct: 17.6 },
+      ],
+      years: [],
+      by_course: [],
+    });
+    expect(screen.getAllByText('3.6%').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('17.6%').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('sorts hardest steps by weighted success default (worst first) and by Всего', async () => {
     const user = userEvent.setup();
     api.get.mockResolvedValue({
       data: {
         steps: [
-          { stepik_step_id: 1, lesson_id: 100, step_number: 2, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50 },
-          { stepik_step_id: 2, lesson_id: 200, step_number: 1, course_title: 'Курс Б', total: 5, correct: 1, wrong: 4, success_pct: 20 },
+          { stepik_step_id: 1, lesson_id: 100, step_number: 2, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50, weighted_success_pct: 40 },
+          { stepik_step_id: 2, lesson_id: 200, step_number: 1, course_title: 'Курс Б', total: 5, correct: 1, wrong: 4, success_pct: 20, weighted_success_pct: 30 },
         ],
       },
     });
@@ -337,16 +377,17 @@ describe('Solutions', () => {
     api.get.mockResolvedValue({
       data: {
         steps: [
-          { stepik_step_id: 42, lesson_id: 7, step_number: 5, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50 },
+          { stepik_step_id: 42, lesson_id: 7, step_number: 5, module_number: 3, lesson_number: 7, module_title: 'Модуль', lesson_title: 'Урок', course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50 },
         ],
       },
     });
     renderSolutions();
     await user.click(screen.getByText('Самые сложные'));
-    await screen.findByText('42');
-    const link = screen.getByText('42').closest('a');
+    await screen.findByText('3.7-5');
+    const link = screen.getByText('3.7-5').closest('a');
     expect(link.getAttribute('href')).toBe('https://stepik.org/lesson/7/step/5');
     expect(link.getAttribute('target')).toBe('_blank');
+    expect(link.getAttribute('title')).toBe('Модуль — Урок');
   });
 
   it('shows error instead of empty state when steps load fails', async () => {
@@ -381,5 +422,51 @@ describe('Solutions', () => {
     await screen.findByText('42');
     const firstCell = screen.getAllByRole('row')[1].children[0];
     expect(firstCell.className).toContain('text-xs');
+  });
+
+  it('shows module.lesson-step path when module/lesson numbers present', async () => {
+    const user = userEvent.setup();
+    api.get.mockResolvedValue({
+      data: {
+        steps: [
+          { stepik_step_id: 42, lesson_id: 7, step_number: 2, module_number: 3, lesson_number: 7, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50 },
+        ],
+      },
+    });
+    renderSolutions();
+    await user.click(screen.getByText('Самые сложные'));
+    expect(await screen.findByText('3.7-2')).toBeInTheDocument();
+    expect(screen.queryByText('42')).not.toBeInTheDocument();
+  });
+
+  it('falls back to step id when module/lesson numbers missing', async () => {
+    const user = userEvent.setup();
+    api.get.mockResolvedValue({
+      data: {
+        steps: [
+          { stepik_step_id: 42, lesson_id: 7, step_number: 5, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50 },
+        ],
+      },
+    });
+    renderSolutions();
+    await user.click(screen.getByText('Самые сложные'));
+    expect(await screen.findByText('42')).toBeInTheDocument();
+    expect(screen.queryByText('7-5')).not.toBeInTheDocument();
+  });
+
+  it('shows module name — lesson name in step tooltip when titles present', async () => {
+    const user = userEvent.setup();
+    api.get.mockResolvedValue({
+      data: {
+        steps: [
+          { stepik_step_id: 42, lesson_id: 7, step_number: 2, module_number: 3, lesson_number: 7, module_title: 'Деревья решений', lesson_title: 'Регрессия', course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50 },
+        ],
+      },
+    });
+    renderSolutions();
+    await user.click(screen.getByText('Самые сложные'));
+    await screen.findByText('3.7-2');
+    const link = screen.getByText('3.7-2').closest('a');
+    expect(link.getAttribute('title')).toBe('Деревья решений — Регрессия');
   });
 });

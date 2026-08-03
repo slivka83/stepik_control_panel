@@ -257,9 +257,12 @@ Y-ось графиков:
 ## Страница «Решения» (4 вкладки)
 
 - Вкладки: **По месяцам / По годам / По курсам / Самые сложные** (`frontend/src/pages/Solutions.jsx`)
-- Таблицы: колонки `Группа | Студенты | Всего | Правильно | Неверно | Успех (цвет)` + `Step ID` у hardest
+- Таблицы: колонки `Группа | Студенты | Всего | Правильно | Неверно | Успех (цвет)` + `Шаг | Взв. успех (цвет)` у hardest
+- **«Шаг» = путь `модуль.урок-шаг`** (например `3.7-2`): модуль из `raw_section.position`, урок — **сквозной номер в курсе** (сумма уроков предыдущих модулей + позиция внутри своего модуля из `raw_unit.position`), шаг — позиция в `raw_lesson.steps`. Если данных структуры нет — fallback на `stepik_step_id`. Внутри — ссылка на Stepik (`lesson_id`/`step_number`), в tooltip — **название модуля — название урока** (`raw_section.title`/`raw_lesson.title`, fallback: курс и числовой ID шага)
 - **`students`** — уникальные студенты в группировке = `COUNT(DISTINCT submissions.user_id)` (NULL игнорируются, `is_author=False`)
-- Источники: `GET /dashboard/submissions` → `{months, by_course, years}` (в `app/api/dashboard/charts.py`); `GET /dashboard/hardest-steps` → `{steps}` (в `app/api/dashboard/steps.py`). Годы считают `students` **отдельным запросом** (не суммой по месяцам — один студент в нескольких месяцах одного года посчитался бы дважды)
+- **«Успех» = Wilson-нижняя граница 95% доверительного интервала** (`wilson_success_pct()` в `app/api/dashboard/common.py`), а не `correct/total`: чем меньше попыток, тем сильнее число занижается (данным нельзя верить); чем больше попыток, тем ближе к наблюдённому. 1 верная из 5 (20%) → 3.6%; 200 из 1000 (20%) → 17.6%. API отдаёт `success_pct` для всех группировок (months/years/by_course/steps); фронт использует его с fallback на raw-расчёт
+- **«Взв. успех» = наблюдённый процент, притянутый к среднему по шагам** (`weighted_success_pct()` в `app/api/dashboard/common.py`): `(correct + 20 × global_pct) / (total + 20) × 100`, где `global_pct` — **unweighted mean** успеха по строкам группировки (не по попыткам — иначе доминирующий шаг сдвигает среднее). Мало попыток → цифра ≈ среднего, не лезет в топ; много попыток → честный `correct/total`. Колонка показывается **только на вкладке «Самые сложные»** (там она осмысленна — малые выборки шагов); API отдаёт `weighted_success_pct` для всех группировок
+- Источники: `GET /dashboard/submissions` → `{months, by_course, years}` (в `app/api/dashboard/charts.py`); `GET /dashboard/hardest-steps` → `{steps}` (в `app/api/dashboard/steps.py`). Годы считают `students` **отдельным запросом** (не суммой по месяцам — один студент в нескольких месяцах одного года посчитался бы дважды). hardest сортирует по `weighted_success_pct` в Python (не в SQL) — мусор с 1-2 попытками не всплывает наверх
 - Сортировка: первый клик — «естественный порядок» (числа/даты — больше/новые сверху, текст — А→Я), стрелка указывает **на главные значения** (`┴`/`↑` по типу в `NATURAL_DIR_BY_KEY`); повторный клик — наоборот
 - Верхние KPI-плашки: Всего решений / Правильных / Неправильных (белые) + Успех (цвет как в колонке: `successColor` <33 красный, <66 жёлтый, ≥66 зелёный)
 
@@ -376,7 +379,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-360 тестов, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
+374 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
 
 | Файл | Тестов | Что тестирует |
 |---|---|---|
@@ -391,8 +394,8 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 | `tests/test_data_contract.py` | 5 | Глобальные контракты снапшота/API/фронта (price, per_course, поля страниц, recent_payments/utms) |
 | `tests/test_schema_contract.py` | 9 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот), **live-PG свежесть данных** (трансформы на реальных данных производят строки и догоняют raw — регрессия «0 submissions upserted») |
 | `tests/test_architecture.py` | 19 | Архитектурные гарантии: один alembic head, нет dead-артефактов (step_sync_state, orphan-скрипты), единый источник констант, дефолты конфига = docker-compose, сплит dashboard-пакета, rebuild_marts.py (все трансформы, без API) |
-| `tests/test_steps.py` | 22 | hardest-steps: `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id) |
-| Остальные | 166 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
+| `tests/test_steps.py` | 35 | hardest-steps: `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id), `wilson_success_pct` (объём попыток: 1/5 → 3.6%, 200/1000 → 17.6%), `weighted_success_pct` (мусор с малым числом попыток не всплывает в топ), `module_number`/`lesson_number` (сквозная нумерация уроков по курсу), `module_title`/`lesson_title` |
+| Остальные | 167 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).
 

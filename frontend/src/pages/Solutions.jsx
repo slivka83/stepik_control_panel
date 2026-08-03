@@ -4,6 +4,12 @@ import { useSync } from '../contexts/SyncContext';
 import KpiCard from '../components/KpiCard';
 import ErrorBanner from '../components/ErrorBanner';
 import { parseMonthLabel } from '../utils/monthWindow';
+
+function yearMonthLabel(label) {
+  const parts = String(label).split(' ');
+  if (parts.length === 2 && /^\d{4}$/.test(parts[1])) return `${parts[1]} ${parts[0]}`;
+  return label;
+}
 import { STEPIK_URLS } from '../constants.jsx';
 import api from '../api';
 
@@ -59,6 +65,7 @@ const HARDEST_SORT_COLUMNS = {
   correct: { numeric: true },
   wrong: { numeric: true },
   success: { numeric: true },
+  weighted_success: { numeric: true },
 };
 
 function successColor(pct) {
@@ -71,6 +78,7 @@ function getHardestSortValue(s, key) {
   if (key === 'step_id') return s.stepik_step_id;
   if (key === 'title') return s.course_title;
   if (key === 'success') return s.success_pct;
+  if (key === 'weighted_success') return s.weighted_success_pct;
   return s[key];
 }
 
@@ -79,6 +87,7 @@ function calcWrong(m) {
 }
 
 function calcPct(m) {
+  if (m.success_pct != null) return m.success_pct;
   return m.total > 0 ? ((m.correct || 0) / m.total) * 100 : 0;
 }
 
@@ -161,6 +170,7 @@ const NATURAL_DIR_BY_KEY = {
   correct: 'asc',
   wrong: 'asc',
   success: 'asc',
+  weighted_success: 'asc',
   title: 'desc',
 };
 
@@ -263,7 +273,7 @@ export default function Solutions() {
   const [monthsSort, setMonthsSort] = useState({ key: 'month', dir: 'desc' });
   const [yearsSort, setYearsSort] = useState({ key: 'year', dir: 'desc' });
   const [coursesSort, setCoursesSort] = useState({ key: 'title', dir: 'asc' });
-  const [hardestSort, setHardestSort] = useState({ key: 'success', dir: 'asc' });
+  const [hardestSort, setHardestSort] = useState({ key: 'weighted_success', dir: 'asc' });
 
   const onMonthsSort = makeSortHandler(setMonthsSort, MONTH_SORT_COLUMNS);
   const onYearsSort = makeSortHandler(setYearsSort, YEARS_SORT_COLUMNS);
@@ -351,10 +361,10 @@ export default function Solutions() {
               <tbody>
                 {paginatedMonths.map((m) => {
                   const wrong = (m.total || 0) - (m.correct || 0);
-                  const pct = m.total > 0 ? ((m.correct || 0) / m.total) * 100 : 0;
+                  const pct = calcPct(m);
                   return (
                     <tr key={m.month} className="border-b border-gray-800">
-                      <td className="text-white font-mono text-xs pl-1 truncate">{m.month}</td>
+                      <td className="text-gray-300 font-mono text-xs pl-1 truncate">{yearMonthLabel(m.month)}</td>
                       <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1">{(m.students || 0).toLocaleString('ru-RU')}</td>
                       <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1">{(m.total || 0).toLocaleString('ru-RU')}</td>
                       <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1">
@@ -394,7 +404,7 @@ export default function Solutions() {
                   const pct = calcPct(m);
                   return (
                     <tr key={m.year} className="border-b border-gray-800">
-                      <td className="text-white font-mono text-xs pl-1 truncate">{m.year}</td>
+                      <td className="text-gray-300 font-mono text-xs pl-1 truncate">{m.year}</td>
                       <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1">{(m.students || 0).toLocaleString('ru-RU')}</td>
                       <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1">{(m.total || 0).toLocaleString('ru-RU')}</td>
                       <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1">
@@ -445,7 +455,7 @@ export default function Solutions() {
                             {c.title}
                           </a>
                         ) : (
-                          <span className="text-white font-mono text-xs">{c.title}</span>
+                          <span className="text-gray-300 font-mono text-xs">{c.title}</span>
                         )}
                       </td>
                       <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1">{(c.students || 0).toLocaleString('ru-RU')}</td>
@@ -473,13 +483,14 @@ export default function Solutions() {
             <table className="w-full text-sm table-fixed fin-table sol-table">
               <thead>
                 <tr className="border-b border-gray-700">
-                  <SortableTh label="Step ID" sortKey="step_id" sort={hardestSort} onSort={onHardestSort} width="w-[10%]" />
+                  <SortableTh label="Шаг" sortKey="step_id" sort={hardestSort} onSort={onHardestSort} width="w-[10%]" />
                   <SortableTh label="Курс" sortKey="title" sort={hardestSort} onSort={onHardestSort} width="w-[30%]" />
                   <SortableTh label="Студенты" sortKey="students" sort={hardestSort} onSort={onHardestSort} align="right" width="w-[12%]" />
                   <SortableTh label="Всего" sortKey="total" sort={hardestSort} onSort={onHardestSort} align="right" width="w-[12%]" />
                   <SortableTh label="Правильно" sortKey="correct" sort={hardestSort} onSort={onHardestSort} align="right" width="w-[14%]" />
                   <SortableTh label="Неверно" sortKey="wrong" sort={hardestSort} onSort={onHardestSort} align="right" width="w-[14%]" />
                   <SortableTh label="Успех" sortKey="success" sort={hardestSort} onSort={onHardestSort} align="right" width="w-[14%]" />
+                  <SortableTh label="Взв. успех" sortKey="weighted_success" sort={hardestSort} onSort={onHardestSort} align="right" width="w-[14%]" />
                 </tr>
               </thead>
               <tbody>
@@ -491,15 +502,24 @@ export default function Solutions() {
                           href={STEPIK_URLS.step(s.lesson_id, s.step_number)}
                           target="_blank"
                           rel="noopener noreferrer"
+                          title={
+                            s.module_title && s.lesson_title
+                              ? `${s.module_title} — ${s.lesson_title}`
+                              : `${s.course_title} — шаг ${s.stepik_step_id}`
+                          }
                           className="text-cyber-blue font-mono text-xs hover:underline"
                         >
-                          {s.stepik_step_id}
+                          {s.module_number && s.lesson_number
+                            ? `${s.module_number}.${s.lesson_number}-${s.step_number}`
+                            : s.stepik_step_id}
                         </a>
                       ) : (
-                        <span className="text-cyber-blue font-mono text-xs">{s.stepik_step_id}</span>
+                        <span className="text-cyber-blue font-mono text-xs" title={`Шаг ${s.stepik_step_id}`}>
+                          {s.stepik_step_id}
+                        </span>
                       )}
                     </td>
-                    <td className="text-white font-mono text-xs pl-1 truncate">{s.course_title}</td>
+                    <td className="text-gray-300 font-mono text-xs pl-1 truncate">{s.course_title}</td>
                     <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1">
                       {(s.students || 0).toLocaleString('ru-RU')}
                     </td>
@@ -517,6 +537,12 @@ export default function Solutions() {
                       style={{ color: successColor(s.success_pct) }}
                     >
                       {s.success_pct}%
+                    </td>
+                    <td
+                      className="text-right font-mono text-xs pl-1 pr-1"
+                      style={{ color: successColor(s.weighted_success_pct != null ? s.weighted_success_pct : s.success_pct) }}
+                    >
+                      {s.weighted_success_pct != null ? s.weighted_success_pct : s.success_pct}%
                     </td>
                   </tr>
                 ))}

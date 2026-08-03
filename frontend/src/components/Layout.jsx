@@ -83,7 +83,7 @@ function Sidebar() {
             aria-label={item.label}
             title={item.label}
             className={({ isActive }) =>
-              `flex items-center justify-center gap-3 px-3 py-2.5 transition-all duration-200 border-l-2 ${
+              `flex items-center justify-center gap-3 h-[50px] px-3 transition-all duration-200 border-l-2 ${
                 isActive
                   ? 'text-cyber-blue border-l-cyber-blue bg-cyber-blue/10'
                   : 'text-gray-400 border-l-transparent hover:text-gray-200 hover:bg-white/5'
@@ -91,7 +91,7 @@ function Sidebar() {
             }
           >
             <span
-              className="text-lg"
+              className="text-lg leading-none"
               aria-hidden="true"
               style={item.iconScale ? { transform: `scale(${item.iconScale})`, display: 'inline-block' } : undefined}
             >

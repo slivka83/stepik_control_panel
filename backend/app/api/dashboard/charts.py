@@ -5,7 +5,12 @@ from sqlalchemy import extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
-from app.api.dashboard.common import format_month_label, get_courses_for_user
+from app.api.dashboard.common import (
+    format_month_label,
+    get_courses_for_user,
+    weighted_success_pct,
+    wilson_success_pct,
+)
 from app.database import get_db
 from app.models import FinancialSnapshot, StudentEnrollment, Submission, User
 
@@ -47,6 +52,11 @@ async def get_submissions(
     )
     month_rows = month_result.all()
 
+    # Средний успех по строкам (не по попыткам): unweighted mean, иначе
+    # один доминирующий месяц/курс сдвигает global в свою сторону.
+    rates = [row.correct / row.total for row in month_rows if row.total > 0]
+    global_pct = (sum(rates) / len(rates) * 100) if rates else 0.0
+
     months = []
     for row in month_rows:
         y, m = int(row.year), int(row.month)
@@ -56,6 +66,8 @@ async def get_submissions(
                 "total": row.total,
                 "correct": row.correct,
                 "students": row.students,
+                "success_pct": round(wilson_success_pct(row.correct, row.total), 1),
+                "weighted_success_pct": round(weighted_success_pct(row.correct, row.total, global_pct), 1),
             }
         )
 
@@ -78,7 +90,16 @@ async def get_submissions(
         y = int(row.year)
         if y in year_stats:
             year_stats[y]["students"] = row.students
-    years = [year_stats[y] for y in sorted(year_stats)]
+    years = []
+    for y in sorted(year_stats):
+        agg = year_stats[y]
+        years.append(
+            {
+                **agg,
+                "success_pct": round(wilson_success_pct(agg["correct"], agg["total"]), 1),
+                "weighted_success_pct": round(weighted_success_pct(agg["correct"], agg["total"], global_pct), 1),
+            }
+        )
 
     course_result = await db.execute(
         select(
@@ -105,6 +126,10 @@ async def get_submissions(
                 "total": course_row.total,
                 "correct": course_row.correct,
                 "students": course_row.students,
+                "success_pct": round(wilson_success_pct(course_row.correct, course_row.total), 1),
+                "weighted_success_pct": round(
+                    weighted_success_pct(course_row.correct, course_row.total, global_pct), 1
+                ),
             }
         )
 

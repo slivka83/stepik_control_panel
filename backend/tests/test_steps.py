@@ -151,6 +151,65 @@ class TestParseStepPositions:
         assert _parse_step_positions([5, 5, 7]) == {5: 2, 7: 3}
 
 
+# ─── wilson_success_pct ─────────────────────────────────────────────────────
+
+
+class TestWilsonSuccessPct:
+    def test_zero_total_returns_zero(self):
+        from app.api.dashboard.common import wilson_success_pct
+
+        assert wilson_success_pct(0, 0) == 0.0
+        assert wilson_success_pct(10, 0) == 0.0
+
+    def test_small_sample_pulled_down(self):
+        from app.api.dashboard.common import wilson_success_pct
+
+        assert round(wilson_success_pct(1, 5), 1) == 3.6
+
+    def test_large_sample_close_to_observed(self):
+        from app.api.dashboard.common import wilson_success_pct
+
+        assert round(wilson_success_pct(200, 1000), 1) == 17.6
+
+    def test_zero_success_stays_zero(self):
+        from app.api.dashboard.common import wilson_success_pct
+
+        assert wilson_success_pct(0, 50) == 0.0
+
+    def test_success_increases_with_attempts(self):
+        """Regression: тот же raw-процент, но больше попыток → выше Wilson."""
+        from app.api.dashboard.common import wilson_success_pct
+
+        small = wilson_success_pct(1, 5)
+        large = wilson_success_pct(200, 1000)
+        assert small < large
+
+
+class TestWeightedSuccessPct:
+    def test_zero_total_returns_zero(self):
+        from app.api.dashboard.common import weighted_success_pct
+
+        assert weighted_success_pct(0, 0, 50.0) == 0.0
+
+    def test_small_sample_pulled_to_global(self):
+        from app.api.dashboard.common import weighted_success_pct
+
+        assert round(weighted_success_pct(0, 4, 50.0), 1) == 41.7
+
+    def test_large_sample_close_to_observed(self):
+        from app.api.dashboard.common import weighted_success_pct
+
+        assert round(weighted_success_pct(100, 400, 50.0), 1) == 26.2
+
+    def test_weighted_keeps_noise_out_of_top(self):
+        """Regression: маленький шаг (0%) притянут к среднему и не «самый сложный»."""
+        from app.api.dashboard.common import weighted_success_pct
+
+        tiny = weighted_success_pct(0, 4, 50.0)  # 0% → 41.7%
+        big = weighted_success_pct(100, 400, 50.0)  # 25% → 27.4%
+        assert tiny > big
+
+
 # ─── Полный эндпоинт на SQLite-фикстуре ────────────────────────────────────
 
 
@@ -266,8 +325,83 @@ async def test_hardest_steps_orders_worst_first(db_session):
     ids = [s["stepik_step_id"] for s in data["steps"]]
     assert ids == [900, 901, 902]
     assert data["steps"][0]["success_pct"] == 0.0
-    assert data["steps"][1]["success_pct"] == 50.0
-    assert data["steps"][2]["success_pct"] == 100.0
+    assert data["steps"][1]["success_pct"] == 9.5
+    assert data["steps"][2]["success_pct"] == 34.2
+
+
+@pytest.mark.asyncio
+async def test_hardest_steps_success_weights_attempt_volume(db_session):
+    """Regression: «Успех» обязан учитывать объём попыток (Wilson).
+
+    Раньше success_pct = correct/total: шаг с 1 верной попыткой из 5 (20%)
+    и шаг со 200 верными из 1000 (20%) показывали одинаковые 20%, хотя это
+    разный «успех» — малым объёмом данных верить нельзя. Теперь значение
+    занижается сильнее при малых попытках и приближается к наблюдённому при
+    больших.
+    """
+    user = _make_user(55)
+    course = _make_course(user.id, 5555)
+    rows = []
+    for _ in range(4):
+        rows.append((601, "wrong"))
+    rows.append((601, "correct"))
+    for _ in range(800):
+        rows.append((602, "wrong"))
+    for _ in range(200):
+        rows.append((602, "correct"))
+    await _seed_user_course_submissions(db_session, user, course, rows=rows)
+
+    data = await _get_steps(db_session, user, min_submissions=1)
+
+    by_id = {s["stepik_step_id"]: s for s in data["steps"]}
+    small = by_id[601]  # 1/5 → 20% raw
+    large = by_id[602]  # 200/1000 → 20% raw
+
+    assert small["total"] == 5 and small["correct"] == 1
+    assert large["total"] == 1000 and large["correct"] == 200
+    assert small["success_pct"] == 3.6
+    assert large["success_pct"] == 17.6
+    assert small["success_pct"] < large["success_pct"]
+
+
+@pytest.mark.asyncio
+async def test_hardest_steps_weighted_success_keeps_noise_out_of_top(db_session):
+    """Regression: «Взвешенный успех» не даёт шагам с 1-2 попытками лезть в топ.
+
+    Раньше топ «Самых сложных» занимали шаги с мизерным числом попыток
+    (0% при 1 попытке). Взвешенный успех притягивает малообъёмные шаги к
+    среднему по автору, и настоящая проблема (много попыток + низкий
+    успех) остаётся в топе.
+    """
+    user = _make_user(56)
+    course = _make_course(user.id, 5566)
+    rows = []
+    for _ in range(4):
+        rows.append((611, "wrong"))  # 0/4 — маленький шаг, 0% успеха
+    for _ in range(300):
+        rows.append((612, "wrong"))  # 100/400 — большой шаг, 25%
+    for _ in range(100):
+        rows.append((612, "correct"))
+    for _ in range(10):
+        rows.append((613, "wrong"))  # 90/100 — хороший шаг
+    for _ in range(90):
+        rows.append((613, "correct"))
+    await _seed_user_course_submissions(db_session, user, course, rows=rows)
+
+    data = await _get_steps(db_session, user, min_submissions=1)
+
+    by_id = {s["stepik_step_id"]: s for s in data["steps"]}
+    tiny = by_id[611]  # 0/4 → wilson 0.0, weighted притянут к среднему
+    big = by_id[612]  # 100/400 → wilson 22.5, weighted ≈ 25.6
+    good = by_id[613]  # 90/100 → wilson 82.7, weighted ≈ 81.4
+
+    assert "weighted_success_pct" in tiny and "weighted_success_pct" in big
+    # Малый шаг не должен быть «самым сложным»: его взвешенный успех выше
+    # реальной проблемы (big), хотя по raw-проценту/Успеху он выглядит хуже
+    assert tiny["success_pct"] == 0.0
+    assert tiny["weighted_success_pct"] > big["weighted_success_pct"]
+    assert good["weighted_success_pct"] > big["weighted_success_pct"]
+    assert data["steps"][0]["stepik_step_id"] == 612
 
 
 @pytest.mark.asyncio
@@ -377,3 +511,81 @@ async def test_hardest_steps_counts_distinct_students(db_session):
     assert by_step[961]["students"] == 1
     for s in data["steps"]:
         assert s["course_title"] == "Python 101"
+
+
+@pytest.mark.asyncio
+async def test_hardest_steps_module_and_lesson_numbers(db_session):
+    """Regression: «Шаг» показывает путь модуль.урок-шаг (3.7-2).
+
+    Глобальный номер урока считается сквозь курс: сумма уроков предыдущих
+    модулей + номер внутри своего модуля. Без этого шаг из 3-го модуля
+    показывал бы номер урока «внутри модуля» вместо номера на Stepik.
+    """
+    user = _make_user(12)
+    course = _make_course(user.id, 1212)
+    await _seed_user_course_submissions(
+        db_session, user, course,
+        rows=[(500, "wrong"), (501, "wrong"), (500, "correct")],
+    )
+    await db_session.execute(
+        text("""
+        INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES
+            (500, 11, '{}'),
+            (501, 12, '{}')
+        """)
+    )
+    await db_session.execute(
+        text("""
+        INSERT INTO raw_lesson (lesson_id, steps, title, _raw_json) VALUES
+            (10, '[5010]', 'Урок 1', '{}'),
+            (11, '[500, 5001]', 'Урок 2', '{}'),
+            (12, '[501]', 'Урок 3', '{}')
+        """)
+    )
+    await db_session.execute(
+        text("""
+        INSERT INTO raw_section (section_id, course, position, units, title, _raw_json) VALUES
+            (100, 1212, '1', '[2010, 2011]', 'Модуль 1', '{}'),
+            (200, 1212, '2', '[2012]', 'Модуль 2', '{}')
+        """)
+    )
+    await db_session.execute(
+        text("""
+        INSERT INTO raw_unit (unit_id, lesson_id, section_id, position, _raw_json) VALUES
+            (2010, 10, 100, '1', '{}'),
+            (2011, 11, 100, '2', '{}'),
+            (2012, 12, 200, '1', '{}')
+        """)
+    )
+    await db_session.commit()
+
+    data = await _get_steps(db_session, user, min_submissions=1)
+
+    by_id = {s["stepik_step_id"]: s for s in data["steps"]}
+    assert by_id[500]["module_number"] == 1
+    assert by_id[500]["lesson_number"] == 2  # 1-й модуль, 2-й урок
+    assert by_id[500]["module_title"] == "Модуль 1"
+    assert by_id[500]["lesson_title"] == "Урок 2"
+    assert by_id[501]["module_number"] == 2
+    assert by_id[501]["lesson_number"] == 3  # сквозной счёт: 2 урока в модуле 1 + 1
+    assert by_id[501]["module_title"] == "Модуль 2"
+    assert by_id[501]["lesson_title"] == "Урок 3"
+
+
+@pytest.mark.asyncio
+async def test_hardest_steps_module_lesson_missing_returns_none(db_session):
+    """Шаг без записи в raw_unit/raw_section — module_number/lesson_number None."""
+    user = _make_user(13)
+    course = _make_course(user.id, 1313)
+    await _seed_user_course_submissions(
+        db_session, user, course,
+        rows=[(520, "wrong")],
+    )
+
+    data = await _get_steps(db_session, user, min_submissions=1)
+
+    for s in data["steps"]:
+        assert "module_number" in s and s["module_number"] is None
+        assert "lesson_number" in s and s["lesson_number"] is None
+        assert "module_title" in s and s["module_title"] is None
+        assert "lesson_title" in s and s["lesson_title"] is None

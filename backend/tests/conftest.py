@@ -41,7 +41,9 @@ RAW_TABLES = {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             section_id TEXT,
             course TEXT,
+            position TEXT,
             units TEXT,
+            title TEXT,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -52,6 +54,7 @@ RAW_TABLES = {
             unit_id TEXT,
             lesson_id TEXT,
             section_id TEXT,
+            position TEXT,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -61,6 +64,7 @@ RAW_TABLES = {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             lesson_id TEXT,
             steps TEXT,
+            title TEXT,
             _raw_json TEXT,
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )

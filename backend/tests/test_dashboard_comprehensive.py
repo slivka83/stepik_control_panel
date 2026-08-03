@@ -418,6 +418,65 @@ class TestSubmissionUniqueStudents:
             app.dependency_overrides.clear()
 
 
+class TestSubmissionSuccessWilson:
+    async def test_months_and_years_carry_wilson_success(self, db_session):
+        """Regression: «Успех» = Wilson-нижняя граница, а не correct/total.
+
+        Раньше months/by_course/years не отдавали success_pct вовсе (фронт
+        считал raw correct/total), и 1 верная из 5 попыток показывала те же
+        20%, что 200 верных из 1000. Теперь API отдаёт скорректированный
+        процент, зависящий от объёма попыток.
+        """
+        user = _make_user_in_db(db_session)
+        course = _make_course_in_db(db_session, user.id)
+        await db_session.flush()
+
+        now = datetime.now(UTC)
+        db_session.add_all(
+            [
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=12001,
+                    stepik_step_id=1001,
+                    course_id=course.id,
+                    status="wrong",
+                    score=0.0,
+                    user_id=800,
+                    submission_time=now,
+                    is_author=False,
+                ),
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=12002,
+                    stepik_step_id=1001,
+                    course_id=course.id,
+                    status="correct",
+                    score=1.0,
+                    user_id=801,
+                    submission_time=now,
+                    is_author=False,
+                ),
+            ]
+        )
+        await db_session.flush()
+
+        _setup_overrides(db_session, user)
+        try:
+            response = client.get("/api/dashboard/submissions")
+            data = response.json()
+            assert data["months"][0]["total"] == 2
+            assert data["months"][0]["correct"] == 1
+            assert data["months"][0]["success_pct"] == 9.5
+            assert data["years"][0]["success_pct"] == 9.5
+            assert data["by_course"][0]["success_pct"] == 9.5
+            # Взвешенный успех: 1/2 притянут к среднему (1/2 → global тоже 50%)
+            assert data["months"][0]["weighted_success_pct"] == 50.0
+            assert data["years"][0]["weighted_success_pct"] == 50.0
+            assert data["by_course"][0]["weighted_success_pct"] == 50.0
+        finally:
+            app.dependency_overrides.clear()
+
+
 # ─── KPI trend tests ────────────────────────────────────────────────────
 
 
