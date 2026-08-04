@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { SyncProvider, useSync } from '../contexts/SyncContext';
 import { AuthProvider } from '../contexts/AuthContext';
 
@@ -35,6 +35,23 @@ function StatusConsumer() {
 
 function statusCallsCount() {
   return mockApiInstance.get.mock.calls.filter((call) => call[0] === '/sync/status').length;
+}
+
+function kpiCalls() {
+  return mockApiInstance.get.mock.calls.filter((call) => call[0] === '/dashboard/kpi');
+}
+
+function FilterConsumer() {
+  const sync = useSync();
+  return (
+    <div>
+      <div data-testid="filter-active">{String(sync.isFilterActive)}</div>
+      <div data-testid="filter-count">{sync.selectedCourseIds ? sync.selectedCourseIds.length : 'all'}</div>
+      <div data-testid="courses-count">{(sync.data.courses || []).length}</div>
+      <button onClick={() => sync.toggleCourse('c1')}>toggle</button>
+      <button onClick={() => sync.selectAllCourses()}>all</button>
+    </div>
+  );
 }
 
 describe('SyncContext', () => {
@@ -181,5 +198,94 @@ describe('SyncContext', () => {
     expect(statusCallsCount()).toBe(1);
     await vi.advanceTimersByTimeAsync(4000);
     expect(statusCallsCount()).toBe(3);
+  });
+
+  it('does not send course_ids when no filter is active', async () => {
+    mockApiInstance.get.mockResolvedValue({ data: {} });
+
+    render(
+      <AuthProvider>
+        <SyncProvider>
+          <div data-testid="mounted">mounted</div>
+        </SyncProvider>
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(kpiCalls().length).toBeGreaterThan(0);
+    });
+    expect(kpiCalls()[0][1].params).toBeUndefined();
+  });
+
+  it('sends course_ids to filterable endpoints after toggling a course', async () => {
+    mockApiInstance.get.mockImplementation((url) => {
+      if (url === '/courses') {
+        return Promise.resolve({
+          data: { courses: [{ id: 'c1', title: 'A' }, { id: 'c2', title: 'B' }] },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    render(
+      <AuthProvider>
+        <SyncProvider>
+          <FilterConsumer />
+        </SyncProvider>
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('filter-active').textContent).toBe('false');
+      expect(screen.getByTestId('courses-count').textContent).toBe('2');
+    });
+
+    fireEvent.click(screen.getByText('toggle'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('filter-active').textContent).toBe('true');
+    });
+    expect(screen.getByTestId('filter-count').textContent).toBe('1');
+    const calls = kpiCalls();
+    const filtered = calls.find((call) => call[1].params && call[1].params.course_ids);
+    expect(filtered).toBeDefined();
+    expect(filtered[1].params.course_ids).toBe('c2');
+    expect(mockApiInstance.get).toHaveBeenCalledWith('/courses', expect.not.objectContaining({ params: { course_ids: 'c2' } }));
+  });
+
+  it('returns to all-courses mode via selectAllCourses (no course_ids)', async () => {
+    mockApiInstance.get.mockImplementation((url) => {
+      if (url === '/courses') {
+        return Promise.resolve({
+          data: { courses: [{ id: 'c1', title: 'A' }, { id: 'c2', title: 'B' }] },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    render(
+      <AuthProvider>
+        <SyncProvider>
+          <FilterConsumer />
+        </SyncProvider>
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('filter-active').textContent).toBe('false');
+      expect(screen.getByTestId('courses-count').textContent).toBe('2');
+    });
+
+    fireEvent.click(screen.getByText('toggle'));
+    await waitFor(() => {
+      expect(screen.getByTestId('filter-count').textContent).toBe('1');
+    });
+
+    fireEvent.click(screen.getByText('all'));
+    await waitFor(() => {
+      expect(screen.getByTestId('filter-active').textContent).toBe('false');
+    });
+    const last = kpiCalls().pop();
+    expect(last[1].params).toBeUndefined();
   });
 });

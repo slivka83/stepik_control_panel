@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
+from app.api.dashboard.common import get_courses_for_user
+from app.api.dashboard.course_filter import filter_community, filter_financials, parse_course_ids
 from app.database import get_db
 from app.models import FinancialSnapshot, User
 
@@ -13,7 +15,9 @@ router = APIRouter(prefix="/api/financials", tags=["financials"])
 async def get_financials(
     user: User = Depends(get_user),
     db: AsyncSession = Depends(get_db),
+    course_ids: str = Query(None),
 ):
+    parsed = parse_course_ids(course_ids)
     snapshot_result = await db.execute(select(FinancialSnapshot).limit(1))
     snapshot = snapshot_result.scalar_one_or_none()
     if not snapshot:
@@ -30,7 +34,13 @@ async def get_financials(
             "courses": [],
             "recent_payments": [],
         }
-    data = dict(snapshot.data)
+    if parsed:
+        courses, _ = await get_courses_for_user(db, user, parsed)
+        selected_stepik_ids = {c.stepik_course_id for c in courses}
+        data = filter_financials(snapshot.data, selected_stepik_ids)
+        data["community"] = await filter_community(db, snapshot.data, selected_stepik_ids)
+    else:
+        data = dict(snapshot.data)
     year_stats = {}
     for m in data.get("months", []):
         y = m.get("year")

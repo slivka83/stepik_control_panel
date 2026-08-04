@@ -469,4 +469,28 @@ describe('Solutions', () => {
     const link = screen.getByText('3.7-2').closest('a');
     expect(link.getAttribute('title')).toBe('Деревья решений — Регрессия');
   });
+
+  it('passes course_ids to the hardest-steps fetch when a filter is active', async () => {
+    const user = userEvent.setup();
+    api.get.mockResolvedValue({
+      data: { steps: [{ stepik_step_id: 1, lesson_id: 100, step_number: 1, course_title: 'Курс А', total: 3, correct: 1, wrong: 2, success_pct: 20, weighted_success_pct: 20 }] },
+    });
+    const syncValue = makeSyncValue();
+    syncValue.selectedCourseIds = ['c1', 'c2'];
+    syncValue.isFilterActive = true;
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <SyncContext.Provider value={syncValue}>
+            <Solutions />
+          </SyncContext.Provider>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByText('Самые сложные'));
+    await screen.findByText('Курс А');
+    expect(api.get).toHaveBeenCalledWith('/dashboard/hardest-steps', {
+      params: { limit: 200, min_submissions: 1, course_ids: 'c1,c2' },
+    });
+  });
 });

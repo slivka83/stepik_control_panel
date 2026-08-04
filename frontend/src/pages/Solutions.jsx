@@ -221,7 +221,7 @@ function Pagination({ page, totalPages, setPage }) {
 }
 
 export default function Solutions() {
-  const { data, error, refresh } = useSync();
+  const { data, error, refresh, selectedCourseIds } = useSync();
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'months');
   const [page, setPage] = useState(1);
@@ -284,12 +284,14 @@ export default function Solutions() {
     if (activeTab !== 'hardest') return;
     setHardestLoading(true);
     setHardestError(null);
+    const params = { limit: 200, min_submissions: 1 };
+    if (selectedCourseIds) params.course_ids = selectedCourseIds.join(',');
     api
-      .get('/dashboard/hardest-steps?limit=200&min_submissions=1')
+      .get('/dashboard/hardest-steps', { params })
       .then((res) => setHardestSteps(res.data.steps || []))
       .catch(() => setHardestError('Не удалось загрузить данные'))
       .finally(() => setHardestLoading(false));
-  }, [activeTab]);
+  }, [activeTab, selectedCourseIds]);
 
   const totalSubmissions = months.reduce((s, m) => s + (m.total || 0), 0);
   const totalCorrect = months.reduce((s, m) => s + (m.correct || 0), 0);

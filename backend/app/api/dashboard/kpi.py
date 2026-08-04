@@ -3,12 +3,18 @@
 import json
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import extract, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
 from app.api.dashboard.common import get_courses_for_user
+from app.api.dashboard.course_filter import (
+    filter_community,
+    filter_financials,
+    filter_steps_average_grade,
+    parse_course_ids,
+)
 from app.database import get_db
 from app.models import FinancialSnapshot, StudentEnrollment, Submission, User
 
@@ -26,8 +32,19 @@ def _json_field(val, field):
     return None
 
 
-async def _count_raw_month(db, table, field, prefix) -> int:
-    rows = await db.execute(text(f"SELECT _raw_json FROM {table}"))
+async def _count_raw_month(db, table, field, prefix, course_field=None, course_ids=None) -> int:
+    """Count raw rows whose `field` value starts with `prefix`.
+
+    With course_field/course_ids restricts to the given stepik course ids
+    (the raw layer is TEXT, so ids are compared as strings).
+    """
+    if course_field and course_ids:
+        ids = sorted(course_ids)
+        placeholders = ", ".join(f":cid{i}" for i in range(len(ids)))
+        params = {f"cid{i}": str(cid) for i, cid in enumerate(ids)}
+        rows = await db.execute(text(f"SELECT _raw_json FROM {table} WHERE {course_field} IN ({placeholders})"), params)
+    else:
+        rows = await db.execute(text(f"SELECT _raw_json FROM {table}"))
     return sum(1 for row in rows.all() if str(_json_field(row[0], field) or "").startswith(prefix))
 
 
@@ -59,10 +76,14 @@ def _pct(cur, prev):
 async def get_kpi(
     user: User = Depends(get_user),
     db: AsyncSession = Depends(get_db),
+    course_ids: str = Query(None),
 ):
-    courses, course_ids = await get_courses_for_user(db, user)
+    parsed = parse_course_ids(course_ids)
+    is_filtered = bool(parsed)
+    courses, selected_course_ids = await get_courses_for_user(db, user, parsed)
+    selected_stepik_ids = {c.stepik_course_id for c in courses}
 
-    if not course_ids:
+    if not selected_course_ids:
         return {
             "total_revenue": 0,
             "total_students": 0,
@@ -94,13 +115,13 @@ async def get_kpi(
         }
 
     students_result = await db.execute(
-        select(func.count(StudentEnrollment.id)).where(StudentEnrollment.course_id.in_(course_ids))
+        select(func.count(StudentEnrollment.id)).where(StudentEnrollment.course_id.in_(selected_course_ids))
     )
     total_students = students_result.scalar() or 0
 
     certs_result = await db.execute(
         select(func.count(StudentEnrollment.id)).where(
-            StudentEnrollment.course_id.in_(course_ids),
+            StudentEnrollment.course_id.in_(selected_course_ids),
             StudentEnrollment.certificate_issued.is_(True),
         )
     )
@@ -108,8 +129,19 @@ async def get_kpi(
 
     snapshot_result = await db.execute(select(FinancialSnapshot).limit(1))
     snapshot = snapshot_result.scalar_one_or_none()
-    summary = snapshot.data.get("summary", {}) if snapshot else {}
-    community = snapshot.data.get("community", {}) if snapshot else {}
+    summary = {}
+    community = {}
+    months = []
+    if snapshot:
+        if is_filtered:
+            fin = filter_financials(snapshot.data, selected_stepik_ids)
+            summary = fin["summary"]
+            months = fin["months"]
+            community = await filter_community(db, snapshot.data, selected_stepik_ids)
+        else:
+            summary = snapshot.data.get("summary", {})
+            community = snapshot.data.get("community", {})
+            months = snapshot.data.get("months", [])
 
     revenue_change_pct = None
     payments_change_pct = None
@@ -117,7 +149,6 @@ async def get_kpi(
     current_month_payments = 0
     current_month_refunds_count = 0
     if snapshot:
-        months = snapshot.data.get("months", [])
         current = summary.get("current_month_income", 0)
         if months:
             last = months[-1]
@@ -144,7 +175,7 @@ async def get_kpi(
             extract("month", Submission.submission_time).label("m"),
             func.count(Submission.id).label("cnt"),
         )
-        .where(Submission.course_id.in_(course_ids), Submission.is_author.is_(False))
+        .where(Submission.course_id.in_(selected_course_ids), Submission.is_author.is_(False))
         .group_by("y", "m")
     )
     sub_by_month = {(int(r.y), int(r.m)): r.cnt for r in sub_result.all()}
@@ -155,7 +186,7 @@ async def get_kpi(
             extract("month", StudentEnrollment.date_joined).label("m"),
             func.count(StudentEnrollment.id).label("cnt"),
         )
-        .where(StudentEnrollment.course_id.in_(course_ids))
+        .where(StudentEnrollment.course_id.in_(selected_course_ids))
         .group_by("y", "m")
     )
     enroll_by_month = {(int(r.y), int(r.m)): r.cnt for r in enroll_result.all()}
@@ -177,10 +208,29 @@ async def get_kpi(
 
     cur_prefix = f"{cur_year}-{cur_month:02d}"
     prev_prefix = f"{prev_year}-{prev_month:02d}"
-    cur_certificates = await _count_raw_month(db, "raw_certificate", "issue_date", cur_prefix)
-    prev_certificates = await _count_raw_month(db, "raw_certificate", "issue_date", prev_prefix)
-    cur_reviews = await _count_raw_month(db, "raw_course_review", "create_date", cur_prefix)
-    prev_reviews = await _count_raw_month(db, "raw_course_review", "create_date", prev_prefix)
+    if is_filtered:
+        cur_certificates = await _count_raw_month(
+            db, "raw_certificate", "issue_date", cur_prefix, "course_id", selected_stepik_ids
+        )
+        prev_certificates = await _count_raw_month(
+            db, "raw_certificate", "issue_date", prev_prefix, "course_id", selected_stepik_ids
+        )
+        cur_reviews = await _count_raw_month(
+            db, "raw_course_review", "create_date", cur_prefix, "course", selected_stepik_ids
+        )
+        prev_reviews = await _count_raw_month(
+            db, "raw_course_review", "create_date", prev_prefix, "course", selected_stepik_ids
+        )
+    else:
+        cur_certificates = await _count_raw_month(db, "raw_certificate", "issue_date", cur_prefix)
+        prev_certificates = await _count_raw_month(db, "raw_certificate", "issue_date", prev_prefix)
+        cur_reviews = await _count_raw_month(db, "raw_course_review", "create_date", cur_prefix)
+        prev_reviews = await _count_raw_month(db, "raw_course_review", "create_date", prev_prefix)
+
+    if is_filtered:
+        steps_average_grade = await filter_steps_average_grade(db, selected_stepik_ids)
+    else:
+        steps_average_grade = await _steps_average_grade(db)
 
     return {
         "total_revenue": summary.get("current_month_income", 0),
@@ -221,5 +271,5 @@ async def get_kpi(
         "published_solutions_current_month": cur_solutions,
         "published_solutions_change_pct": _pct(cur_solutions, prev_solutions),
         "average_rating": community.get("average_rating", 0),
-        "steps_average_grade": await _steps_average_grade(db),
+        "steps_average_grade": steps_average_grade,
     }

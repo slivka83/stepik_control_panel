@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSync } from '../contexts/SyncContext';
 import { NAV_ITEMS } from '../constants.jsx';
+import CourseFilterMenu from './CourseFilterMenu';
 import api from '../api';
 
 function formatDuration(totalSeconds) {
@@ -27,9 +28,10 @@ function formatDateTime(iso) {
 
 function Sidebar() {
   const { user, loading, login, logout } = useAuth();
-  const { syncStatus, updateSyncStatus } = useSync();
+  const { syncStatus, updateSyncStatus, data, isFilterActive, selectedCourseIds } = useSync();
   const [syncing, setSyncing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [filterOpen, setFilterOpen] = useState(false);
   const startRef = useRef(null);
   const [now, setNow] = useState(Date.now());
 
@@ -123,6 +125,37 @@ function Sidebar() {
           <span className="text-xs text-gray-500 font-mono animate-pulse">...</span>
         ) : user ? (
           <>
+            <div className="relative">
+              <button
+                onClick={() => setFilterOpen((o) => !o)}
+                title={
+                  isFilterActive
+                    ? `Фильтр по курсам\nВыбрано: ${selectedCourseIds.length} из ${(data.courses || []).length}`
+                    : 'Фильтр по курсам'
+                }
+                aria-haspopup="menu"
+                aria-expanded={filterOpen}
+                className={`w-10 h-10 flex items-center justify-center border rounded-lg transition-colors ${
+                  isFilterActive
+                    ? 'text-cyber-blue border-cyber-blue/40 bg-cyber-blue/10'
+                    : 'text-gray-400 border-cyber-blue/30 hover:text-cyber-blue hover:bg-cyber-blue/10'
+                }`}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-5 h-5"
+                  aria-hidden="true"
+                >
+                  <path d="M4 5h16l-6 7v5l-4 2v-7z" />
+                </svg>
+              </button>
+              {filterOpen && <CourseFilterMenu onClose={() => setFilterOpen(false)} />}
+            </div>
             <button
               onClick={handleSync}
               title={buildSyncTooltip()}

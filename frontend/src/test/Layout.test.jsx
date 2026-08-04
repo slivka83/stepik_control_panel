@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useState } from 'react';
-import { render, screen, waitFor, act } from '@testing-library/react';
+import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import TestRouter from './TestRouter';
 import Layout from '../components/Layout';
 import api from '../api';
@@ -19,6 +19,10 @@ const defaultSyncValue = {
   error: null,
   refresh: vi.fn(),
   updateSyncStatus: vi.fn(),
+  selectedCourseIds: null,
+  isFilterActive: false,
+  toggleCourse: vi.fn(),
+  selectAllCourses: vi.fn(),
 };
 
 const NAV_LINKS = {
@@ -284,5 +288,44 @@ describe('Layout', () => {
     expect(screen.getByRole('link', { name: 'Решения' }).querySelector('span')).not.toHaveStyle(
       'transform: scale(0.75)',
     );
+  });
+
+  it('opens course filter menu from the filter button and shows courses', async () => {
+    const syncValue = {
+      ...defaultSyncValue,
+      data: {
+        ...defaultSyncValue.data,
+        courses: [
+          { id: 'c1', stepik_course_id: 101, title: 'Python' },
+          { id: 'c2', stepik_course_id: 102, title: 'SQL' },
+        ],
+      },
+    };
+    renderLayout(true, syncValue);
+    const filterBtn = await screen.findByTitle('Фильтр по курсам');
+    fireEvent.click(filterBtn);
+    await waitFor(() => {
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+    });
+    expect(screen.getByText('Python')).toBeInTheDocument();
+    expect(screen.getByText('SQL')).toBeInTheDocument();
+    expect(screen.getByText('2 из 2')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    await waitFor(() => {
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    });
+  });
+
+  it('highlights the filter button when a subset is active', async () => {
+    const syncValue = {
+      ...defaultSyncValue,
+      data: { ...defaultSyncValue.data, courses: [{ id: 'c1', stepik_course_id: 101, title: 'Python' }] },
+      selectedCourseIds: ['c1'],
+      isFilterActive: true,
+    };
+    renderLayout(true, syncValue);
+    const filterBtn = await screen.findByTitle(/Выбрано: 1 из 1/);
+    expect(filterBtn.className).toContain('text-cyber-blue');
+    expect(filterBtn.className).toContain('border-cyber-blue/40');
   });
 });

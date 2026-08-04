@@ -146,6 +146,29 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 - `last_sync` — `financial_snapshots.updated_at`; колонка в PG — `timestamp without time zone`, значение UTC (naive) — **при сериализации обязательно `+00:00`** (иначе фронтенд трактует строку как локальное время — регрессия «дата в тултипе не в локальном TZ»)
 - Фронтенд-кнопка синка: синяя «вода» прогресса во время sync, розовая заливка на всю высоту при `last_error`, тултип — дата последней синхронизации (idle) / ошибка / прогресс
 
+## Фильтр по курсам (глобальный)
+
+Кнопка **«Фильтр»** в сайдбаре над «Обновить» (иконка-воронка, акцент `text-cyber-blue` при активном фильтре) открывает дропдаун со списком всех курсов автора — чекбоксы, счётчик «Выбрано: N из M», кнопка «Все». Все 6 страниц показывают данные только по выбранным курсам.
+
+### Семантика (фронтенд)
+
+- Состояние живёт в `SyncContext`: `selectedCourseIds` (`null` = все курсы), `toggleCourse`, `selectAllCourses`, `isFilterActive`. Без localStorage — после перезагрузки фильтр сбрасывается на «все».
+- Пустой выбор = «все» (null): снятие последнего чекбокса возвращает полный список, «пустой дашборд» невозможен.
+- `fetchAll` при активном фильтре добавляет `?course_ids=u1,u2` (comma-joined, один параметр) ко **всем** дашборд-эндпоинтам, кроме `GET /courses` — он всегда полный (это источник списка для дропдауна; на странице Курсов таблица фильтруется клиентом по `selectedCourseIds`).
+- `Solutions` hardest-вкладка передаёт `course_ids` в `/dashboard/hardest-steps`; перезапрашивается при смене фильтра.
+- Страницы Курсов/Решений/Студентов/Финансов/Дашборда читают `data` из контекста — после перезапроса с параметром все числа уже отфильтрованы.
+
+### Бэкенд (`?course_ids=u1,u2`)
+
+- Парсинг: `parse_course_ids()` в `app/api/dashboard/course_filter.py` (comma-joined, мусор отбрасывается, пусто → `None` = без фильтра).
+- `get_courses_for_user(db, user, course_ids)` — пересекает запрошенные UUID с курсами пользователя: чужие курсы увидеть нельзя (безопасность).
+- SQL-эндпоинты — `course_id IN (...)` в WHERE: `/dashboard/submissions`, `/active-students`, `/active-enrolled-students`, `/cohorts`, `/alerts`, `/hardest-steps`, KPI-части (студенты/сертификаты/решения), `/dashboard/students` — через `EXISTS (SELECT 1 FROM student_enrollments ...)` (у витрины нет course-колонки).
+- Снапшот-данные пересчитываются на лету (`course_filter.py`), т.к. `months`/`summary`/`comments_monthly` глобальны:
+  - `filter_financials()` — из `recent_payments[i].raw` (у каждого платежа есть course + time): `summary`/`months`/`courses`/`promos`/`utms`/`recent_payments`. Месяц — из `time` платежа; возвраты вычитаются из turnover (как в `transform_financials`), поэтому отфильтрованный «все курсы» == глобальный снапшот (инвариант проверен тестом).
+  - `filter_community()` — рейтинг/отзывы/комментарии из `community.per_course` + помесячные `comments_monthly`/`solutions_monthly` пересобираются из `raw_comment` через step→course map (`raw_step JOIN raw_unit JOIN raw_section`).
+  - `filter_steps_average_grade()` — средняя оценка шагов по выбранным курсам (raw_step + step→course map).
+- Без параметра — быстрый путь без изменений (значения снапшота как есть).
+
 ### Порядок этапов
 
 ```
@@ -386,7 +409,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-378 тестов, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
+396 тестов, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
 
 | Файл | Тестов | Что тестирует |
 |---|---|---|
@@ -402,6 +425,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 | `tests/test_schema_contract.py` | 9 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот), **live-PG свежесть данных** (трансформы на реальных данных производят строки и догоняют raw — регрессия «0 submissions upserted») |
 | `tests/test_architecture.py` | 19 | Архитектурные гарантии: один alembic head, нет dead-артефактов (step_sync_state, orphan-скрипты), единый источник констант, дефолты конфига = docker-compose, сплит dashboard-пакета, rebuild_marts.py (все трансформы, без API) |
 | `tests/test_steps.py` | 35 | hardest-steps: `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id), `wilson_success_pct` (объём попыток: 1/5 → 3.6%, 200/1000 → 17.6%), `weighted_success_pct` (мусор с малым числом попыток не всплывает в топ), `module_number`/`lesson_number` (сквозная нумерация уроков по курсу), `module_title`/`lesson_title` |
+| `tests/test_course_filter.py` | 18 | Фильтр по курсам: `parse_course_ids`, безопасность (чужие UUID отбрасываются), SQL-эндпоинты (submissions/active-students/cohorts/alerts/hardest-steps/students), пересчёт снапшота (financials/revenue/kpi/published-solutions/community), инвариант «фильтр = все курсы» == «без фильтра» |
 | Остальные | 169 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).

@@ -151,8 +151,11 @@ const CourseRow = memo(function CourseRow({ course }) {
 });
 
 export default function Courses() {
-  const { data, error, refresh } = useSync();
+  const { data, error, refresh, selectedCourseIds } = useSync();
   const courses = data.courses || [];
+  const visibleCourses = selectedCourseIds
+    ? courses.filter((c) => selectedCourseIds.includes(c.id))
+    : courses;
   const kpi = data.kpi || {};
   const [sort, setSort] = useState({ key: 'published_at', dir: 'desc' });
 
@@ -164,7 +167,7 @@ export default function Courses() {
     );
   };
 
-  const sortedCourses = [...courses].sort((a, b) => compareCourses(a, b, sort.key, sort.dir));
+  const sortedCourses = [...visibleCourses].sort((a, b) => compareCourses(a, b, sort.key, sort.dir));
 
   return (
     <div className="flex flex-col flex-1 gap-4 min-h-0">
@@ -184,7 +187,7 @@ export default function Courses() {
         />
       </div>
 
-      {courses.length === 0 ? (
+      {visibleCourses.length === 0 ? (
         <div className="glass-panel p-8 text-center">
           <div className="text-3xl mb-3">◆</div>
           <h3 className="text-white text-lg mb-2">Нет курсов</h3>

@@ -26,11 +26,14 @@ export function SyncProvider({ children }) {
   });
   const abortRef = useRef(null);
   const pollIntervalRef = useRef(30000);
+  const filterRef = useRef(null);
 
   const SYNC_POLL_INTERVAL_MS = 2000;
 
   const fetchAll = useCallback(async (signal) => {
     try {
+      const courseIds = filterRef.current;
+      const courseParams = courseIds && courseIds.length > 0 ? { params: { course_ids: courseIds.join(',') } } : {};
       const [
         kpiRes,
         cohortsRes,
@@ -44,17 +47,17 @@ export function SyncProvider({ children }) {
         publishedSolutionsRes,
         studentsRes,
       ] = await Promise.allSettled([
-        api.get('/dashboard/kpi', { signal }),
-        api.get('/dashboard/cohorts', { signal }),
-        api.get('/dashboard/revenue', { signal }),
-        api.get('/dashboard/alerts', { signal }),
+        api.get('/dashboard/kpi', { signal, ...courseParams }),
+        api.get('/dashboard/cohorts', { signal, ...courseParams }),
+        api.get('/dashboard/revenue', { signal, ...courseParams }),
+        api.get('/dashboard/alerts', { signal, ...courseParams }),
         api.get('/courses', { signal }),
-        api.get('/financials', { signal }),
-        api.get('/dashboard/submissions', { signal }),
-        api.get('/dashboard/active-students', { signal }),
-        api.get('/dashboard/active-enrolled-students', { signal }),
-        api.get('/dashboard/published-solutions', { signal }),
-        api.get('/dashboard/students?limit=200', { signal }),
+        api.get('/financials', { signal, ...courseParams }),
+        api.get('/dashboard/submissions', { signal, ...courseParams }),
+        api.get('/dashboard/active-students', { signal, ...courseParams }),
+        api.get('/dashboard/active-enrolled-students', { signal, ...courseParams }),
+        api.get('/dashboard/published-solutions', { signal, ...courseParams }),
+        api.get('/dashboard/students?limit=200', { signal, ...courseParams }),
       ]);
 
       setData((prev) => {
@@ -120,6 +123,47 @@ export function SyncProvider({ children }) {
     });
   }, []);
 
+  const [selectedCourseIds, setSelectedCourseIds] = useState(null);
+
+  const applyFilter = useCallback(
+    (ids) => {
+      filterRef.current = ids;
+      setSelectedCourseIds(ids);
+      fetchAll(abortRef.current?.signal);
+    },
+    [fetchAll],
+  );
+
+  const toggleCourse = useCallback(
+    (id) => {
+      const available = (data.courses || []).map((c) => c.id);
+      const prev = filterRef.current;
+      let next;
+      if (prev === null) {
+        next = available.filter((cid) => cid !== id);
+      } else if (prev.includes(id)) {
+        next = prev.filter((cid) => cid !== id);
+      } else {
+        next = [...prev, id];
+      }
+      if (next.length === 0 || next.length >= available.length) next = null;
+      applyFilter(next);
+    },
+    [data.courses, applyFilter],
+  );
+
+  const selectAllCourses = useCallback(() => {
+    applyFilter(null);
+  }, [applyFilter]);
+
+  useEffect(() => {
+    const ids = filterRef.current;
+    if (!ids) return;
+    const available = new Set((data.courses || []).map((c) => c.id));
+    const pruned = ids.filter((id) => available.has(id));
+    if (pruned.length !== ids.length) applyFilter(pruned.length ? pruned : null);
+  }, [data.courses, applyFilter]);
+
   useEffect(() => {
     if (authLoading || !user) {
       setLoading(false);
@@ -154,8 +198,19 @@ export function SyncProvider({ children }) {
   }, [user, authLoading, fetchAll]);
 
   const contextValue = useMemo(
-    () => ({ syncStatus, data, loading, error, refresh: () => fetchAll(), updateSyncStatus }),
-    [syncStatus, data, loading, error, fetchAll, updateSyncStatus],
+    () => ({
+      syncStatus,
+      data,
+      loading,
+      error,
+      refresh: () => fetchAll(),
+      updateSyncStatus,
+      selectedCourseIds,
+      isFilterActive: selectedCourseIds !== null,
+      toggleCourse,
+      selectAllCourses,
+    }),
+    [syncStatus, data, loading, error, fetchAll, updateSyncStatus, selectedCourseIds, toggleCourse, selectAllCourses],
   );
 
   return <SyncContext.Provider value={contextValue}>{children}</SyncContext.Provider>;

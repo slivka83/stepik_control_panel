@@ -7,9 +7,10 @@ from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
-from app.api.dashboard.common import weighted_success_pct, wilson_success_pct
+from app.api.dashboard.common import get_courses_for_user, weighted_success_pct, wilson_success_pct
+from app.api.dashboard.course_filter import parse_course_ids
 from app.database import get_db
-from app.models import Course, Submission, User
+from app.models import Submission, User
 
 router = APIRouter()
 
@@ -42,15 +43,14 @@ async def get_hardest_steps(
     db: AsyncSession = Depends(get_db),
     limit: int = Query(100, ge=1, le=500),
     min_submissions: int = Query(10, ge=1),
+    course_ids: str = Query(None),
 ):
-    course_ids_result = await db.execute(select(Course.id).where(Course.user_id == user.id))
-    course_ids = [r[0] for r in course_ids_result.all()]
+    course_uuids, course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
 
     if not course_ids:
         return {"steps": []}
 
-    course_map_result = await db.execute(select(Course.id, Course.title).where(Course.id.in_(course_ids)))
-    course_map = {row[0]: row[1] for row in course_map_result.all()}
+    course_map = {c.id: c.title for c in course_uuids}
 
     result = await db.execute(
         select(

@@ -1,5 +1,6 @@
 """Shared helpers for dashboard endpoints."""
 
+import uuid
 from math import sqrt
 
 from sqlalchemy import select
@@ -9,10 +10,21 @@ from app.constants import MONTH_NAMES
 from app.models import Course, User
 
 
-async def get_courses_for_user(db: AsyncSession, user: User) -> tuple[list[Course], list]:
-    """Return (courses, course_ids) for the current user, in title order."""
+async def get_courses_for_user(
+    db: AsyncSession,
+    user: User,
+    course_ids: list[uuid.UUID] | None = None,
+) -> tuple[list[Course], list]:
+    """Return (courses, course_ids) for the current user, in title order.
+
+    With course_ids given, restricts to the intersection with the user's
+    courses — a caller can never see courses owned by another user.
+    """
     courses_result = await db.execute(select(Course).where(Course.user_id == user.id))
     courses = list(courses_result.scalars().all())
+    if course_ids:
+        selected = set(course_ids)
+        courses = [c for c in courses if c.id in selected]
     return courses, [c.id for c in courses]
 
 

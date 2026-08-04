@@ -1,11 +1,12 @@
 """Pending certificates and zero-score student alerts."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
 from app.api.dashboard.common import get_courses_for_user
+from app.api.dashboard.course_filter import parse_course_ids
 from app.database import get_db
 from app.models import Course, StudentEnrollment, User
 
@@ -16,8 +17,9 @@ router = APIRouter()
 async def get_alerts(
     user: User = Depends(get_user),
     db: AsyncSession = Depends(get_db),
+    course_ids: str = Query(None),
 ):
-    _, course_ids = await get_courses_for_user(db, user)
+    _, course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
 
     certs_pending_query = (
         select(
@@ -28,7 +30,7 @@ async def get_alerts(
         )
         .join(StudentEnrollment, Course.id == StudentEnrollment.course_id)
         .where(
-            Course.user_id == user.id,
+            Course.id.in_(course_ids),
             StudentEnrollment.points_earned >= 100,
             StudentEnrollment.certificate_issued.is_(False),
         )
@@ -46,7 +48,7 @@ async def get_alerts(
         )
         .join(StudentEnrollment, Course.id == StudentEnrollment.course_id)
         .where(
-            Course.user_id == user.id,
+            Course.id.in_(course_ids),
             StudentEnrollment.points_earned == 0,
         )
         .group_by(Course.id, Course.title, Course.stepik_course_id)

@@ -1,6 +1,6 @@
 """Monthly chart series: revenue, submissions, active students, published solutions."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import extract, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,11 @@ from app.api.dashboard.common import (
     get_courses_for_user,
     weighted_success_pct,
     wilson_success_pct,
+)
+from app.api.dashboard.course_filter import (
+    filter_community,
+    filter_financials,
+    parse_course_ids,
 )
 from app.database import get_db
 from app.models import FinancialSnapshot, StudentEnrollment, Submission, User
@@ -21,10 +26,19 @@ router = APIRouter()
 async def get_revenue(
     user: User = Depends(get_user),
     db: AsyncSession = Depends(get_db),
+    course_ids: str = Query(None),
 ):
+    parsed = parse_course_ids(course_ids)
     snapshot_result = await db.execute(select(FinancialSnapshot).limit(1))
     snapshot = snapshot_result.scalar_one_or_none()
-    months = snapshot.data.get("months", []) if snapshot else []
+    if not snapshot:
+        return {"months": []}
+    if not parsed:
+        months = snapshot.data.get("months", [])
+    else:
+        courses, _ = await get_courses_for_user(db, user, parsed)
+        selected_stepik_ids = {c.stepik_course_id for c in courses}
+        months = filter_financials(snapshot.data, selected_stepik_ids)["months"]
     return {"months": months}
 
 
@@ -32,8 +46,9 @@ async def get_revenue(
 async def get_submissions(
     user: User = Depends(get_user),
     db: AsyncSession = Depends(get_db),
+    course_ids: str = Query(None),
 ):
-    courses, course_ids = await get_courses_for_user(db, user)
+    courses, course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
 
     if not course_ids:
         return {"months": [], "by_course": [], "years": []}
@@ -140,8 +155,9 @@ async def get_submissions(
 async def get_active_students(
     user: User = Depends(get_user),
     db: AsyncSession = Depends(get_db),
+    course_ids: str = Query(None),
 ):
-    _, course_ids = await get_courses_for_user(db, user)
+    _, course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
 
     if not course_ids:
         return {"months": []}
@@ -203,8 +219,9 @@ async def get_active_students(
 async def get_active_enrolled_students(
     user: User = Depends(get_user),
     db: AsyncSession = Depends(get_db),
+    course_ids: str = Query(None),
 ):
-    _, course_ids = await get_courses_for_user(db, user)
+    _, course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
 
     if not course_ids:
         return {"months": []}
@@ -264,12 +281,18 @@ async def get_active_enrolled_students(
 async def get_published_solutions(
     user: User = Depends(get_user),
     db: AsyncSession = Depends(get_db),
+    course_ids: str = Query(None),
 ):
+    parsed = parse_course_ids(course_ids)
     result = await db.execute(select(FinancialSnapshot).limit(1))
     snapshot = result.scalar_one_or_none()
     if not snapshot:
         return {"months": []}
-    community = snapshot.data.get("community", {})
+    if parsed:
+        courses, _ = await get_courses_for_user(db, user, parsed)
+        community = await filter_community(db, snapshot.data, {c.stepik_course_id for c in courses})
+    else:
+        community = snapshot.data.get("community", {})
 
     monthly = community.get("solutions_monthly", {})
     months_res = []

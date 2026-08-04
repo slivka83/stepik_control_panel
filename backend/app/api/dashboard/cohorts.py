@@ -2,12 +2,13 @@
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
 from app.api.dashboard.common import get_courses_for_user
+from app.api.dashboard.course_filter import parse_course_ids
 from app.database import get_db
 from app.models import StudentEnrollment, User
 
@@ -18,8 +19,9 @@ router = APIRouter()
 async def get_cohorts(
     user: User = Depends(get_user),
     db: AsyncSession = Depends(get_db),
+    course_ids: str = Query(None),
 ):
-    _, course_ids = await get_courses_for_user(db, user)
+    _, course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
 
     if not course_ids:
         return {"active": 0, "passive": 0, "fading": 0, "sleeping": 0}

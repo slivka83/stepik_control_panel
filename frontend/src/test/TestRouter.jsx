@@ -22,6 +22,10 @@ const defaultSyncValue = {
   error: null,
   refresh: vi.fn(),
   updateSyncStatus: vi.fn(),
+  selectedCourseIds: null,
+  isFilterActive: false,
+  toggleCourse: vi.fn(),
+  selectAllCourses: vi.fn(),
 };
 
 export default function TestRouter({ children, initialEntries = ['/'], syncValue }) {

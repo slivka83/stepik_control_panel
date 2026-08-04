@@ -2,15 +2,21 @@
 
 Reads the student_marts view layer only — one row per student, rebuilt
 by transform_students at the end of each sync.
+
+With ?course_ids= the list is restricted to students enrolled in at least
+one of the selected courses (student_marts has no per-course breakdown, so
+the membership is resolved via student_enrollments).
 """
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
+from app.api.dashboard.common import get_courses_for_user
+from app.api.dashboard.course_filter import parse_course_ids
 from app.database import get_db
-from app.models import StudentMart, User
+from app.models import StudentEnrollment, StudentMart, User
 
 router = APIRouter()
 
@@ -21,12 +27,28 @@ async def get_students(
     db: AsyncSession = Depends(get_db),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
+    course_ids: str = Query(None),
 ):
-    total_result = await db.execute(select(func.count(StudentMart.id)))
+    parsed = parse_course_ids(course_ids)
+    course_uuids = None
+    if parsed:
+        _, course_uuids = await get_courses_for_user(db, user, parsed)
+
+    base = select(StudentMart)
+    count_base = select(func.count(StudentMart.id))
+    if course_uuids:
+        in_selected = exists().where(
+            StudentEnrollment.student_id == StudentMart.student_id,
+            StudentEnrollment.course_id.in_(course_uuids),
+        )
+        base = base.where(in_selected)
+        count_base = count_base.where(in_selected)
+
+    total_result = await db.execute(count_base)
     total = total_result.scalar() or 0
 
     result = await db.execute(
-        select(StudentMart).order_by(StudentMart.last_activity.desc().nullslast()).offset(skip).limit(limit)
+        base.order_by(StudentMart.last_activity.desc().nullslast()).offset(skip).limit(limit)
     )
 
     students = []
