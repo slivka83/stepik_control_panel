@@ -32,6 +32,7 @@ function Sidebar() {
   const [syncing, setSyncing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [filterOpen, setFilterOpen] = useState(false);
+  const filterBtnRef = useRef(null);
   const startRef = useRef(null);
   const [now, setNow] = useState(Date.now());
 
@@ -127,6 +128,7 @@ function Sidebar() {
           <>
             <div className="relative">
               <button
+                ref={filterBtnRef}
                 onClick={() => setFilterOpen((o) => !o)}
                 title={
                   isFilterActive
@@ -154,7 +156,7 @@ function Sidebar() {
                   <path d="M4 5h16l-6 7v5l-4 2v-7z" />
                 </svg>
               </button>
-              {filterOpen && <CourseFilterMenu onClose={() => setFilterOpen(false)} />}
+              {filterOpen && <CourseFilterMenu onClose={() => setFilterOpen(false)} triggerRef={filterBtnRef} />}
             </div>
             <button
               onClick={handleSync}

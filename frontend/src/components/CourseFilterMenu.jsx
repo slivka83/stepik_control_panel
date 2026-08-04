@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useSync } from '../contexts/SyncContext';
 
-export default function CourseFilterMenu({ onClose }) {
+export default function CourseFilterMenu({ onClose, triggerRef }) {
   const { data, selectedCourseIds, toggleCourse, selectAllCourses } = useSync();
   const ref = useRef(null);
   const courses = data.courses || [];
@@ -10,7 +10,9 @@ export default function CourseFilterMenu({ onClose }) {
 
   useEffect(() => {
     const onMouseDown = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) onClose();
+      const inMenu = ref.current && ref.current.contains(e.target);
+      const inTrigger = triggerRef && triggerRef.current && triggerRef.current.contains(e.target);
+      if (!inMenu && !inTrigger) onClose();
     };
     const onKeyDown = (e) => {
       if (e.key === 'Escape') onClose();
@@ -21,7 +23,7 @@ export default function CourseFilterMenu({ onClose }) {
       document.removeEventListener('mousedown', onMouseDown);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [onClose]);
+  }, [onClose, triggerRef]);
 
   const label = (c) => c.title || `#${c.stepik_course_id}`;
 

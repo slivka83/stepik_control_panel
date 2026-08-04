@@ -316,6 +316,26 @@ describe('Layout', () => {
     });
   });
 
+  it('closes the filter menu on a second click of the filter button', async () => {
+    const syncValue = {
+      ...defaultSyncValue,
+      data: {
+        ...defaultSyncValue.data,
+        courses: [{ id: 'c1', stepik_course_id: 101, title: 'Python' }],
+      },
+    };
+    renderLayout(true, syncValue);
+    const filterBtn = await screen.findByTitle('Фильтр по курсам');
+    fireEvent.click(filterBtn);
+    await waitFor(() => {
+      expect(screen.getByRole('menu')).toBeInTheDocument();
+    });
+    fireEvent.click(filterBtn);
+    await waitFor(() => {
+      expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    });
+  });
+
   it('highlights the filter button when a subset is active', async () => {
     const syncValue = {
       ...defaultSyncValue,
