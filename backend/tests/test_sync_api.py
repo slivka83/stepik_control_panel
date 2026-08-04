@@ -9,7 +9,7 @@ from app.api.auth import get_user
 from app.constants import MONTH_NAMES
 from app.database import get_db
 from app.main import app
-from app.models import User
+from app.models import FinancialSnapshot, User
 from app.services.crypto import encrypt_token
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -41,6 +41,7 @@ class TestSyncStatus:
             data = response.json()
             assert "in_progress" in data
             assert "last_sync" in data
+            assert "last_error" in data
             assert "cooldown_remaining_seconds" in data
             assert isinstance(data["in_progress"], bool)
         finally:
@@ -69,6 +70,69 @@ class TestSyncStatus:
             response = client.get("/api/sync/status")
             assert response.status_code == 200
             assert response.json()["last_sync"] is None
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_status_returns_last_error(self, db_session):
+        """Regression: sync failure must be visible via /api/sync/status (pink sync button)."""
+        user = User(
+            id=uuid.uuid4(),
+            stepik_id=64381531,
+            access_token=encrypt_token("test_access"),
+            refresh_token=encrypt_token("test_refresh"),
+            token_expires_at=datetime.now(UTC).replace(tzinfo=None),
+        )
+        db_session.add(user)
+        await db_session.commit()
+
+        async def override_db():
+            yield db_session
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
+        sync_mod._last_sync_error = "Temporary failure in name resolution"
+        try:
+            response = client.get("/api/sync/status")
+            assert response.status_code == 200
+            assert response.json()["last_error"] == "Temporary failure in name resolution"
+        finally:
+            sync_mod._last_sync_error = None
+            app.dependency_overrides.clear()
+
+    async def test_status_last_sync_carries_utc_offset(self, db_session):
+        """Regression: naive UTC timestamps must get +00:00 so the frontend renders local time."""
+        user = User(
+            id=uuid.uuid4(),
+            stepik_id=64381531,
+            access_token=encrypt_token("test_access"),
+            refresh_token=encrypt_token("test_refresh"),
+            token_expires_at=datetime.now(UTC).replace(tzinfo=None),
+        )
+        snap = FinancialSnapshot(
+            id=uuid.uuid4(),
+            data={},
+            updated_at=datetime(2026, 8, 4, 21, 5, 13, tzinfo=None),
+        )
+        db_session.add_all([user, snap])
+        await db_session.commit()
+
+        async def override_db():
+            yield db_session
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
+        try:
+            response = client.get("/api/sync/status")
+            assert response.status_code == 200
+            last_sync = response.json()["last_sync"]
+            assert last_sync.startswith("2026-08-04T21:05:13")
+            assert last_sync.endswith("+00:00")
         finally:
             app.dependency_overrides.clear()
 

@@ -239,3 +239,41 @@ class TestSyncProgressReset:
         assert sync_mod._sync_progress == 0
         assert sync_mod._sync_step == ""
         assert sync_mod._sync_in_progress is False
+
+    @pytest.mark.asyncio
+    async def test_sync_all_failure_surfaces_last_error(self):
+        """Regression: failed sync must be visible in /api/sync/status (pink sync button)."""
+        import app.services.sync as sync_mod
+
+        sync_mod._sync_in_progress = False
+        sync_mod._last_sync_completed_at = 0
+        sync_mod._last_sync_error = None
+
+        with patch(
+            "app.services.sync.sync_courses_and_enrollments",
+            new_callable=AsyncMock,
+            side_effect=Exception("Temporary failure in name resolution"),
+        ):
+            await sync_all(force=True)
+
+        assert sync_mod._last_sync_error == "Temporary failure in name resolution"
+        assert sync_mod._sync_in_progress is False
+
+    @pytest.mark.asyncio
+    async def test_sync_all_success_clears_last_error(self):
+        """Regression: a successful sync must clear the stale error from the sync button."""
+        import app.services.sync as sync_mod
+
+        sync_mod._sync_in_progress = False
+        sync_mod._last_sync_completed_at = 0
+        sync_mod._last_sync_error = "old error"
+
+        with (
+            patch("app.services.sync.sync_courses_and_enrollments", new_callable=AsyncMock),
+            patch("app.services.sync.sync_submissions", new_callable=AsyncMock),
+            patch("app.services.sync.sync_financials", new_callable=AsyncMock),
+            patch("app.services.sync.sync_community_stats", new_callable=AsyncMock),
+        ):
+            await sync_all(force=True)
+
+        assert sync_mod._last_sync_error is None

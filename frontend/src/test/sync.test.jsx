@@ -177,7 +177,7 @@ describe('SyncContext', () => {
     );
 
     await vi.advanceTimersByTimeAsync(0);
-    await vi.advanceTimersByTimeAsync(30000);
+    await vi.advanceTimersByTimeAsync(0);
     expect(statusCallsCount()).toBe(1);
     await vi.advanceTimersByTimeAsync(4000);
     expect(statusCallsCount()).toBe(3);

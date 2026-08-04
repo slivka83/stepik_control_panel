@@ -106,6 +106,20 @@ export function SyncProvider({ children }) {
     }
   }, []);
 
+  const updateSyncStatus = useCallback((status) => {
+    setSyncStatus((prev) => {
+      if (
+        prev.in_progress === status.in_progress &&
+        prev.last_sync === status.last_sync &&
+        prev.last_error === status.last_error &&
+        prev.progress === status.progress &&
+        prev.step === status.step
+      )
+        return prev;
+      return status;
+    });
+  }, []);
+
   useEffect(() => {
     if (authLoading || !user) {
       setLoading(false);
@@ -121,16 +135,7 @@ export function SyncProvider({ children }) {
     const poll = async () => {
       try {
         const { data: status } = await api.get('/sync/status', { signal: controller.signal });
-        setSyncStatus((prev) => {
-          if (
-            prev.in_progress === status.in_progress &&
-            prev.last_sync === status.last_sync &&
-            prev.progress === status.progress &&
-            prev.step === status.step
-          )
-            return prev;
-          return status;
-        });
+        updateSyncStatus(status);
         if (lastKnownSync && status.last_sync && lastKnownSync !== status.last_sync) {
           fetchAll(controller.signal);
         }
@@ -141,7 +146,7 @@ export function SyncProvider({ children }) {
       }
     };
 
-    timer = setTimeout(poll, pollIntervalRef.current);
+    timer = setTimeout(poll, 0);
     return () => {
       clearTimeout(timer);
       controller.abort();
@@ -149,8 +154,8 @@ export function SyncProvider({ children }) {
   }, [user, authLoading, fetchAll]);
 
   const contextValue = useMemo(
-    () => ({ syncStatus, data, loading, error, refresh: () => fetchAll() }),
-    [syncStatus, data, loading, error, fetchAll],
+    () => ({ syncStatus, data, loading, error, refresh: () => fetchAll(), updateSyncStatus }),
+    [syncStatus, data, loading, error, fetchAll, updateSyncStatus],
   );
 
   return <SyncContext.Provider value={contextValue}>{children}</SyncContext.Provider>;

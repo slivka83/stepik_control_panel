@@ -139,6 +139,13 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 - Хранит `SYNC_COOLDOWN_SECONDS=60`, `can_sync()` проверяет соoldown
 - Когортная сегментация и названия месяцев — единый источник `app/constants.py` + `transform.calculate_cohort_status`
 
+### Статус синка (`GET /api/sync/status`)
+
+- Поля: `in_progress`, `progress`, `step`, `last_sync`, `last_error`, `cooldown_remaining_seconds`
+- `last_error` — текст ошибки последнего упавшего sync (`sync._last_sync_error`), `null` при успехе; сбрасывается при старте нового sync
+- `last_sync` — `financial_snapshots.updated_at`; колонка в PG — `timestamp without time zone`, значение UTC (naive) — **при сериализации обязательно `+00:00`** (иначе фронтенд трактует строку как локальное время — регрессия «дата в тултипе не в локальном TZ»)
+- Фронтенд-кнопка синка: синяя «вода» прогресса во время sync, розовая заливка на всю высоту при `last_error`, тултип — дата последней синхронизации (idle) / ошибка / прогресс
+
 ### Порядок этапов
 
 ```
@@ -379,7 +386,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-374 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
+378 тестов, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
 
 | Файл | Тестов | Что тестирует |
 |---|---|---|
@@ -390,12 +397,12 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 | `tests/test_transform.py` | 17 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита) |
 | `tests/test_sync_integration.py` | 18 | `sync_all`, cohort status, интеграция raw_sync → transform, stepwise-коммиты raw_sync внутри sync-этапов |
 | `tests/test_sync_comprehensive.py` | 21 | `sync_all`, `sync_community_stats`, `sync_financials` |
-| `tests/test_sync_edge_cases.py` | 22 | Разрешение конфликтов, отсутствие данных, ошибки API |
+| `tests/test_sync_edge_cases.py` | 24 | Разрешение конфликтов, отсутствие данных, ошибки API, регрессии `_last_sync_error` (падение → error виден в статусе, успех → очищен) |
 | `tests/test_data_contract.py` | 5 | Глобальные контракты снапшота/API/фронта (price, per_course, поля страниц, recent_payments/utms) |
 | `tests/test_schema_contract.py` | 9 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот), **live-PG свежесть данных** (трансформы на реальных данных производят строки и догоняют raw — регрессия «0 submissions upserted») |
 | `tests/test_architecture.py` | 19 | Архитектурные гарантии: один alembic head, нет dead-артефактов (step_sync_state, orphan-скрипты), единый источник констант, дефолты конфига = docker-compose, сплит dashboard-пакета, rebuild_marts.py (все трансформы, без API) |
 | `tests/test_steps.py` | 35 | hardest-steps: `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id), `wilson_success_pct` (объём попыток: 1/5 → 3.6%, 200/1000 → 17.6%), `weighted_success_pct` (мусор с малым числом попыток не всплывает в топ), `module_number`/`lesson_number` (сквозная нумерация уроков по курсу), `module_title`/`lesson_title` |
-| Остальные | 167 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
+| Остальные | 169 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).
 

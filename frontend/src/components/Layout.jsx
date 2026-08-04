@@ -15,9 +15,19 @@ function formatDuration(totalSeconds) {
   return `${sec} с`;
 }
 
+function formatDateTime(iso) {
+  return new Date(iso).toLocaleString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function Sidebar() {
   const { user, loading, login, logout } = useAuth();
-  const { syncStatus } = useSync();
+  const { syncStatus, updateSyncStatus } = useSync();
   const [syncing, setSyncing] = useState(false);
   const [progress, setProgress] = useState(0);
   const startRef = useRef(null);
@@ -25,6 +35,7 @@ function Sidebar() {
 
   const isSyncing = syncing || syncStatus.in_progress;
   const displayProgress = syncing ? progress : syncStatus.progress || 0;
+  const lastError = !isSyncing ? syncStatus.last_error : null;
 
   useEffect(() => {
     if (!isSyncing) {
@@ -37,7 +48,11 @@ function Sidebar() {
   }, [isSyncing]);
 
   const buildSyncTooltip = () => {
-    if (!isSyncing) return 'Обновить';
+    if (lastError) return `Синхронизация не удалась:\n${lastError}`;
+    if (!isSyncing) {
+      if (syncStatus.last_sync) return `Обновить\nПоследняя синхронизация: ${formatDateTime(syncStatus.last_sync)}`;
+      return 'Обновить';
+    }
     const elapsed = startRef.current ? (now - startRef.current) / 1000 : 0;
     const pct = displayProgress;
     const remaining = pct > 0 ? (elapsed * (100 - pct)) / pct : null;
@@ -61,6 +76,7 @@ function Sidebar() {
       while (true) {
         await new Promise((r) => setTimeout(r, 1000));
         const { data } = await api.get('/sync/status');
+        updateSyncStatus?.(data);
         setProgress(data.progress || 0);
         if (!data.in_progress) break;
       }
@@ -118,6 +134,9 @@ function Sidebar() {
                   className="absolute bottom-0 left-0 w-full bg-cyber-blue/25"
                   style={{ height: `${displayProgress}%`, transition: 'height 1.5s ease-out' }}
                 />
+              )}
+              {lastError && (
+                <span className="absolute bottom-0 left-0 w-full bg-crimson-alert/30" style={{ height: '100%' }} />
               )}
               <span
                 className={`relative z-10 inline-block text-cyber-blue transition-colors duration-300 ${isSyncing ? 'animate-spin' : 'group-hover:text-white'}`}

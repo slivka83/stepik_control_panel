@@ -1,5 +1,6 @@
 import asyncio
 import time as time_mod
+from datetime import UTC
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
@@ -20,7 +21,14 @@ async def sync_status(
 ):
     result = await db.execute(select(FinancialSnapshot).limit(1))
     snap = result.scalar_one_or_none()
-    last_sync = snap.updated_at.isoformat() if snap else None
+    last_sync = None
+    if snap is not None:
+        # Колонка в PG — timestamp without time zone, значение в ней UTC (naive).
+        # Без явного смещения фронтенд трактует строку как локальное время.
+        updated = snap.updated_at
+        if updated.tzinfo is None:
+            updated = updated.replace(tzinfo=UTC)
+        last_sync = updated.isoformat()
 
     remaining = 0
     if sync_mod._last_sync_completed_at > 0:
@@ -32,6 +40,7 @@ async def sync_status(
         "progress": sync_mod._sync_progress,
         "step": sync_mod._sync_step,
         "last_sync": last_sync,
+        "last_error": sync_mod._last_sync_error,
         "cooldown_remaining_seconds": remaining,
     }
 

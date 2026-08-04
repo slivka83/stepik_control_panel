@@ -23,6 +23,7 @@ _sync_in_progress = False
 _sync_progress: int = 0
 _sync_step: str = ""
 _last_sync_completed_at: float = 0
+_last_sync_error: str | None = None
 
 SYNC_COOLDOWN_SECONDS = 60  # 1 minute
 
@@ -159,7 +160,7 @@ async def sync_all(force: bool = False, user_id=None):
 
     If user_id is provided, sync only that user's data; otherwise sync all users.
     """
-    global _sync_in_progress, _sync_progress, _sync_step, _last_sync_completed_at
+    global _sync_in_progress, _sync_progress, _sync_step, _last_sync_completed_at, _last_sync_error
 
     with _sync_lock:
         if _sync_in_progress:
@@ -173,6 +174,7 @@ async def sync_all(force: bool = False, user_id=None):
         _sync_in_progress = True
         _sync_progress = 0
         _sync_step = "курсы"
+        _last_sync_error = None
 
     logger.info("=== Full sync started ===")
     try:
@@ -199,6 +201,8 @@ async def sync_all(force: bool = False, user_id=None):
         return {"status": "ok"}
     except Exception as e:
         logger.error("Sync failed: %s", e, exc_info=True)
+        with _sync_lock:
+            _last_sync_error = str(e)
         return {"status": "error", "detail": str(e)}
     finally:
         with _sync_lock:

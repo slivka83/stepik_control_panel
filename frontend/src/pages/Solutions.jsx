@@ -328,24 +328,25 @@ export default function Solutions() {
         />
       </div>
 
-      <div className="flex gap-2 border-b border-gray-700 pb-0 shrink-0">
-        {TABS.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => handleTabChange(tab.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
-              activeTab === tab.key
-                ? 'border-cyber-blue text-cyber-blue'
-                : 'border-transparent text-gray-400 hover:text-gray-300'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <div className="flex flex-col flex-1 min-h-0">
+        <div className="inline-flex self-start gap-2 pb-0 shrink-0">
+          {TABS.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => handleTabChange(tab.key)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                activeTab === tab.key
+                  ? 'border-cyber-blue text-cyber-blue'
+                  : 'border-transparent text-gray-400 hover:text-gray-300'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-      {activeTab === 'months' && (
-        <div className="glass-panel p-4 flex flex-col flex-1 min-h-0">
+        {activeTab === 'months' && (
+        <div className="glass-panel p-4 flex flex-col flex-1 min-h-0 rounded-tl-none">
           <div ref={tableRef} className="overflow-hidden flex-1 min-h-0">
             <table className="w-full text-sm table-fixed fin-table sol-table">
               <thead>
@@ -385,7 +386,7 @@ export default function Solutions() {
       )}
 
       {activeTab === 'years' && (
-        <div className="glass-panel p-4 flex flex-col flex-1 min-h-0">
+        <div className="glass-panel p-4 flex flex-col flex-1 min-h-0 rounded-tl-none">
           <div ref={tableRef} className="overflow-hidden flex-1 min-h-0">
             <table className="w-full text-sm table-fixed fin-table sol-table">
               <thead>
@@ -425,7 +426,7 @@ export default function Solutions() {
       )}
 
       {activeTab === 'courses' && (
-        <div className="glass-panel p-4 flex flex-col flex-1 min-h-0">
+        <div className="glass-panel p-4 flex flex-col flex-1 min-h-0 rounded-tl-none">
           <div ref={tableRef} className="overflow-hidden flex-1 min-h-0">
             <table className="w-full text-sm table-fixed fin-table sol-table">
               <thead>
@@ -478,7 +479,7 @@ export default function Solutions() {
       )}
 
       {activeTab === 'hardest' && (
-        <div className="glass-panel p-4 flex flex-col flex-1 min-h-0">
+        <div className="glass-panel p-4 flex flex-col flex-1 min-h-0 rounded-tl-none">
           <div ref={tableRef} className="overflow-hidden flex-1 min-h-0">
             <table className="w-full text-sm table-fixed fin-table sol-table">
               <thead>
@@ -558,6 +559,7 @@ export default function Solutions() {
           <Pagination page={page} totalPages={hardestTotalPages} setPage={setPage} />
         </div>
       )}
+      </div>
     </div>
   );
 }

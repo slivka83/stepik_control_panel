@@ -21,6 +21,7 @@ const defaultSyncValue = {
   loading: false,
   error: null,
   refresh: vi.fn(),
+  updateSyncStatus: vi.fn(),
 };
 
 export default function TestRouter({ children, initialEntries = ['/'], syncValue }) {

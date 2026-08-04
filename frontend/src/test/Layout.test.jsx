@@ -1,7 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { useState } from 'react';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import TestRouter from './TestRouter';
 import Layout from '../components/Layout';
+import api from '../api';
+
+vi.mock('../api', () => ({
+  default: {
+    post: vi.fn(),
+    get: vi.fn(),
+  },
+}));
 
 const defaultSyncValue = {
   syncStatus: { in_progress: false, last_sync: '2026-07-21T10:00:00' },
@@ -9,6 +18,7 @@ const defaultSyncValue = {
   loading: false,
   error: null,
   refresh: vi.fn(),
+  updateSyncStatus: vi.fn(),
 };
 
 const NAV_LINKS = {
@@ -79,7 +89,7 @@ describe('Layout', () => {
       expect(screen.getByTitle('Войти')).toBeInTheDocument();
     });
     expect(screen.queryByTitle('Выйти')).not.toBeInTheDocument();
-    expect(screen.queryByTitle('Обновить')).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/Обновить/)).not.toBeInTheDocument();
   });
 
   it('shows sync and logout buttons when authenticated', async () => {
@@ -87,7 +97,7 @@ describe('Layout', () => {
     await waitFor(() => {
       expect(screen.getByTitle('Выйти')).toBeInTheDocument();
     });
-    expect(screen.getByTitle('Обновить')).toBeInTheDocument();
+    expect(screen.getByTitle(/Обновить/)).toBeInTheDocument();
     expect(screen.queryByTitle('Войти')).not.toBeInTheDocument();
   });
 
@@ -140,10 +150,125 @@ describe('Layout', () => {
   it('keeps the sync button idle and enabled when no sync is running', async () => {
     renderLayout(true);
     await waitFor(() => {
+      expect(screen.getByTitle(/Обновить/)).toBeInTheDocument();
+    });
+    expect(screen.getByTitle(/Обновить/)).not.toBeDisabled();
+    expect(screen.getByTitle(/Обновить/).querySelector('.animate-spin')).not.toBeInTheDocument();
+  });
+
+  it('shows the last sync date in the idle sync tooltip', async () => {
+    renderLayout(true);
+    await waitFor(() => {
+      expect(screen.getByTitle(/Обновить/)).toBeInTheDocument();
+    });
+    const btn = screen.getByTitle(/Обновить/);
+    expect(btn.getAttribute('title')).toContain('Последняя синхронизация: 21.07.2026, 10:00');
+  });
+
+  it('keeps the idle tooltip simple when sync never ran', async () => {
+    const neverSyncedValue = {
+      ...defaultSyncValue,
+      syncStatus: { in_progress: false, progress: 0, step: '', last_sync: null, last_error: null },
+    };
+    renderLayout(true, neverSyncedValue);
+    await waitFor(() => {
       expect(screen.getByTitle('Обновить')).toBeInTheDocument();
     });
-    expect(screen.getByTitle('Обновить')).not.toBeDisabled();
-    expect(screen.getByTitle('Обновить').querySelector('.animate-spin')).not.toBeInTheDocument();
+  });
+
+  it('shows the fresh sync date in the tooltip right after a sync finishes', async () => {
+    mockAuthMe(true);
+    vi.mocked(api.post).mockResolvedValue({ data: { status: 'sync_started' } });
+    vi.mocked(api.get).mockResolvedValue({
+      data: { in_progress: false, progress: 100, step: 'готово', last_sync: '2026-08-05T00:05:13' },
+    });
+
+    function LayoutWithLiveSync() {
+      const [syncStatus, setSyncStatus] = useState({ in_progress: false, last_sync: null });
+      const value = { ...defaultSyncValue, syncStatus, updateSyncStatus: setSyncStatus };
+      return (
+        <TestRouter syncValue={value}>
+          <Layout>
+            <div>Content</div>
+          </Layout>
+        </TestRouter>
+      );
+    }
+
+    render(<LayoutWithLiveSync />);
+    const btn = await screen.findByTitle('Обновить');
+    act(() => {
+      btn.click();
+    });
+    await waitFor(
+      () => {
+        expect(screen.getByTitle(/Последняя синхронизация: 05.08.2026, 00:05/)).toBeInTheDocument();
+      },
+      { timeout: 5000 },
+    );
+    expect(api.get).toHaveBeenCalled();
+  });
+
+  it('fills the sync button pink and shows the error tooltip after a failed sync', async () => {
+    const failedValue = {
+      ...defaultSyncValue,
+      syncStatus: {
+        in_progress: false,
+        progress: 0,
+        step: '',
+        last_sync: '2026-07-21T10:00:00',
+        last_error: 'Temporary failure in name resolution',
+      },
+    };
+    renderLayout(true, failedValue);
+    await waitFor(() => {
+      expect(screen.getByTitle(/Синхронизация не удалась/)).toBeInTheDocument();
+    });
+    const btn = screen.getByTitle(/Синхронизация не удалась/);
+    expect(btn.getAttribute('title')).toContain('Temporary failure in name resolution');
+    expect(btn).not.toBeDisabled();
+    expect(btn.querySelector('.animate-spin')).not.toBeInTheDocument();
+    const fill = btn.querySelector('.bg-crimson-alert\\/30');
+    expect(fill).toBeInTheDocument();
+    expect(fill).toHaveStyle('height: 100%');
+    expect(btn.querySelector('.bg-cyber-blue\\/25')).not.toBeInTheDocument();
+  });
+
+  it('hides the pink error fill and reverts tooltip when a new sync starts', async () => {
+    mockAuthMe(true);
+    const failedValue = {
+      ...defaultSyncValue,
+      syncStatus: {
+        in_progress: false,
+        progress: 0,
+        step: '',
+        last_sync: '2026-07-21T10:00:00',
+        last_error: 'boom',
+      },
+    };
+    const { rerender } = render(
+      <TestRouter syncValue={failedValue}>
+        <Layout>
+          <div>Content</div>
+        </Layout>
+      </TestRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTitle(/Синхронизация не удалась/)).toBeInTheDocument();
+    });
+    rerender(
+      <TestRouter syncValue={{ ...failedValue, syncStatus: { ...failedValue.syncStatus, in_progress: true, progress: 10 } }}>
+        <Layout>
+          <div>Content</div>
+        </Layout>
+      </TestRouter>,
+    );
+    await waitFor(() => {
+      expect(screen.getByTitle(/Завершено: 10%/)).toBeInTheDocument();
+    });
+    const btn = screen.getByTitle(/Завершено: 10%/);
+    expect(btn.querySelector('.bg-crimson-alert\\/30')).not.toBeInTheDocument();
+    expect(btn.querySelector('.bg-cyber-blue\\/25')).toBeInTheDocument();
   });
 
   it('applies visual scale to course and student icons only', async () => {
