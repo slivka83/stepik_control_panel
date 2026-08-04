@@ -48,8 +48,10 @@ function FilterConsumer() {
       <div data-testid="filter-active">{String(sync.isFilterActive)}</div>
       <div data-testid="filter-count">{sync.selectedCourseIds ? sync.selectedCourseIds.length : 'all'}</div>
       <div data-testid="courses-count">{(sync.data.courses || []).length}</div>
-      <button onClick={() => sync.toggleCourse('c1')}>toggle</button>
+      <button onClick={() => sync.toggleCourse('c1')}>toggle-c1</button>
+      <button onClick={() => sync.toggleCourse('c2')}>toggle-c2</button>
       <button onClick={() => sync.selectAllCourses()}>all</button>
+      <button onClick={() => sync.selectNoneCourses()}>none</button>
     </div>
   );
 }
@@ -240,7 +242,7 @@ describe('SyncContext', () => {
       expect(screen.getByTestId('courses-count').textContent).toBe('2');
     });
 
-    fireEvent.click(screen.getByText('toggle'));
+    fireEvent.click(screen.getByText('toggle-c1'));
 
     await waitFor(() => {
       expect(screen.getByTestId('filter-active').textContent).toBe('true');
@@ -276,7 +278,7 @@ describe('SyncContext', () => {
       expect(screen.getByTestId('courses-count').textContent).toBe('2');
     });
 
-    fireEvent.click(screen.getByText('toggle'));
+    fireEvent.click(screen.getByText('toggle-c1'));
     await waitFor(() => {
       expect(screen.getByTestId('filter-count').textContent).toBe('1');
     });
@@ -287,5 +289,40 @@ describe('SyncContext', () => {
     });
     const last = kpiCalls().pop();
     expect(last[1].params).toBeUndefined();
+  });
+
+  it('sends an empty course_ids when nothing is selected (selectNoneCourses)', async () => {
+    mockApiInstance.get.mockImplementation((url) => {
+      if (url === '/courses') {
+        return Promise.resolve({
+          data: { courses: [{ id: 'c1', title: 'A' }, { id: 'c2', title: 'B' }] },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    render(
+      <AuthProvider>
+        <SyncProvider>
+          <FilterConsumer />
+        </SyncProvider>
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('courses-count').textContent).toBe('2');
+    });
+
+    fireEvent.click(screen.getByText('toggle-c1'));
+    await waitFor(() => {
+      expect(screen.getByTestId('filter-count').textContent).toBe('1');
+    });
+
+    fireEvent.click(screen.getByText('toggle-c2'));
+    await waitFor(() => {
+      expect(screen.getByTestId('filter-count').textContent).toBe('0');
+    });
+    const last = kpiCalls().pop();
+    expect(last[1].params).toEqual({ course_ids: '' });
   });
 });

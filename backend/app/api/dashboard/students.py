@@ -31,12 +31,12 @@ async def get_students(
 ):
     parsed = parse_course_ids(course_ids)
     course_uuids = None
-    if parsed:
+    if parsed is not None:
         _, course_uuids = await get_courses_for_user(db, user, parsed)
 
     base = select(StudentMart)
     count_base = select(func.count(StudentMart.id))
-    if course_uuids:
+    if course_uuids is not None:
         in_selected = exists().where(
             StudentEnrollment.student_id == StudentMart.student_id,
             StudentEnrollment.course_id.in_(course_uuids),

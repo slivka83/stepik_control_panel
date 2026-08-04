@@ -38,7 +38,7 @@ async def _count_raw_month(db, table, field, prefix, course_field=None, course_i
     With course_field/course_ids restricts to the given stepik course ids
     (the raw layer is TEXT, so ids are compared as strings).
     """
-    if course_field and course_ids:
+    if course_field and course_ids is not None:
         ids = sorted(course_ids)
         placeholders = ", ".join(f":cid{i}" for i in range(len(ids)))
         params = {f"cid{i}": str(cid) for i, cid in enumerate(ids)}
@@ -79,7 +79,7 @@ async def get_kpi(
     course_ids: str = Query(None),
 ):
     parsed = parse_course_ids(course_ids)
-    is_filtered = bool(parsed)
+    is_filtered = parsed is not None
     courses, selected_course_ids = await get_courses_for_user(db, user, parsed)
     selected_stepik_ids = {c.stepik_course_id for c in courses}
 

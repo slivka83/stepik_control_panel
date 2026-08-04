@@ -33,7 +33,8 @@ export function SyncProvider({ children }) {
   const fetchAll = useCallback(async (signal) => {
     try {
       const courseIds = filterRef.current;
-      const courseParams = courseIds && courseIds.length > 0 ? { params: { course_ids: courseIds.join(',') } } : {};
+      const courseParams =
+        courseIds === null ? {} : { params: { course_ids: courseIds.join(',') } };
       const [
         kpiRes,
         cohortsRes,
@@ -146,7 +147,7 @@ export function SyncProvider({ children }) {
       } else {
         next = [...prev, id];
       }
-      if (next.length === 0 || next.length >= available.length) next = null;
+      if (next.length >= available.length) next = null;
       applyFilter(next);
     },
     [data.courses, applyFilter],
@@ -156,12 +157,16 @@ export function SyncProvider({ children }) {
     applyFilter(null);
   }, [applyFilter]);
 
+  const selectNoneCourses = useCallback(() => {
+    applyFilter([]);
+  }, [applyFilter]);
+
   useEffect(() => {
     const ids = filterRef.current;
-    if (!ids) return;
+    if (!ids || ids.length === 0) return;
     const available = new Set((data.courses || []).map((c) => c.id));
     const pruned = ids.filter((id) => available.has(id));
-    if (pruned.length !== ids.length) applyFilter(pruned.length ? pruned : null);
+    if (pruned.length !== ids.length) applyFilter(pruned.length ? pruned : []);
   }, [data.courses, applyFilter]);
 
   useEffect(() => {
@@ -209,8 +214,9 @@ export function SyncProvider({ children }) {
       isFilterActive: selectedCourseIds !== null,
       toggleCourse,
       selectAllCourses,
+      selectNoneCourses,
     }),
-    [syncStatus, data, loading, error, fetchAll, updateSyncStatus, selectedCourseIds, toggleCourse, selectAllCourses],
+    [syncStatus, data, loading, error, fetchAll, updateSyncStatus, selectedCourseIds, toggleCourse, selectAllCourses, selectNoneCourses],
   );
 
   return <SyncContext.Provider value={contextValue}>{children}</SyncContext.Provider>;

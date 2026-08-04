@@ -33,7 +33,7 @@ async def get_revenue(
     snapshot = snapshot_result.scalar_one_or_none()
     if not snapshot:
         return {"months": []}
-    if not parsed:
+    if parsed is None:
         months = snapshot.data.get("months", [])
     else:
         courses, _ = await get_courses_for_user(db, user, parsed)
@@ -288,11 +288,11 @@ async def get_published_solutions(
     snapshot = result.scalar_one_or_none()
     if not snapshot:
         return {"months": []}
-    if parsed:
+    if parsed is None:
+        community = snapshot.data.get("community", {})
+    else:
         courses, _ = await get_courses_for_user(db, user, parsed)
         community = await filter_community(db, snapshot.data, {c.stepik_course_id for c in courses})
-    else:
-        community = snapshot.data.get("community", {})
 
     monthly = community.get("solutions_monthly", {})
     months_res = []

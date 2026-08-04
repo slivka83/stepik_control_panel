@@ -148,20 +148,20 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 
 ## Фильтр по курсам (глобальный)
 
-Кнопка **«Фильтр»** в сайдбаре над «Обновить» (иконка-воронка, акцент `text-cyber-blue` при активном фильтре) открывает дропдаун со списком всех курсов автора — чекбоксы, счётчик «Выбрано: N из M», кнопка «Все». Все 6 страниц показывают данные только по выбранным курсам.
+Кнопка **«Фильтр»** в сайдбаре над «Обновить» (иконка-воронка, акцент `text-cyber-blue` при активном фильтре) открывает дропдаун со списком всех курсов автора — общая галка «Выбрать все курсы» (indeterminate при частичном выборе), чекбоксы курсов, счётчик «Выбрано: N из M» (надпись «Курсы» выровнена по названиям курсов). Меню закреплено у нижнего края экрана (fixed, `bottom-3`, правее сайдбара), закрывается повторным кликом на кнопку / Escape / кликом снаружи. Все 6 страниц показывают данные только по выбранным курсам.
 
 ### Семантика (фронтенд)
 
-- Состояние живёт в `SyncContext`: `selectedCourseIds` (`null` = все курсы), `toggleCourse`, `selectAllCourses`, `isFilterActive`. Без localStorage — после перезагрузки фильтр сбрасывается на «все».
-- Пустой выбор = «все» (null): снятие последнего чекбокса возвращает полный список, «пустой дашборд» невозможен.
-- `fetchAll` при активном фильтре добавляет `?course_ids=u1,u2` (comma-joined, один параметр) ко **всем** дашборд-эндпоинтам, кроме `GET /courses` — он всегда полный (это источник списка для дропдауна; на странице Курсов таблица фильтруется клиентом по `selectedCourseIds`).
+- Состояние живёт в `SyncContext`: `selectedCourseIds` (`null` = все курсы, `[]` = ничего не выбрано), `toggleCourse`, `selectAllCourses` (→ `null`), `selectNoneCourses` (→ `[]`), `isFilterActive`. Без localStorage — после перезагрузки фильтр сбрасывается на «все».
+- Пустой выбор (`[]`) — реальное состояние «ничего не выбрано»: пустой дашборд (нули/пустые срезы), все чекбоксы сняты. Отличается от «без фильтра» (`null`).
+- `fetchAll` при подмножестве добавляет `?course_ids=u1,u2` (comma-joined, один параметр) ко **всем** дашборд-эндпоинтам, кроме `GET /courses` — он всегда полный (это источник списка для дропдауна; на странице Курсов таблица фильтруется клиентом по `selectedCourseIds`). При `[]` шлётся пустой `?course_ids=` (пустой выбор), при `null` — без параметра.
 - `Solutions` hardest-вкладка передаёт `course_ids` в `/dashboard/hardest-steps`; перезапрашивается при смене фильтра.
 - Страницы Курсов/Решений/Студентов/Финансов/Дашборда читают `data` из контекста — после перезапроса с параметром все числа уже отфильтрованы.
 
 ### Бэкенд (`?course_ids=u1,u2`)
 
-- Парсинг: `parse_course_ids()` в `app/api/dashboard/course_filter.py` (comma-joined, мусор отбрасывается, пусто → `None` = без фильтра).
-- `get_courses_for_user(db, user, course_ids)` — пересекает запрошенные UUID с курсами пользователя: чужие курсы увидеть нельзя (безопасность).
+- Парсинг: `parse_course_ids()` в `app/api/dashboard/course_filter.py` (comma-joined, мусор отбрасывается): параметр отсутствует → `None` = без фильтра; пустая строка/только мусор → `[]` = пустой выбор. Все эндпоинты ветвятся по `parsed is None`, а не по falsy.
+- `get_courses_for_user(db, user, course_ids)` — пересекает запрошенные UUID с курсами пользователя: чужие курсы увидеть нельзя (безопасность); `[]` → ноль курсов.
 - SQL-эндпоинты — `course_id IN (...)` в WHERE: `/dashboard/submissions`, `/active-students`, `/active-enrolled-students`, `/cohorts`, `/alerts`, `/hardest-steps`, KPI-части (студенты/сертификаты/решения), `/dashboard/students` — через `EXISTS (SELECT 1 FROM student_enrollments ...)` (у витрины нет course-колонки).
 - Снапшот-данные пересчитываются на лету (`course_filter.py`), т.к. `months`/`summary`/`comments_monthly` глобальны:
   - `filter_financials()` — из `recent_payments[i].raw` (у каждого платежа есть course + time): `summary`/`months`/`courses`/`promos`/`utms`/`recent_payments`. Месяц — из `time` платежа; возвраты вычитаются из turnover (как в `transform_financials`), поэтому отфильтрованный «все курсы» == глобальный снапшот (инвариант проверен тестом).
@@ -425,7 +425,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 | `tests/test_schema_contract.py` | 9 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот), **live-PG свежесть данных** (трансформы на реальных данных производят строки и догоняют raw — регрессия «0 submissions upserted») |
 | `tests/test_architecture.py` | 19 | Архитектурные гарантии: один alembic head, нет dead-артефактов (step_sync_state, orphan-скрипты), единый источник констант, дефолты конфига = docker-compose, сплит dashboard-пакета, rebuild_marts.py (все трансформы, без API) |
 | `tests/test_steps.py` | 35 | hardest-steps: `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id), `wilson_success_pct` (объём попыток: 1/5 → 3.6%, 200/1000 → 17.6%), `weighted_success_pct` (мусор с малым числом попыток не всплывает в топ), `module_number`/`lesson_number` (сквозная нумерация уроков по курсу), `module_title`/`lesson_title` |
-| `tests/test_course_filter.py` | 18 | Фильтр по курсам: `parse_course_ids`, безопасность (чужие UUID отбрасываются), SQL-эндпоинты (submissions/active-students/cohorts/alerts/hardest-steps/students), пересчёт снапшота (financials/revenue/kpi/published-solutions/community), инвариант «фильтр = все курсы» == «без фильтра» |
+| `tests/test_course_filter.py` | 18 | Фильтр по курсам: `parse_course_ids` (None/`[]`), безопасность (чужие UUID отбрасываются), SQL-эндпоинты (submissions/active-students/cohorts/alerts/hardest-steps/students), пересчёт снапшота (financials/revenue/kpi/published-solutions/community), инвариант «фильтр = все курсы» == «без фильтра», пустой `?course_ids=` = пустой выбор |
 | Остальные | 169 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).

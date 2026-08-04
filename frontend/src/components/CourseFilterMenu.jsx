@@ -2,11 +2,13 @@ import { useEffect, useRef } from 'react';
 import { useSync } from '../contexts/SyncContext';
 
 export default function CourseFilterMenu({ onClose, triggerRef }) {
-  const { data, selectedCourseIds, toggleCourse, selectAllCourses } = useSync();
+  const { data, selectedCourseIds, toggleCourse, selectAllCourses, selectNoneCourses } = useSync();
   const ref = useRef(null);
+  const masterRef = useRef(null);
   const courses = data.courses || [];
   const isAll = !selectedCourseIds;
   const selectedCount = isAll ? courses.length : selectedCourseIds.length;
+  const isPartial = !isAll && selectedCount > 0;
 
   useEffect(() => {
     const onMouseDown = (e) => {
@@ -25,6 +27,10 @@ export default function CourseFilterMenu({ onClose, triggerRef }) {
     };
   }, [onClose, triggerRef]);
 
+  useEffect(() => {
+    if (masterRef.current) masterRef.current.indeterminate = isPartial;
+  }, [isPartial]);
+
   const label = (c) => c.title || `#${c.stepik_course_id}`;
 
   return (
@@ -35,8 +41,17 @@ export default function CourseFilterMenu({ onClose, triggerRef }) {
       className="fixed left-[76px] bottom-3 z-50 w-80 glass-panel rounded-xl border border-cyber-blue/20 shadow-2xl flex flex-col overflow-hidden"
       style={{ maxHeight: 'min(70vh, 480px)' }}
     >
-      <div className="flex items-center justify-between px-3 py-2 border-b border-space-gray/60">
-        <span className="text-xs uppercase text-gray-300 font-medium">Курсы</span>
+      <div className="flex items-center gap-2.5 px-3 py-2 border-b border-space-gray/60">
+        <input
+          ref={masterRef}
+          type="checkbox"
+          checked={isAll}
+          onChange={(e) => (e.target.checked ? selectAllCourses() : selectNoneCourses())}
+          aria-label="Выбрать все курсы"
+          disabled={courses.length === 0}
+          className="accent-cyber-blue w-4 h-4 shrink-0"
+        />
+        <span className="text-xs uppercase text-gray-300 font-medium flex-1">Курсы</span>
         <span className="text-xs text-cyber-blue font-mono">
           {selectedCount} из {courses.length}
         </span>
@@ -63,15 +78,6 @@ export default function CourseFilterMenu({ onClose, triggerRef }) {
             );
           })
         )}
-      </div>
-      <div className="px-3 py-2 border-t border-space-gray/60 flex items-center justify-end">
-        <button
-          onClick={selectAllCourses}
-          disabled={courses.length === 0}
-          className="text-xs font-medium text-cyber-blue hover:underline disabled:opacity-40 disabled:cursor-default"
-        >
-          Все
-        </button>
       </div>
     </div>
   );

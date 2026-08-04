@@ -22,6 +22,7 @@ function makeSyncValue(overrides = {}) {
     isFilterActive: false,
     toggleCourse: vi.fn(),
     selectAllCourses: vi.fn(),
+    selectNoneCourses: vi.fn(),
     ...overrides,
   };
 }
@@ -36,15 +37,20 @@ function renderMenu(syncValue) {
   return { onClose, ...utils };
 }
 
+function masterCheckbox() {
+  return screen.getByRole('checkbox', { name: 'Выбрать все курсы' });
+}
+
 describe('CourseFilterMenu', () => {
-  it('renders all courses with checkboxes checked (all selected)', () => {
+  it('renders all courses with checkboxes checked and a checked master checkbox', () => {
     renderMenu();
     for (const c of courses) {
       expect(screen.getByText(c.title)).toBeInTheDocument();
     }
     const checkboxes = screen.getAllByRole('checkbox');
-    expect(checkboxes).toHaveLength(3);
+    expect(checkboxes).toHaveLength(4);
     checkboxes.forEach((cb) => expect(cb).toBeChecked());
+    expect(masterCheckbox()).toBeChecked();
     expect(screen.getByText('3 из 3')).toBeInTheDocument();
   });
 
@@ -58,20 +64,35 @@ describe('CourseFilterMenu', () => {
     expect(toggleCourse).toHaveBeenCalledWith('c1');
   });
 
-  it('shows courses as unchecked when a subset is selected', () => {
+  it('shows courses as unchecked and master unchecked when a subset is selected', () => {
     renderMenu(makeSyncValue({ selectedCourseIds: ['c2'], isFilterActive: true }));
-    const [c1, c2, c3] = screen.getAllByRole('checkbox');
+    const [master, c1, c2, c3] = screen.getAllByRole('checkbox');
+    expect(master).not.toBeChecked();
     expect(c1).not.toBeChecked();
     expect(c2).toBeChecked();
     expect(c3).not.toBeChecked();
   });
 
-  it('select all button resets filter', async () => {
+  it('shows all course checkboxes unchecked when nothing is selected', () => {
+    renderMenu(makeSyncValue({ selectedCourseIds: [], isFilterActive: true }));
+    screen.getAllByRole('checkbox').forEach((cb) => expect(cb).not.toBeChecked());
+    expect(screen.getByText('0 из 3')).toBeInTheDocument();
+  });
+
+  it('master checkbox selects all courses when unchecked', async () => {
     const user = userEvent.setup();
     const selectAllCourses = vi.fn();
     renderMenu(makeSyncValue({ selectAllCourses, selectedCourseIds: ['c2'], isFilterActive: true }));
-    await user.click(screen.getByText('Все'));
+    await user.click(masterCheckbox());
     expect(selectAllCourses).toHaveBeenCalledTimes(1);
+  });
+
+  it('master checkbox deselects all courses when checked', async () => {
+    const user = userEvent.setup();
+    const selectNoneCourses = vi.fn();
+    renderMenu(makeSyncValue({ selectNoneCourses }));
+    await user.click(masterCheckbox());
+    expect(selectNoneCourses).toHaveBeenCalledTimes(1);
   });
 
   it('closes on Escape', () => {
@@ -95,5 +116,6 @@ describe('CourseFilterMenu', () => {
   it('shows placeholder when no courses', () => {
     renderMenu(makeSyncValue({ data: { courses: [] } }));
     expect(screen.getByText('Нет курсов')).toBeInTheDocument();
+    expect(masterCheckbox()).toBeDisabled();
   });
 });

@@ -249,13 +249,13 @@ def _override(user, db_session):
 class TestParseCourseIds:
     def test_parse_none_or_empty(self):
         assert parse_course_ids(None) is None
-        assert parse_course_ids("") is None
-        assert parse_course_ids(" , ") is None
+        assert parse_course_ids("") == []
+        assert parse_course_ids(" , ") == []
 
     def test_parse_invalid_dropped(self):
         u1 = uuid.uuid4()
         assert parse_course_ids(f"{u1},garbage,not-a-uuid") == [u1]
-        assert parse_course_ids("garbage") is None
+        assert parse_course_ids("garbage") == []
 
     def test_parse_list(self):
         u1, u2 = uuid.uuid4(), uuid.uuid4()
@@ -302,15 +302,21 @@ class TestFilterSubmissions:
         finally:
             app.dependency_overrides.clear()
 
-    async def test_empty_course_ids_param_means_no_filter(self, db_session):
+    async def test_empty_course_ids_param_means_nothing_selected(self, db_session):
+        """?course_ids= (пусто) — явно ничего не выбрано: пустой дашборд."""
         user, u1, u2, u3 = await _seed_scenario(db_session)
         _override(user, db_session)
         try:
             response = client.get("/api/dashboard/submissions?course_ids=")
+            assert response.json() == {"months": [], "by_course": [], "years": []}
+
+            response = client.get("/api/dashboard/kpi?course_ids=")
             data = response.json()
-            assert len(data["months"]) == 1
-            assert data["months"][0]["total"] == 4
-            assert len(data["by_course"]) == 2
+            assert data["total_students"] == 0
+            assert data["courses_count"] == 0
+
+            response = client.get("/api/dashboard/students?course_ids=")
+            assert response.json()["total"] == 0
         finally:
             app.dependency_overrides.clear()
 

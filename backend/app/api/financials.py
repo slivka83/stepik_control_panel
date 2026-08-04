@@ -34,7 +34,7 @@ async def get_financials(
             "courses": [],
             "recent_payments": [],
         }
-    if parsed:
+    if parsed is not None:
         courses, _ = await get_courses_for_user(db, user, parsed)
         selected_stepik_ids = {c.stepik_course_id for c in courses}
         data = filter_financials(snapshot.data, selected_stepik_ids)

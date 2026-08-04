@@ -23,10 +23,10 @@ from app.constants import MONTH_NAMES, UTM_SOURCE_LABELS
 def parse_course_ids(raw: str | None) -> list[uuid.UUID] | None:
     """Parse comma-joined ?course_ids=u1,u2 into a UUID list.
 
-    Empty/None → None (no filter). Invalid parts are dropped; if nothing
-    valid remains → None.
+    None (param absent) → None = no filter. Present-but-empty (or only
+    garbage) → [] = explicitly nothing selected (empty dashboard).
     """
-    if not raw:
+    if raw is None:
         return None
     ids = []
     for part in raw.split(","):
@@ -37,7 +37,7 @@ def parse_course_ids(raw: str | None) -> list[uuid.UUID] | None:
             ids.append(uuid.UUID(part))
         except (ValueError, TypeError):
             continue
-    return ids or None
+    return ids
 
 
 def _int_or_none(val):

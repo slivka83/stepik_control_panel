@@ -26,6 +26,7 @@ const defaultSyncValue = {
   isFilterActive: false,
   toggleCourse: vi.fn(),
   selectAllCourses: vi.fn(),
+  selectNoneCourses: vi.fn(),
 };
 
 export default function TestRouter({ children, initialEntries = ['/'], syncValue }) {
