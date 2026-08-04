@@ -30,7 +30,7 @@ export default function CourseFilterMenu({ onClose }) {
       ref={ref}
       role="menu"
       aria-label="Фильтр по курсам"
-      className="absolute left-full top-0 ml-3 z-50 w-80 glass-panel rounded-xl border border-cyber-blue/20 shadow-2xl flex flex-col overflow-hidden"
+      className="absolute left-full bottom-0 ml-3 z-50 w-80 glass-panel rounded-xl border border-cyber-blue/20 shadow-2xl flex flex-col overflow-hidden"
       style={{ maxHeight: 'min(70vh, 480px)' }}
     >
       <div className="flex items-center justify-between px-3 py-2 border-b border-space-gray/60">
