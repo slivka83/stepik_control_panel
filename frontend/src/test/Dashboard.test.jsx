@@ -90,10 +90,10 @@ const zeroKpi = {
 const KPI_TITLES = [
   'Доход /месяц',
   'Покупки /месяц',
-  'Возвраты /месяц',
+  'Возвраты (₽) /месяц',
   'Курсы',
   'Средний рейтинг курсов',
-  'Решения /месяц',
+  'Возвраты (шт) /месяц',
   'Отзывы',
   'Публичные решения',
   'Комментарии',
@@ -190,5 +190,24 @@ describe('Dashboard', () => {
     );
     expect(screen.getByText('Ошибка загрузки данных')).toBeInTheDocument();
     expect(screen.getByText('Network error')).toBeInTheDocument();
+  });
+
+  it('renders Опубликованные category on the Отправленные решения chart', () => {
+    render(
+      <TestRouter
+        syncValue={{
+          ...fullSyncValue,
+          data: {
+            ...fullSyncValue.data,
+            submissions: {
+              months: [{ month: 'Январь 2026', total: 100, correct: 80, published: 12 }],
+            },
+          },
+        }}
+      >
+        <Dashboard />
+      </TestRouter>,
+    );
+    expect(screen.getByText('Опубликованные')).toBeInTheDocument();
   });
 });

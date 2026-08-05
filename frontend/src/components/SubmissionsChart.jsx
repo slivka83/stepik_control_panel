@@ -6,6 +6,7 @@ import { buildMonthWindow } from '../utils/monthWindow.js';
 
 const COLOR_BRIGHT = '#38bdf8';
 const COLOR_DIM = '#1a6a9e';
+const COLOR_PUBLISHED = '#7dd3fc';
 
 function BarShape({ activeMonth, onBarEnter, onBarLeave, ...props }) {
   const { x, y, width, height, fill, fillOpacity, payload } = props;
@@ -58,11 +59,21 @@ export default function SubmissionsChart({
 
   const bright = primaryColor || COLOR_BRIGHT;
   const dim = secondaryColor || COLOR_DIM;
+  const publishedColor = COLOR_PUBLISHED;
+  const hasPublished = (data.months || []).some((m) => 'published' in m);
 
-  const chartData = months.map((d) => ({
-    ...d,
-    wrong: Math.max((d.total || 0) - (d.correct || 0), 0),
-  }));
+  const chartData = months.map((d) => {
+    const correct = d.correct || 0;
+    const published = Math.min(d.published ?? 0, correct);
+    return {
+      ...d,
+      published,
+      correct: correct - published,
+      correctTotal: correct,
+      publishedTotal: d.published ?? 0,
+      wrong: Math.max((d.total || 0) - correct, 0),
+    };
+  });
 
   const maxVal = Math.max(...chartData.map((d) => Math.max(d.total || 0, d.correct || 0)));
   const yAxisCompact = maxVal >= 1000;
@@ -90,6 +101,12 @@ export default function SubmissionsChart({
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: bright }}></div>
               <span className="text-xs text-gray-400">Правильные</span>
+            </div>
+          )}
+          {hasPublished && (
+            <div className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: publishedColor }}></div>
+              <span className="text-xs text-gray-400">Опубликованные</span>
             </div>
           )}
           {!hideTotalLegend && (
@@ -132,6 +149,18 @@ export default function SubmissionsChart({
                 <rect width="6" height="6" fill={dim} fillOpacity="0.5" />
                 <line x1="0" y1="0" x2="0" y2="6" stroke={bright} strokeWidth="2" strokeOpacity="0.4" />
               </pattern>
+              {hasPublished && (
+                <pattern
+                  id={`hp-${uid}`}
+                  width="6"
+                  height="6"
+                  patternUnits="userSpaceOnUse"
+                  patternTransform="rotate(45)"
+                >
+                  <rect width="6" height="6" fill={publishedColor} />
+                  <line x1="0" y1="0" x2="0" y2="6" stroke={bright} strokeWidth="2" />
+                </pattern>
+              )}
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.gridLine} />
             <XAxis
@@ -179,6 +208,27 @@ export default function SubmissionsChart({
                 />
               ))}
             </Bar>
+            {hasPublished && (
+              <Bar
+                dataKey="published"
+                stackId="a"
+                shape={(props) => (
+                  <BarShape
+                    activeMonth={activeMonth}
+                    onBarEnter={handleBarEnter}
+                    onBarLeave={() => setActiveMonth(null)}
+                    {...props}
+                  />
+                )}
+              >
+                {chartData.map((entry, i) => (
+                  <Cell
+                    key={`cell-published-${entry.month}`}
+                    fill={i === chartData.length - 1 ? `url(#hp-${uid})` : publishedColor}
+                  />
+                ))}
+              </Bar>
+            )}
             <Bar
               dataKey="wrong"
               stackId="a"
@@ -218,8 +268,13 @@ export default function SubmissionsChart({
           >
             <div style={{ color: '#ffffff', fontSize: 13, marginBottom: 4 }}>{activeEntry.month}</div>
             <div style={{ color: bright, fontSize: 12 }}>
-              {title || 'Правильные'}: {(activeEntry.correct ?? 0).toLocaleString('ru-RU')}
+              {title || 'Правильные'}: {(activeEntry.correctTotal ?? activeEntry.correct ?? 0).toLocaleString('ru-RU')}
             </div>
+            {hasPublished && activeEntry.publishedTotal != null && (
+              <div style={{ color: publishedColor, fontSize: 12 }}>
+                Опубликованные: {(activeEntry.publishedTotal ?? 0).toLocaleString('ru-RU')}
+              </div>
+            )}
             {!hideTotalLegend && (
               <div style={{ color: dim, fontSize: 12 }}>
                 {title ? 'Комментариев' : 'Всего'}: {(activeEntry.total ?? 0).toLocaleString('ru-RU')}

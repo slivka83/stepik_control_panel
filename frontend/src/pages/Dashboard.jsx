@@ -28,14 +28,6 @@ export default function Dashboard() {
           color="white"
         />
         <KpiCard
-          title="Возвраты /месяц"
-          value={kpi?.current_month_refunds_count || 0}
-          trend={kpi?.refunds_change_pct}
-          trendInverted
-          color="white"
-          suffix={'\u200A₽'}
-        />
-        <KpiCard
           title="Курсы"
           value={kpi?.courses_published || 0}
           secondValue={kpi?.courses_unpublished || 0}
@@ -50,6 +42,13 @@ export default function Dashboard() {
           color="white"
         />
         <KpiCard
+          title="Средняя оценка шагов"
+          value={kpi?.steps_average_grade || 0}
+          ratingColor
+          fractionDigits={2}
+          minimumFractionDigits={2}
+        />
+        <KpiCard
           title="Средний рейтинг курсов"
           value={kpi?.average_rating || 0}
           ratingColor
@@ -60,9 +59,26 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <KpiCard
-          title="Решения /месяц"
-          value={kpi?.current_month_submissions || 0}
-          trend={kpi?.submissions_change_pct}
+          title="Возвраты (₽) /месяц"
+          value={kpi?.current_month_refunds_count || 0}
+          trend={kpi?.refunds_change_pct}
+          trendInverted
+          color="white"
+          suffix={'\u200A₽'}
+        />
+        <KpiCard
+          title="Возвраты (шт) /месяц"
+          value={kpi?.current_month_refunds_pcs || 0}
+          trend={kpi?.refunds_pcs_change_pct}
+          trendInverted
+          color="white"
+        />
+        <KpiCard
+          title="Сертификаты"
+          value={kpi?.certificates_prev_months ?? 0}
+          secondValue={kpi?.certificates_current_month || 0}
+          trend={kpi?.certificates_change_pct}
+          secondHighlight
           color="white"
         />
         <KpiCard
@@ -82,27 +98,12 @@ export default function Dashboard() {
           color="white"
         />
         <KpiCard
-          title="Сертификаты"
-          value={kpi?.certificates_prev_months ?? 0}
-          secondValue={kpi?.certificates_current_month || 0}
-          trend={kpi?.certificates_change_pct}
-          secondHighlight
-          color="white"
-        />
-        <KpiCard
           title="Отзывы"
           value={kpi?.reviews_prev_months ?? 0}
           secondValue={kpi?.reviews_current_month || 0}
           trend={kpi?.reviews_change_pct}
           secondHighlight
           color="white"
-        />
-        <KpiCard
-          title="Средняя оценка шагов"
-          value={kpi?.steps_average_grade || 0}
-          ratingColor
-          fractionDigits={2}
-          minimumFractionDigits={2}
         />
       </div>
 

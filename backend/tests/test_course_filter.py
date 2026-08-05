@@ -28,7 +28,8 @@ client = TestClient(app, raise_server_exceptions=False)
 
 
 def _now():
-    return datetime.now(UTC).replace(hour=12, minute=0, second=0, microsecond=0)
+    """Current time (second precision) — cohorts endpoint uses full-precision now."""
+    return datetime.now(UTC).replace(microsecond=0)
 
 
 async def _seed_scenario(session):

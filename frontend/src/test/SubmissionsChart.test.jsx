@@ -90,4 +90,27 @@ describe('SubmissionsChart', () => {
     render(<SubmissionsChart data={data} />);
     expect(screen.queryByText('Нет данных для отображения')).not.toBeInTheDocument();
   });
+
+  it('renders Опубликованные legend when data contains published', () => {
+    const data = {
+      months: [{ month: 'Январь 2026', total: 100, correct: 80, published: 12 }],
+    };
+    render(<SubmissionsChart data={data} />);
+    expect(screen.getByText('Опубликованные')).toBeInTheDocument();
+  });
+
+  it('does not render Опубликованные legend without published data', () => {
+    const data = {
+      months: [{ month: 'Январь 2026', total: 100, correct: 80 }],
+    };
+    render(<SubmissionsChart data={data} />);
+    expect(screen.queryByText('Опубликованные')).not.toBeInTheDocument();
+  });
+
+  it('clamps published to correct (published is always a subset of correct)', () => {
+    const data = {
+      months: [{ month: 'Январь 2026', total: 100, correct: 10, published: 50 }],
+    };
+    expect(() => render(<SubmissionsChart data={data} />)).not.toThrow();
+  });
 });

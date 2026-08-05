@@ -79,4 +79,23 @@ describe('Activities', () => {
     const figcaption = figure.querySelector('figcaption');
     expect(figcaption.textContent).toContain('18');
   });
+
+  it('renders Опубликованные category on the Отправленные решения chart', () => {
+    render(
+      <TestRouter
+        syncValue={makeSyncValue({
+          data: {
+            financials: { community: { comments_monthly: {} } },
+            submissions: { months: [{ month: 'Январь 2026', total: 100, correct: 80, published: 12 }] },
+            activeStudents: { months: [] },
+            activeEnrolled: { months: [] },
+            publishedSolutions: { months: [{ month: 'Январь 2026', dark: 12, light: 12 }] },
+          },
+        })}
+      >
+        <Activities />
+      </TestRouter>,
+    );
+    expect(screen.getByText('Опубликованные')).toBeInTheDocument();
+  });
 });

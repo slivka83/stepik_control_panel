@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import api from '../api';
+import { mergePublishedIntoSubmissions } from '../utils/mergePublished';
 
 const SyncContext = createContext();
 
@@ -70,7 +71,15 @@ export function SyncProvider({ children }) {
           alerts: alertsRes.status === 'fulfilled' ? alertsRes.value.data.alerts || [] : prev.alerts,
           courses: coursesRes.status === 'fulfilled' ? coursesRes.value.data.courses || [] : prev.courses,
           financials: financialsRes.status === 'fulfilled' ? financialsRes.value.data : prev.financials,
-          submissions: submissionsRes.status === 'fulfilled' ? submissionsRes.value.data : prev.submissions,
+          submissions:
+            submissionsRes.status === 'fulfilled'
+              ? mergePublishedIntoSubmissions(
+                  submissionsRes.value.data,
+                  publishedSolutionsRes.status === 'fulfilled'
+                    ? publishedSolutionsRes.value.data
+                    : prev.publishedSolutions,
+                )
+              : prev.submissions,
           activeStudents: activeStudentsRes.status === 'fulfilled' ? activeStudentsRes.value.data : prev.activeStudents,
           activeEnrolled: activeEnrolledRes.status === 'fulfilled' ? activeEnrolledRes.value.data : prev.activeEnrolled,
           publishedSolutions:

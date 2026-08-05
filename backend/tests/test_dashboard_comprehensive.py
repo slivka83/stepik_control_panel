@@ -773,6 +773,49 @@ class TestDashboardKPITrends:
         finally:
             app.dependency_overrides.clear()
 
+    async def test_refunds_pcs_change_pct(self, db_session):
+        """Regression: refunds count card (Возвраты (шт) /месяц) uses refunds_count from months."""
+        user = _make_user_in_db(db_session)
+        course = _make_course_in_db(db_session, user.id)
+
+        months_data = [
+            {"month": "Июнь 2026", "income": 8000, "payments_count": 8, "refunds": 500, "refunds_count": 1},
+            {"month": "Июль 2026", "income": 10000, "payments_count": 10, "refunds": 1200, "refunds_count": 3},
+        ]
+        snapshot = FinancialSnapshot(
+            id=uuid.uuid4(),
+            data={
+                "summary": {
+                    "current_month_income": 10000,
+                    "total_income": 18000,
+                    "total_turnover": 20000,
+                    "total_refunds": 1700,
+                    "total_payments": 18,
+                    "net_income": 16300,
+                    "total_refunds_count": 4,
+                    "current_month_turnover": 12000,
+                    "current_month_payments": 10,
+                },
+                "months": months_data,
+                "courses": [],
+                "recent_payments": [],
+            },
+            updated_at=datetime.now(UTC),
+        )
+        db_session.add(snapshot)
+        await db_session.flush()
+
+        _setup_overrides(db_session, user)
+        try:
+            response = client.get("/api/dashboard/kpi")
+            data = response.json()
+            assert data["current_month_refunds_count"] == 1200
+            assert data["refunds_change_pct"] == 140
+            assert data["current_month_refunds_pcs"] == 3
+            assert data["refunds_pcs_change_pct"] == 200
+        finally:
+            app.dependency_overrides.clear()
+
 
 # ─── Cohorts with Zombie tests ──────────────────────────────────────────
 

@@ -146,14 +146,17 @@ async def get_kpi(
     revenue_change_pct = None
     payments_change_pct = None
     refunds_change_pct = None
+    refunds_pcs_change_pct = None
     current_month_payments = 0
     current_month_refunds_count = 0
+    current_month_refunds_pcs = 0
     if snapshot:
         current = summary.get("current_month_income", 0)
         if months:
             last = months[-1]
             current_month_payments = last.get("payments_count", 0)
             current_month_refunds_count = last.get("refunds", 0)
+            current_month_refunds_pcs = last.get("refunds_count", 0)
             prev_income = months[-2].get("income", 0) if len(months) >= 2 else 0
             revenue_change_pct = _pct(current, prev_income)
         if len(months) >= 2:
@@ -161,6 +164,8 @@ async def get_kpi(
             payments_change_pct = _pct(current_month_payments, prev_payments)
             prev_refunds = months[-2].get("refunds", 0)
             refunds_change_pct = _pct(current_month_refunds_count, prev_refunds)
+            prev_refunds_pcs = months[-2].get("refunds_count", 0)
+            refunds_pcs_change_pct = _pct(current_month_refunds_pcs, prev_refunds_pcs)
 
     now = datetime.now(UTC)
     cur_year, cur_month = now.year, now.month
@@ -239,6 +244,8 @@ async def get_kpi(
         "payments_change_pct": payments_change_pct,
         "current_month_refunds_count": current_month_refunds_count,
         "refunds_change_pct": refunds_change_pct,
+        "current_month_refunds_pcs": current_month_refunds_pcs,
+        "refunds_pcs_change_pct": refunds_pcs_change_pct,
         "current_month_submissions": cur_subs,
         "submissions_change_pct": _pct(cur_subs, prev_subs),
         "current_month_students": cur_enroll,

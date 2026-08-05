@@ -26,7 +26,7 @@ async def get_cohorts(
     if not course_ids:
         return {"active": 0, "passive": 0, "fading": 0, "sleeping": 0}
 
-    now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+    now = datetime.now(UTC)
     cohorts = {}
 
     for label, days_min, days_max in [
