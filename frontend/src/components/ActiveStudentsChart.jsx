@@ -7,6 +7,11 @@ import { buildMonthWindow } from '../utils/monthWindow.js';
 const COLOR_BRIGHT = '#dc2626';
 const COLOR_DIM = '#8b2040';
 
+export function darkTooltipValue(entry, useOverlap) {
+  if (useOverlap) return Math.max((entry.dark || 0) - (entry.light || 0), 0);
+  return entry.dark || 0;
+}
+
 function BarShape({ activeMonth, onBarEnter, onBarLeave, ...props }) {
   const { x, y, width, height, fill, fillOpacity, payload } = props;
   if (!height || height <= 0) return null;
@@ -41,6 +46,8 @@ export default function ActiveStudentsChart({
   hideLightLegend,
   hideDarkLegend,
   lightLabel,
+  darkLabel,
+  darkTooltipOverlap,
   tooltipRight,
 }) {
   const [activeMonth, setActiveMonth] = useState(null);
@@ -87,13 +94,13 @@ export default function ActiveStudentsChart({
           {!hideLightLegend && (
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: bright }}></div>
-              <span className="text-xs text-gray-400">Уникальные</span>
+              <span className="text-xs text-gray-400">{lightLabel || 'Уникальные'}</span>
             </div>
           )}
           {!hideDarkLegend && (
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: dim }}></div>
-              <span className="text-xs text-gray-400">Уникальные по курсам</span>
+              <span className="text-xs text-gray-400">{darkLabel || 'Уникальные по курсам'}</span>
             </div>
           )}
           <div className="flex items-center gap-2">
@@ -222,7 +229,8 @@ export default function ActiveStudentsChart({
             </div>
             {!hideDarkLegend && (
               <div style={{ color: dim, fontSize: 12 }}>
-                Уникальные по курсам: {(activeEntry.dark ?? 0).toLocaleString('ru-RU')}
+                {darkLabel || 'Уникальные по курсам'}:{' '}
+                {darkTooltipValue(activeEntry, darkTooltipOverlap).toLocaleString('ru-RU')}
               </div>
             )}
           </div>,

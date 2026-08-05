@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import ActiveStudentsChart from '../components/ActiveStudentsChart';
+import ActiveStudentsChart, { darkTooltipValue } from '../components/ActiveStudentsChart';
 import { formatMonthLabel } from '../utils/monthWindow';
 
 describe('ActiveStudentsChart', () => {
@@ -59,5 +59,23 @@ describe('ActiveStudentsChart', () => {
     const { container } = render(<ActiveStudentsChart data={data} />);
     const figcaption = container.querySelector('figcaption');
     expect(figcaption.textContent).toContain('18');
+  });
+
+  it('uses lightLabel and darkLabel in the legend', () => {
+    const data = { months: [{ month: 'Январь 2026', light: 10, dark: 12 }] };
+    render(<ActiveStudentsChart data={data} lightLabel="Обычные" darkLabel="С отличием" />);
+    expect(screen.getByText('Обычные')).toBeInTheDocument();
+    expect(screen.getByText('С отличием')).toBeInTheDocument();
+    expect(screen.queryByText('Уникальные по курсам')).not.toBeInTheDocument();
+  });
+
+  it('darkTooltipOverlap shows the overlap value in the tooltip', () => {
+    // Regression: для сертификатов dark = всего, overlap = «С отличием»
+    // (dark − light) — тултип обязан показывать именно overlap, а не dark.
+    const entry = { month: 'Январь 2026', light: 10, dark: 13 };
+    expect(darkTooltipValue(entry, true)).toBe(3);
+    expect(darkTooltipValue(entry, false)).toBe(13);
+    expect(darkTooltipValue({ light: 5, dark: 2 }, true)).toBe(0);
+    expect(darkTooltipValue({ light: 5 }, false)).toBe(0);
   });
 });

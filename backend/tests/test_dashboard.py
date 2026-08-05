@@ -602,3 +602,56 @@ class TestDashboardAlerts:
             assert response.json()["alerts"] == []
         finally:
             app.dependency_overrides.clear()
+
+
+class TestDashboardCertificates:
+    async def _call(self, db_session, user, course_ids=None):
+        async def override_db():
+            yield db_session
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
+        try:
+            url = "/api/dashboard/certificates"
+            if course_ids is not None:
+                url += f"?course_ids={course_ids}"
+            response = client.get(url)
+            assert response.status_code == 200
+            return response.json()["months"]
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_monthly_split_distinction_vs_regular(self, db_session):
+        """Regression: /certificates отдаёт сертификаты по месяцам выдачи с
+        разбивкой «С отличием» (type=distinction) и «Обычные»: dark = всего,
+        light = обычные (overlap = «С отличием»)."""
+        user = await _seed_db(db_session)
+        certs = [
+            ("d1", "100", "2026-06-15T10:00:00Z", "distinction"),
+            ("d2", "100", "2026-06-20T10:00:00Z", "distinction"),
+            ("r1", "100", "2026-06-25T10:00:00Z", "regular"),
+            ("r2", "100", "2026-07-01T10:00:00Z", "regular"),
+            ("u1", "100", "2026-07-02T10:00:00Z", None),
+            ("n1", "100", None, "regular"),
+        ]
+        for cid, course, issue, ctype in certs:
+            raw = {"issue_date": issue, "type": ctype}
+            await db_session.execute(
+                text("INSERT INTO raw_certificate (certificate_id, course_id, _raw_json) VALUES (:cid, :course, :j)"),
+                {"cid": cid, "course": course, "j": json.dumps(raw)},
+            )
+        await db_session.commit()
+
+        months = await self._call(db_session, user)
+        assert months == [
+            {"month": "Июнь 2026", "dark": 3, "light": 1},
+            {"month": "Июль 2026", "dark": 2, "light": 2},
+        ], "без type и без issue_date не должны ломать разбивку"
+
+    async def test_empty_without_data(self, db_session):
+        user = await _seed_db(db_session)
+        await db_session.commit()
+        assert await self._call(db_session, user) == []

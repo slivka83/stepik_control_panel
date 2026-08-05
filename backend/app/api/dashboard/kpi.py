@@ -1,6 +1,5 @@
 """KPI cards data: revenue, purchases, refunds, courses, rating, certificates, etc."""
 
-import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query
@@ -8,7 +7,7 @@ from sqlalchemy import extract, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
-from app.api.dashboard.common import get_courses_for_user
+from app.api.dashboard.common import get_courses_for_user, json_field
 from app.api.dashboard.course_filter import (
     filter_community,
     filter_financials,
@@ -19,17 +18,6 @@ from app.database import get_db
 from app.models import FinancialSnapshot, StudentEnrollment, Submission, User
 
 router = APIRouter()
-
-
-def _json_field(val, field):
-    if isinstance(val, (dict, list)):
-        return val.get(field) if isinstance(val, dict) else None
-    if isinstance(val, (str, bytes, bytearray)):
-        try:
-            return json.loads(val).get(field)
-        except (json.JSONDecodeError, TypeError):
-            return None
-    return None
 
 
 async def _count_raw_month(db, table, field, prefix, course_field=None, course_ids=None) -> int:
@@ -45,7 +33,7 @@ async def _count_raw_month(db, table, field, prefix, course_field=None, course_i
         rows = await db.execute(text(f"SELECT _raw_json FROM {table} WHERE {course_field} IN ({placeholders})"), params)
     else:
         rows = await db.execute(text(f"SELECT _raw_json FROM {table}"))
-    return sum(1 for row in rows.all() if str(_json_field(row[0], field) or "").startswith(prefix))
+    return sum(1 for row in rows.all() if str(json_field(row[0], field) or "").startswith(prefix))
 
 
 async def _steps_average_grade(db) -> float:
@@ -53,7 +41,7 @@ async def _steps_average_grade(db) -> float:
     votes_total = 0
     votes_count = 0
     for row in rows.all():
-        ng = _json_field(row[0], "num_grades")
+        ng = json_field(row[0], "num_grades")
         if not isinstance(ng, list):
             continue
         for i, cnt in enumerate(ng):

@@ -27,13 +27,15 @@ export default function Activities() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0">
         <ActiveStudentsChart data={data.activeStudents} hatched lightLabel="Уникальные студенты" tooltipRight />
         <ActiveStudentsChart
-          data={data.publishedSolutions}
-          title="Опубликованные решения"
-          primaryColor="#a855f7"
-          secondaryColor="#581c87"
+          data={data.certificates}
+          title="Выданные сертификаты"
+          primaryColor="#581c87"
+          secondaryColor="#a855f7"
           hatched
-          hideLightLegend
-          hideDarkLegend
+          lightLabel="Обычные"
+          darkLabel="С отличием"
+          darkTooltipOverlap
+          tooltipRight
         />
         <SubmissionsChart
           data={commentsChartData}

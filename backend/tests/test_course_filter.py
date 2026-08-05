@@ -511,6 +511,48 @@ class TestFilterCharts:
         finally:
             app.dependency_overrides.clear()
 
+    async def test_certificates_filtered(self, db_session):
+        user, u1, u2, u3 = await _seed_scenario(db_session)
+        now = _now()
+        total = now.year * 12 + now.month - 2
+        old_year, old_month = (total - 1) // 12, (total - 1) % 12 + 1
+        old_key = f"{old_year}-{old_month:02d}"
+        certs = [
+            ("x1", "100", old_key, "distinction"),
+            ("x2", "100", old_key, "regular"),
+            ("x3", "200", old_key, "regular"),
+            ("x4", "300", old_key, "distinction"),
+        ]
+        for cid_, course, issue, ctype in certs:
+            await db_session.execute(
+                text(
+                    "INSERT INTO raw_certificate (certificate_id, course_id, _raw_json) "
+                    "VALUES (:cid, :course, :j)"
+                ),
+                {"cid": cid_, "course": course, "j": json.dumps({"issue_date": issue + "-15T10:00:00Z", "type": ctype})},
+            )
+        await db_session.commit()
+        _override(user, db_session)
+        try:
+            label = f"{MONTH_NAMES[old_month]} {old_year}"
+            response = client.get(f"/api/dashboard/certificates?course_ids={u1.id}")
+            months = response.json()["months"]
+            assert len(months) == 2, "cert1 из сценария (текущий месяц) + 2 добавленных"
+            by_label = {m["month"]: m for m in months}
+            assert by_label[label] == {"month": label, "dark": 2, "light": 1}
+
+            response = client.get(f"/api/dashboard/certificates?course_ids={u2.id}")
+            months = response.json()["months"]
+            assert months == [{"month": label, "dark": 1, "light": 1}]
+
+            response = client.get(f"/api/dashboard/certificates?course_ids={u3.id}")
+            assert response.json()["months"] == [], "чужой курс не отдаёт сертификаты"
+
+            response = client.get("/api/dashboard/certificates?course_ids=")
+            assert response.json()["months"] == [], "пустой выбор = нет данных"
+        finally:
+            app.dependency_overrides.clear()
+
 
 class TestFilterKPI:
     async def test_kpi_filtered(self, db_session):

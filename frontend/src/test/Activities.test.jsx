@@ -27,6 +27,7 @@ const makeSyncValue = (overrides = {}) => ({
     activeStudents: { months: [] },
     activeEnrolled: { months: [] },
     publishedSolutions: { months: [] },
+    certificates: { months: [] },
   },
   loading: false,
   error: null,
@@ -42,7 +43,7 @@ describe('Activities', () => {
       </TestRouter>,
     );
     expect(screen.getByText('Активные студенты')).toBeInTheDocument();
-    expect(screen.getByText('Опубликованные решения')).toBeInTheDocument();
+    expect(screen.getByText('Выданные сертификаты')).toBeInTheDocument();
     expect(screen.getByText('Комментарии')).toBeInTheDocument();
     expect(screen.getAllByText('Отправленные решения').length).toBeGreaterThanOrEqual(1);
   });
@@ -67,7 +68,7 @@ describe('Activities', () => {
             financials: { community: { comments_monthly: commentsMonthly } },
             submissions: { months: [] },
             activeStudents: { months: [] },
-            publishedSolutions: { months: [] },
+            certificates: { months: [] },
           },
         })}
       >
@@ -89,7 +90,7 @@ describe('Activities', () => {
             submissions: { months: [{ month: 'Январь 2026', total: 100, correct: 80, published: 12 }] },
             activeStudents: { months: [] },
             activeEnrolled: { months: [] },
-            publishedSolutions: { months: [{ month: 'Январь 2026', dark: 12, light: 12 }] },
+            certificates: { months: [] },
           },
         })}
       >
@@ -97,5 +98,28 @@ describe('Activities', () => {
       </TestRouter>,
     );
     expect(screen.getByText('Опубликованные')).toBeInTheDocument();
+  });
+
+  it('certificates chart shows «С отличием» and «Обычные» categories', () => {
+    render(
+      <TestRouter
+        syncValue={makeSyncValue({
+          data: {
+            ...makeSyncValue().data,
+            certificates: {
+              months: [
+                { month: 'Январь 2026', dark: 10, light: 7 },
+                { month: 'Февраль 2026', dark: 5, light: 5 },
+              ],
+            },
+          },
+        })}
+      >
+        <Activities />
+      </TestRouter>,
+    );
+    expect(screen.getByText('Выданные сертификаты')).toBeInTheDocument();
+    expect(screen.getByText('С отличием')).toBeInTheDocument();
+    expect(screen.getByText('Обычные')).toBeInTheDocument();
   });
 });

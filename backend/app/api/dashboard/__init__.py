@@ -3,7 +3,7 @@
 - alerts: pending certificates, zero-score students
 - kpi: dashboard KPI card data
 - cohorts: cohort segmentation
-- charts: monthly series (revenue, submissions, active students, published solutions)
+- charts: monthly series (revenue, submissions, active students, certificates, published solutions)
 - students: paginated student list
 - steps: hardest steps ranking
 """

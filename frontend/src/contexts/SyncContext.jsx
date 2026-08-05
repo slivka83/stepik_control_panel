@@ -23,6 +23,7 @@ export function SyncProvider({ children }) {
     activeStudents: { months: [] },
     activeEnrolled: { months: [] },
     publishedSolutions: { months: [] },
+    certificates: { months: [] },
     students: { students: [], total: 0 },
   });
   const abortRef = useRef(null);
@@ -47,6 +48,7 @@ export function SyncProvider({ children }) {
         activeStudentsRes,
         activeEnrolledRes,
         publishedSolutionsRes,
+        certificatesRes,
         studentsRes,
       ] = await Promise.allSettled([
         api.get('/dashboard/kpi', { signal, ...courseParams }),
@@ -59,6 +61,7 @@ export function SyncProvider({ children }) {
         api.get('/dashboard/active-students', { signal, ...courseParams }),
         api.get('/dashboard/active-enrolled-students', { signal, ...courseParams }),
         api.get('/dashboard/published-solutions', { signal, ...courseParams }),
+        api.get('/dashboard/certificates', { signal, ...courseParams }),
         api.get('/dashboard/students?limit=200', { signal, ...courseParams }),
       ]);
 
@@ -84,6 +87,8 @@ export function SyncProvider({ children }) {
           activeEnrolled: activeEnrolledRes.status === 'fulfilled' ? activeEnrolledRes.value.data : prev.activeEnrolled,
           publishedSolutions:
             publishedSolutionsRes.status === 'fulfilled' ? publishedSolutionsRes.value.data : prev.publishedSolutions,
+          certificates:
+            certificatesRes.status === 'fulfilled' ? certificatesRes.value.data : prev.certificates,
           students: studentsRes.status === 'fulfilled' ? studentsRes.value.data : prev.students,
         };
         if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
@@ -101,6 +106,7 @@ export function SyncProvider({ children }) {
         activeStudentsRes,
         activeEnrolledRes,
         publishedSolutionsRes,
+        certificatesRes,
         studentsRes,
       ].filter((r) => r.status === 'rejected');
       if (failures.length > 0) {

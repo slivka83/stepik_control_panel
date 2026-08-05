@@ -1,13 +1,14 @@
-"""Monthly chart series: revenue, submissions, active students, published solutions."""
+"""Monthly chart series: revenue, submissions, active students, certificates, published solutions."""
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import extract, func, select
+from sqlalchemy import extract, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
 from app.api.dashboard.common import (
     format_month_label,
     get_courses_for_user,
+    json_field,
     weighted_success_pct,
     wilson_success_pct,
 )
@@ -305,6 +306,57 @@ async def get_published_solutions(
                 "month": format_month_label(m, y),
                 "dark": val,
                 "light": val,
+            }
+        )
+    return {"months": months_res}
+
+
+@router.get("/certificates")
+async def get_certificates(
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+    course_ids: str = Query(None),
+):
+    """Certificates issued per month: dark = total, light = regular (no distinction).
+
+    «С отличием» = overlap (dark − light) in the chart. The raw layer is TEXT,
+    so issue_date/type are parsed from _raw_json (same approach as kpi._count_raw_month).
+    """
+    parsed = parse_course_ids(course_ids)
+    stmt = "SELECT _raw_json FROM raw_certificate"
+    params: dict[str, str] = {}
+    if parsed is not None:
+        courses, _ = await get_courses_for_user(db, user, parsed)
+        stepik_ids = sorted(c.stepik_course_id for c in courses)
+        if not stepik_ids:
+            return {"months": []}
+        placeholders = ", ".join(f":cid{i}" for i in range(len(stepik_ids)))
+        stmt += f" WHERE course_id IN ({placeholders})"
+        params = {f"cid{i}": str(cid) for i, cid in enumerate(stepik_ids)}
+
+    rows = (await db.execute(text(stmt), params)).all()
+    monthly: dict[str, int] = {}
+    distinction_monthly: dict[str, int] = {}
+    for row in rows:
+        data = row[0]
+        issue = json_field(data, "issue_date")
+        if not issue:
+            continue
+        ym = str(issue)[:7]
+        monthly[ym] = monthly.get(ym, 0) + 1
+        if json_field(data, "type") == "distinction":
+            distinction_monthly[ym] = distinction_monthly.get(ym, 0) + 1
+
+    months_res = []
+    for key in sorted(monthly):
+        y_str, m_str = key.split("-")
+        y, m = int(y_str), int(m_str)
+        total = monthly[key]
+        months_res.append(
+            {
+                "month": format_month_label(m, y),
+                "dark": total,
+                "light": total - distinction_monthly.get(key, 0),
             }
         )
     return {"months": months_res}

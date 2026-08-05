@@ -147,6 +147,7 @@ class TestDashboardPackage:
         "/api/dashboard/active-students",
         "/api/dashboard/active-enrolled-students",
         "/api/dashboard/published-solutions",
+        "/api/dashboard/certificates",
         "/api/dashboard/students",
         "/api/dashboard/hardest-steps",
     }
