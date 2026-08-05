@@ -43,7 +43,7 @@ describe('Activities', () => {
       </TestRouter>,
     );
     expect(screen.getByText('Активные студенты')).toBeInTheDocument();
-    expect(screen.getByText('Выданные сертификаты')).toBeInTheDocument();
+    expect(screen.getByText('Сертификаты')).toBeInTheDocument();
     expect(screen.getByText('Комментарии')).toBeInTheDocument();
     expect(screen.getAllByText('Отправленные решения').length).toBeGreaterThanOrEqual(1);
   });
@@ -118,7 +118,7 @@ describe('Activities', () => {
         <Activities />
       </TestRouter>,
     );
-    expect(screen.getByText('Выданные сертификаты')).toBeInTheDocument();
+    expect(screen.getByText('Сертификаты')).toBeInTheDocument();
     expect(screen.getByText('С отличием')).toBeInTheDocument();
     expect(screen.getByText('Обычные')).toBeInTheDocument();
   });

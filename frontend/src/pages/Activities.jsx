@@ -28,14 +28,13 @@ export default function Activities() {
         <ActiveStudentsChart data={data.activeStudents} hatched lightLabel="Уникальные студенты" tooltipRight />
         <ActiveStudentsChart
           data={data.certificates}
-          title="Выданные сертификаты"
+          title="Сертификаты"
           primaryColor="#581c87"
           secondaryColor="#c084fc"
           hatched
           lightLabel="Обычные"
           darkLabel="С отличием"
           darkTooltipOverlap
-          tooltipRight
         />
         <SubmissionsChart
           data={commentsChartData}
