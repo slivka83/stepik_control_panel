@@ -30,7 +30,7 @@ export default function Activities() {
           data={data.certificates}
           title="Выданные сертификаты"
           primaryColor="#581c87"
-          secondaryColor="#a855f7"
+          secondaryColor="#c084fc"
           hatched
           lightLabel="Обычные"
           darkLabel="С отличием"
