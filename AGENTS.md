@@ -290,6 +290,25 @@ Y-ось графиков:
 
 Графики используют `CHART_COLORS` из `frontend/src/constants.js`.
 
+## Единые таблицы (DataTable) и вкладки (Tabs)
+
+Все таблицы (Решения ×4, Финансы ×7, Студенты, Курсы) построены на общем компоненте **`frontend/src/components/DataTable.jsx`** — сортировка, пагинация, авто-высота строк и вёрстка живут в одном месте; панель вкладок — **`frontend/src/components/Tabs.jsx`**. Будущие изменения сортировки/пагинации/стилей вносятся один раз и применяются ко всем таблицам.
+
+**Схема колонки** (отличия таблиц задаются конфигурацией):
+```
+{ key, label, width, align: 'left'|'right', numeric?, nullLast?, naturalDir?,
+  getValue?(row) -> значение для сортировки (составной месяц, «Неверно»=всего−правильно, алиасы step_id→stepik_step_id и т.п.),
+  render?(row) -> полный <td> (ссылки, бейджи, цвета, валюта), cellClassName?, headerClassName? }
+```
+- `naturalDir` — «естественное направление» стрелки; по умолчанию `numeric → 'asc'`, текст → `'desc'`. Явно задаётся для дат-строк: `time`/`last_used` (Финансы), `last_activity` (Студенты), `published_at` (Курсы)
+- `makeComparator(columns)` — единый компаратор (numeric/nullLast/getValue) вместо набора per-page функций
+- Хуки: `useSortState(columns, initialSort)`, `useRowsPerPage()` (ResizeObserver, авто-высота строк)
+- **Клиентский режим** (по умолчанию): `rows` сортируются и нарезаются внутри; состояние сортировки страница передаёт контролируемо (`sort`/`onSort`) для сохранения сортировки по вкладкам (Решения/Финансы), страница — внутри
+- **Серверный режим** (Студенты): передаётся `totalPages` + контролируемые `sort`/`onSort`/`page`/`setPage`/`rowsPerPage`/`tableRef` — `rows` уже отсортированы и нарезаны бэкендом, DataTable только рендерит
+- `emptyText` (пустая строка `colSpan = columns.length`), `emptyCentered` (блок по центру — «Нет данных» на hardest), `error` (красный блок — «Не удалось загрузить данные» на hardest), `loading` гасит пустое/ошибочное состояние
+- Хелперы ячеек-заголовков: `yearMonthLabel`/`fmtDate` в `frontend/src/utils/format.js`
+- Юнит-тесты компонента: `frontend/src/test/DataTable.test.jsx`, `frontend/src/test/Tabs.test.jsx`
+
 ## Страница «Решения» (4 вкладки)
 
 - Вкладки: **По месяцам / По годам / По курсам / Самые сложные** (`frontend/src/pages/Solutions.jsx`)
@@ -299,17 +318,19 @@ Y-ось графиков:
 - **«Успех» = Wilson-нижняя граница 95% доверительного интервала** (`wilson_success_pct()` в `app/api/dashboard/common.py`), а не `correct/total`: чем меньше попыток, тем сильнее число занижается (данным нельзя верить); чем больше попыток, тем ближе к наблюдённому. 1 верная из 5 (20%) → 3.6%; 200 из 1000 (20%) → 17.6%. API отдаёт `success_pct` для всех группировок (months/years/by_course/steps); фронт использует его с fallback на raw-расчёт
 - **«Взв. успех» = наблюдённый процент, притянутый к среднему по шагам** (`weighted_success_pct()` в `app/api/dashboard/common.py`): `(correct + 20 × global_pct) / (total + 20) × 100`, где `global_pct` — **unweighted mean** успеха по строкам группировки (не по попыткам — иначе доминирующий шаг сдвигает среднее). Мало попыток → цифра ≈ среднего, не лезет в топ; много попыток → честный `correct/total`. Колонка показывается **только на вкладке «Самые сложные»** (там она осмысленна — малые выборки шагов); API отдаёт `weighted_success_pct` для всех группировок
 - Источники: `GET /dashboard/submissions` → `{months, by_course, years}` (в `app/api/dashboard/charts.py`); `GET /dashboard/hardest-steps` → `{steps}` (в `app/api/dashboard/steps.py`). Годы считают `students` **отдельным запросом** (не суммой по месяцам — один студент в нескольких месяцах одного года посчитался бы дважды). hardest сортирует по `weighted_success_pct` в Python (не в SQL) — мусор с 1-2 попытками не всплывает наверх
-- Сортировка: первый клик — «естественный порядок» (числа/даты — больше/новые сверху, текст — А→Я), стрелка указывает **на главные значения** (`┴`/`↑` по типу в `NATURAL_DIR_BY_KEY`); повторный клик — наоборот
+- Сортировка: первый клик — «естественный порядок» (числа/даты — больше/новые сверху, текст — А→Я), стрелка указывает **на главные значения** (по `naturalDir` в конфиге колонки); повторный клик — наоборот
 - Верхние KPI-плашки: Всего решений / Правильных / Неправильных (белые) + Успех (цвет как в колонке: `successColor` <33 красный, <66 жёлтый, ≥66 зелёный)
 
-## Страница «Финансы» (6 вкладок)
+## Страница «Финансы» (7 вкладок)
 
-- Вкладки: **По месяцам / По годам / По курсам / По промокодам / По UTM / Последние операции** (`frontend/src/pages/Financials.jsx`)
-- Таблицы — тот же сортируемый/пагинируемый паттерн, что и в Решениях: `SortableTh` + `NATURAL_DIR_BY_KEY` + авто-`rowsPerPage` (`calcRowsPerPage`) + `Pagination`
+- Вкладки: **По месяцам / По годам / По дням / По курсам / По промокодам / По UTM / Последние операции** (`frontend/src/pages/Financials.jsx`)
+- Таблицы — тот же сортируемый/пагинируемый паттерн, что и в Решениях: `DataTable` + схема колонок (`naturalDir` для дат `time`/`last_used`) + авто-`rowsPerPage`
 - **Месяцы сортируются по композиту `year*100 + month_num`** (хронология, а не по текстовой метке «Январь 2026»); данные приходят без `.reverse()` — дефолт `{key:'month', dir:'desc'}` даёт «новые сверху»
+- **«По дням»** — агрегация `recent_payments` по календарному дню за последние **30 дней включительно с нулевыми днями** (все 30 строк), новые сверху. Считается на лету в `/api/financials` (`_build_daily_stats`, `DAYS_BACK=30`) из `recent_payments` (там есть `time`/`amount`/`payment_amount`/`status`), формула как в `filter_financials` (`refunded` → `refunds += abs(amount)`, `turnover -= payment_amount`). Фильтр по курсам работает автоматически — отфильтрованные `recent_payments` уже ограничены. Даты рендерятся как `dd.mm.yyyy` без timezone-сдвигов
 - `nullLast` для nullable-колонок: `price`, `student`, `channel`, `promo_code`, `is_gift`, `utm_source_label`, `last_used` (всегда внизу, даже при desc)
 - Финансовая семантика цветов сохранена: белый оборот/суммы, `neon-green` доход, `crimson-alert`+`line-through` для refunded, `formatCurrency` (₽), «—» для пустых ячеек
 - `recent`-вкладка: UTM-тултип из `raw.last_course_click_utm` (`formatUtmTooltip`), сортировка «Дата» по raw `time`, «Подарок» (is_gift) — 0/1
+- Колонка **«Комиссия»** (между «Оплата» и «Доход») — комиссия Stepik в % от платежа: `(payment_amount − abs(amount)) / payment_amount × 100`, округление до целых (тултип — сумма комиссии в ₽). Считается на фронтенде из полей `recent_payments` (`commissionOf()` в `Financials.jsx`); API готового процента не отдаёт (в `raw_course._raw_json` есть только курсовые ставки `commission_basic`/`commission_promo`, которые не объясняют промо-платежи)
 
 ## Критерии приёмки
 

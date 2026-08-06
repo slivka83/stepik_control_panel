@@ -27,6 +27,11 @@ const mockFinancials = {
     },
   ],
   years: [{ year: 2026, turnover: 70000, income: 50000, refunds: 0, payments_count: 15 }],
+  days: [
+    { day: '2026-01-15', payments_count: 1, turnover: 7000, income: 5000, refunds: 0, refunds_count: 0 },
+    { day: '2026-01-14', payments_count: 1, turnover: 7000, income: 0, refunds: 500, refunds_count: 1 },
+    { day: '2026-01-13', payments_count: 1, turnover: 4000, income: 3000, refunds: 0, refunds_count: 0 },
+  ],
   courses: [{ course_id: 68260, title: 'Тестовый курс', turnover: 70000, income: 50000, refunds: 0, payments: 15 }],
   promos: [
     {
@@ -153,6 +158,7 @@ describe('Financials', () => {
     renderFinancials();
     expect(screen.getByText('По месяцам')).toBeInTheDocument();
     expect(screen.getByText('По годам')).toBeInTheDocument();
+    expect(screen.getByText('По дням')).toBeInTheDocument();
     expect(screen.getByText('По курсам')).toBeInTheDocument();
     expect(screen.getByText('Последние операции')).toBeInTheDocument();
   });
@@ -164,6 +170,17 @@ describe('Financials', () => {
     expect(screen.getByText('2026')).toBeInTheDocument();
     expect(screen.getAllByText('Покупок').length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText('15')).toBeInTheDocument();
+  });
+
+  it('switches to days tab on click', async () => {
+    const user = userEvent.setup();
+    renderFinancials();
+    await user.click(screen.getByText('По дням'));
+    expect(screen.getByText('Дата')).toBeInTheDocument();
+    expect(screen.getByText('15.01.2026')).toBeInTheDocument();
+    expect(screen.getByText('14.01.2026')).toBeInTheDocument();
+    expect(screen.getByText('5 000 ₽')).toBeInTheDocument();
+    expect(screen.getByText('-500 ₽')).toHaveClass('text-crimson-alert');
   });
 
   it('renders 5 KPI cards', () => {
@@ -193,7 +210,7 @@ describe('Financials', () => {
     expect(screen.getByText('Канал')).toBeInTheDocument();
     expect(screen.getByText('Студент')).toBeInTheDocument();
     const headers = screen.getAllByRole('columnheader').map((th) => th.textContent.replace(/[↑↓]/g, ''));
-    expect(headers).toEqual(expect.arrayContaining(['Оплата', 'Доход', 'Подарок', 'UTM']));
+    expect(headers).toEqual(expect.arrayContaining(['Оплата', 'Комиссия', 'Доход', 'Подарок', 'UTM']));
     expect(screen.getByText('Иван Петров')).toBeInTheDocument();
     expect(screen.getByText('Подарок')).toBeInTheDocument();
     expect(screen.getByText('Я.Директ')).toBeInTheDocument();
@@ -201,6 +218,11 @@ describe('Financials', () => {
     expect(screen.getByText('А-ссылка')).toBeInTheDocument();
     expect(screen.getByText('По счету')).toBeInTheDocument();
     expect(screen.getByText('Да')).toBeInTheDocument();
+    expect(screen.getByText('29%')).toBeInTheDocument();
+    expect(screen.getByText('93%')).toBeInTheDocument();
+    expect(screen.getByText('25%')).toBeInTheDocument();
+    expect(screen.getByTitle('2 000 ₽')).toBeInTheDocument();
+    expect(screen.getByTitle('6 500 ₽')).toBeInTheDocument();
     const tooltip = screen.getByTitle(/utm_source: yandex_stpk/);
     expect(tooltip).toHaveAttribute('title', expect.stringContaining('utm_medium: cpc'));
     expect(tooltip.getAttribute('title')).not.toContain('amount');

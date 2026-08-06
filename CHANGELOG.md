@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Features (Финансы — вкладка «По дням» и колонка «Комиссия»)
+- Новая вкладка **«По дням»** (между «По годам» и «По курсам»): агрегация `recent_payments` по календарному дню за последние **30 дней включительно с нулевыми днями** (все 30 строк), новые сверху. Считается на лету в `/api/financials` (`_build_daily_stats`, `DAYS_BACK=30`) из полей `time`/`amount`/`payment_amount`/`status`; формула как в `filter_financials` (`refunded` → `refunds += abs(amount)`, `turnover -= payment_amount`). Фильтр по курсам работает автоматически. Даты рендерятся как `dd.mm.yyyy` без timezone-сдвигов
+- Колонка **«Комиссия»** (между «Оплата» и «Доход») во вкладке «Последние операции» — комиссия Stepik в % от платежа: `(payment_amount − abs(amount)) / payment_amount × 100`, округление до целых; тултип — сумма комиссии в ₽ (`commissionOf()` в `Financials.jsx`). API готовый процент не отдаёт (в `raw_course._raw_json` есть только курсовые ставки `commission_basic`/`commission_promo`, которые не объясняют промо-платежи)
+
+### Architecture / Refactoring (единые DataTable и Tabs)
+- Введён общий компонент **`DataTable`** (`frontend/src/components/DataTable.jsx`): вся сортировка, пагинация, авто-высота строк (ResizeObserver) и вёрстка таблиц живут в одном месте. Все таблицы (Решения ×4 вкладки, Финансы ×7, Студенты, Курсы — 11 штук) переведены на него
+- **Настраиваемые параметры колонки** (отличия таблиц): `key`/`label`/`width`/`align`, `numeric`, `nullLast`, `naturalDir` (направление стрелки), `getValue` (вычисляемое значение для сортировки — составной месяц, «Неверно» = всего−правильно, алиасы `step_id→stepik_step_id` и т.п.), `render` (ячейка-ссылка/бейдж/цвет), `cellClassName`/`headerClassName`
+- Режимы: **клиентский** (Решения, Финансы, Курсы — сортировка и пагинация внутри компонента) и **серверный** (`totalPages` + контролируемые `sort/page/rowsPerPage/tableRef` — Студенты)
+- Дубли убраны: `SortableTh`, `Pagination`, `makeComparator`, `useSortState`, `useRowsPerPage` вынесены из страниц; хелперы `yearMonthLabel`/`fmtDate` — в `frontend/src/utils/format.js`; панель вкладок — общий компонент **`Tabs`**
+- Поведение и внешний вид не изменились: все 299 прежних тестов проходят без правок; добавлены юнит-тесты `DataTable.test.jsx` (14) и `Tabs.test.jsx` (3)
+
 ### Features (Студенты — колонка «Опубликованные»)
 - В таблицу «Студенты» добавлена колонка **«Опубликованные»** (справа от «Решений»): количество опубликованных решений студента = комментарии в тредах решений (`raw_comment._raw_json.thread` содержит `solutions`) — та же семантика, что у «Публичных решений» на дашборде и серии «Опубликованные» на графике «Решения». Данные уже в базе, новых запросов к Stepik не требуется
 - Источник: `transform_students` считает solution-комментарии по пользователю → поле `published_solutions` в `student_marts` (модель + миграция `016`); `/api/dashboard/students` отдаёт поле и сортирует по нему (белый список колонок)

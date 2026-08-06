@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,6 +11,67 @@ from app.database import get_db
 from app.models import FinancialSnapshot, User
 
 router = APIRouter(prefix="/api/financials", tags=["financials"])
+
+DAYS_BACK = 30
+
+
+def _build_daily_stats(recent_payments: list[dict]) -> list[dict]:
+    """Aggregate payments by calendar day over the last DAYS_BACK days.
+
+    Zeros-inclusive window (every calendar day is present), newest first.
+    Mirrors the refunds formula from filter_financials/transform_financials.
+    """
+    today = datetime.now(UTC).date()
+    start = today - timedelta(days=DAYS_BACK - 1)
+    buckets: dict[str, dict] = {}
+    for p in recent_payments or []:
+        try:
+            d = datetime.fromisoformat(str(p.get("time", "")).replace("Z", "+00:00")).date()
+        except (ValueError, TypeError):
+            continue
+        if d < start or d > today:
+            continue
+        b = buckets.setdefault(
+            d.isoformat(),
+            {
+                "day": d.isoformat(),
+                "payments_count": 0,
+                "turnover": 0.0,
+                "income": 0.0,
+                "refunds": 0.0,
+                "refunds_count": 0,
+            },
+        )
+        b["payments_count"] += 1
+        status = p.get("status", "")
+        amount = float(p.get("amount", 0) or 0)
+        payment_amount = float(p.get("payment_amount", 0) or 0)
+        if status == "refunded":
+            b["refunds"] += abs(amount)
+            b["refunds_count"] += 1
+            b["turnover"] -= payment_amount
+        else:
+            b["turnover"] += payment_amount
+            b["income"] += amount
+
+    days = []
+    for offset in range(DAYS_BACK):
+        d = (start + timedelta(days=offset)).isoformat()
+        days.append(
+            buckets.get(
+                d,
+                {
+                    "day": d,
+                    "payments_count": 0,
+                    "turnover": 0.0,
+                    "income": 0.0,
+                    "refunds": 0.0,
+                    "refunds_count": 0,
+                },
+            )
+        )
+    days.sort(key=lambda x: x["day"], reverse=True)
+    return days
 
 
 @router.get("")
@@ -31,6 +94,7 @@ async def get_financials(
             },
             "months": [],
             "years": [],
+            "days": [],
             "courses": [],
             "recent_payments": [],
         }
@@ -52,4 +116,5 @@ async def get_financials(
         agg["income"] += float(m.get("income", 0) or 0)
         agg["refunds"] += float(m.get("refunds", 0) or 0)
     data["years"] = [year_stats[y] for y in sorted(year_stats)]
+    data["days"] = _build_daily_stats(data.get("recent_payments", []))
     return data

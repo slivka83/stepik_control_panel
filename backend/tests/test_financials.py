@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -24,6 +24,7 @@ class TestFinancials:
         db_session.add(user)
         await db_session.flush()
 
+        now = datetime.now(UTC)
         db_session.add(
             FinancialSnapshot(
                 id=uuid.uuid4(),
@@ -68,7 +69,29 @@ class TestFinancials:
                         },
                     ],
                     "courses": [{"title": "Python", "income": 100000}],
-                    "recent_payments": [{"id": 1, "amount": 2940}],
+                    "recent_payments": [
+                        {
+                            "id": 1,
+                            "amount": 2940,
+                            "payment_amount": 4000,
+                            "status": "debited",
+                            "time": (now - timedelta(days=1)).isoformat(),
+                        },
+                        {
+                            "id": 2,
+                            "amount": 1000,
+                            "payment_amount": 1200,
+                            "status": "refunded",
+                            "time": (now - timedelta(days=1)).isoformat(),
+                        },
+                        {
+                            "id": 3,
+                            "amount": 500,
+                            "payment_amount": 500,
+                            "status": "debited",
+                            "time": (now - timedelta(days=3)).isoformat(),
+                        },
+                    ],
                 },
                 updated_at=datetime.now(UTC).replace(tzinfo=None),
             )
@@ -98,6 +121,24 @@ class TestFinancials:
             assert data["years"][0]["refunds"] == 2000
             assert data["years"][1]["payments_count"] == 17
             assert data["years"][1]["income"] == 70000
+
+            today = datetime.now(UTC).date()
+            assert len(data["days"]) == 30
+            assert data["days"][0]["day"] == today.isoformat()
+            assert data["days"][0]["payments_count"] == 0
+            yesterday = (today - timedelta(days=1)).isoformat()
+            y = next(d for d in data["days"] if d["day"] == yesterday)
+            assert y["payments_count"] == 2
+            assert y["turnover"] == 2800
+            assert y["income"] == 2940
+            assert y["refunds"] == 1000
+            assert y["refunds_count"] == 1
+            d3 = (today - timedelta(days=3)).isoformat()
+            day3 = next(d for d in data["days"] if d["day"] == d3)
+            assert day3["payments_count"] == 1
+            assert day3["turnover"] == 500
+            assert day3["income"] == 500
+            assert day3["refunds"] == 0
         finally:
             app.dependency_overrides.clear()
 
@@ -127,5 +168,6 @@ class TestFinancials:
             assert data["summary"]["total_turnover"] == 0
             assert data["months"] == []
             assert data["years"] == []
+            assert data["days"] == []
         finally:
             app.dependency_overrides.clear()
