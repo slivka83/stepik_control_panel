@@ -10,7 +10,7 @@ describe('SubmissionsChart', () => {
 
   it('renders chart title', () => {
     render(<SubmissionsChart data={{ months: [] }} />);
-    expect(screen.getByText('Отправленные решения')).toBeInTheDocument();
+    expect(screen.getByText('Решения')).toBeInTheDocument();
   });
 
   it('renders with data', () => {
@@ -21,7 +21,7 @@ describe('SubmissionsChart', () => {
       ],
     };
     render(<SubmissionsChart data={data} />);
-    expect(screen.getByText('Отправленные решения')).toBeInTheDocument();
+    expect(screen.getByText('Решения')).toBeInTheDocument();
     expect(screen.queryByText('Нет данных для отображения')).not.toBeInTheDocument();
   });
 
@@ -72,7 +72,7 @@ describe('SubmissionsChart', () => {
     const { container } = render(<SubmissionsChart data={{ months }} />);
     const figcaption = container.querySelector('figcaption');
     expect(figcaption.textContent).toContain('18');
-    expect(screen.getByText('Отправленные решения')).toBeInTheDocument();
+    expect(screen.getByText('Решения')).toBeInTheDocument();
   });
 
   it('renders with single month of data', () => {
@@ -97,6 +97,19 @@ describe('SubmissionsChart', () => {
     };
     render(<SubmissionsChart data={data} />);
     expect(screen.getByText('Опубликованные')).toBeInTheDocument();
+  });
+
+  it('Опубликованные color is the average of Правильные and Всего', () => {
+    const data = {
+      months: [{ month: 'Январь 2026', total: 100, correct: 80, published: 12 }],
+    };
+    const { container } = render(<SubmissionsChart data={data} />);
+    const label = screen.getByText('Опубликованные');
+    const swatch = label.previousElementSibling;
+    expect(swatch).toHaveStyle({ backgroundColor: '#2994cb' });
+    expect(swatch).not.toHaveStyle({ backgroundColor: '#7dd3fc' });
+    const legend = container.querySelector('figure');
+    expect(legend).toBeInTheDocument();
   });
 
   it('does not render Опубликованные legend without published data', () => {

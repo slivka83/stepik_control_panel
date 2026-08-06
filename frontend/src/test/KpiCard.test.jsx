@@ -38,6 +38,17 @@ describe('KpiCard', () => {
     expect(container.textContent).toContain('5%');
   });
 
+  it('sets trendTooltip as title on the trend span', () => {
+    const tip = 'Изменение за месяц\nРасчёт: (100 − 80) ÷ 80 × 100 = +25%';
+    const { container } = render(<KpiCard title="Growth" value={100} trend={25} trendTooltip={tip} />);
+    expect(container.querySelector('span.text-xs.font-mono')).toHaveAttribute('title', tip);
+  });
+
+  it('omits title on the trend span when trendTooltip is absent', () => {
+    const { container } = render(<KpiCard title="Growth" value={100} trend={25} />);
+    expect(container.querySelector('span.text-xs.font-mono')).not.toHaveAttribute('title');
+  });
+
   it.each([
     [5, 'text-neon-green'],
     [0, 'text-crimson-alert'],

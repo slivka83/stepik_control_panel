@@ -6,7 +6,15 @@ import { buildMonthWindow } from '../utils/monthWindow.js';
 
 const COLOR_BRIGHT = '#38bdf8';
 const COLOR_DIM = '#1a6a9e';
-const COLOR_PUBLISHED = '#7dd3fc';
+
+function mixColors(a, b) {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const r = Math.round((((pa >> 16) & 0xff) + ((pb >> 16) & 0xff)) / 2);
+  const g = Math.round((((pa >> 8) & 0xff) + ((pb >> 8) & 0xff)) / 2);
+  const b2 = Math.round(((pa & 0xff) + (pb & 0xff)) / 2);
+  return `#${((r << 16) | (g << 8) | b2).toString(16).padStart(6, '0')}`;
+}
 
 function BarShape({ activeMonth, onBarEnter, onBarLeave, ...props }) {
   const { x, y, width, height, fill, fillOpacity, payload } = props;
@@ -51,7 +59,7 @@ export default function SubmissionsChart({
   if (!months.length) {
     return (
       <div className="glass-panel p-4 flex flex-col min-h-0">
-        <h3 className="text-white font-medium mb-3">{title || 'Отправленные решения'}</h3>
+        <h3 className="text-white font-medium mb-3">{title || 'Решения'}</h3>
         <div className="flex-1 flex items-center justify-center text-gray-500">Нет данных для отображения</div>
       </div>
     );
@@ -59,7 +67,7 @@ export default function SubmissionsChart({
 
   const bright = primaryColor || COLOR_BRIGHT;
   const dim = secondaryColor || COLOR_DIM;
-  const publishedColor = COLOR_PUBLISHED;
+  const publishedColor = mixColors(bright, dim);
   const hasPublished = (data.months || []).some((m) => 'published' in m);
 
   const chartData = months.map((d) => {
@@ -92,10 +100,10 @@ export default function SubmissionsChart({
       className="glass-panel p-4 flex flex-col min-h-0"
     >
       <figcaption className="sr-only">
-        {title || 'Отправленные решения'} за {months.length} месяцев
+        {title || 'Решения'} за {months.length} месяцев
       </figcaption>
       <div className="flex items-center justify-between mb-2 shrink-0">
-        {showTitle && <h3 className="text-white font-medium">{title || 'Отправленные решения'}</h3>}
+        {showTitle && <h3 className="text-white font-medium">{title || 'Решения'}</h3>}
         <div className="flex items-center gap-4">
           {!hideCorrectLegend && (
             <div className="flex items-center gap-2">

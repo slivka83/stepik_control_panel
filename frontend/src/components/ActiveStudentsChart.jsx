@@ -203,7 +203,6 @@ export default function ActiveStudentsChart({
                 <Cell
                   key={`cell-overlap-${entry.month}`}
                   fill={hatched && i === chartData.length - 1 ? `url(#ha-${uid})` : dim}
-                  fillOpacity={hatched && i === chartData.length - 1 ? 1 : 0.5}
                 />
               ))}
             </Bar>
@@ -224,15 +223,15 @@ export default function ActiveStudentsChart({
             }}
           >
             <div style={{ color: '#ffffff', fontSize: 13, marginBottom: 4 }}>{activeEntry.month}</div>
-            <div style={{ color: bright, fontSize: 12 }}>
-              {lightLabel || title || 'Уникальные'}: {(activeEntry.light ?? 0).toLocaleString('ru-RU')}
-            </div>
             {!hideDarkLegend && (
               <div style={{ color: dim, fontSize: 12 }}>
                 {darkLabel || 'Уникальные по курсам'}:{' '}
                 {darkTooltipValue(activeEntry, darkTooltipOverlap).toLocaleString('ru-RU')}
               </div>
             )}
+            <div style={{ color: bright, fontSize: 12 }}>
+              {lightLabel || title || 'Уникальные'}: {(activeEntry.light ?? 0).toLocaleString('ru-RU')}
+            </div>
           </div>,
           document.body,
         )}

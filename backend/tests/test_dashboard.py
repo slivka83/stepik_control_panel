@@ -259,16 +259,20 @@ class TestDashboardKPIMonthSplit:
             assert data["certificates_prev_months"] == 1
             assert data["certificates_current_month"] == 1
             assert data["certificates_change_pct"] == 0, "1 vs 1 → 0%"
+            assert data["certificates_change_detail"] == {"current": 1, "previous": 1}
             assert data["total_comments"] == 5
             assert data["comments_prev_months"] == 3
             assert data["current_month_comments"] == 2
+            assert data["comments_change_detail"] is None, "2 vs 0 → нет процента (деление на ноль)"
             assert data["total_reviews"] == 3
             assert data["reviews_prev_months"] == 2
             assert data["reviews_current_month"] == 1
             assert data["reviews_change_pct"] == 0, "1 vs 1 → 0%"
+            assert data["reviews_change_detail"] == {"current": 1, "previous": 1}
             assert data["published_solutions_prev_months"] == 3, "4 - 1 (текущий месяц)"
             assert data["published_solutions_current_month"] == 1
             assert data["published_solutions_change_pct"] == -50, "1 vs 2 → -50%"
+            assert data["published_solutions_change_detail"] == {"current": 1, "previous": 2}
             expected_grade = (4 * 2 + 5 * 12 + 1 + 2 + 3 + 4 + 5) / 19
             assert data["steps_average_grade"] == round(expected_grade, 2), "средняя оценка шагов из num_grades"
         finally:
@@ -415,6 +419,7 @@ class TestDashboardStudents:
             "submissions_count": 0,
             "submissions_successful": 0,
             "comments_count": 0,
+            "published_solutions": 0,
             "last_activity": None,
             "updated_at": datetime.now(UTC).replace(tzinfo=None),
         }
@@ -433,6 +438,7 @@ class TestDashboardStudents:
             submissions_count=3,
             submissions_successful=2,
             comments_count=4,
+            published_solutions=6,
             last_activity=datetime.now(UTC).replace(tzinfo=None),
         )
         self._seed_mart(db_session, 9, courses_count=1, certificates=1)
@@ -454,6 +460,7 @@ class TestDashboardStudents:
             assert s7["submissions_count"] == 3
             assert s7["submissions_successful"] == 2
             assert s7["comments_count"] == 4
+            assert s7["published_solutions"] == 6
             assert s7["last_activity"] is not None
         finally:
             app.dependency_overrides.clear()
@@ -472,6 +479,93 @@ class TestDashboardStudents:
         try:
             data = client.get("/api/dashboard/students").json()
             assert [s["student_id"] for s in data["students"]] == [2, 1, 3]
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_sort_by_submissions_count(self, db_session):
+        user = await _seed_db(db_session)
+        self._seed_mart(db_session, 1, submissions_count=5)
+        self._seed_mart(db_session, 2, submissions_count=50)
+        self._seed_mart(db_session, 3, submissions_count=1)
+        await db_session.commit()
+
+        await self._setup(db_session, user)
+        try:
+            desc = client.get("/api/dashboard/students?sort=submissions_count&order=desc").json()
+            assert [s["student_id"] for s in desc["students"]] == [2, 1, 3]
+            asc = client.get("/api/dashboard/students?sort=submissions_count&order=asc").json()
+            assert [s["student_id"] for s in asc["students"]] == [3, 1, 2]
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_sort_by_published_solutions(self, db_session):
+        user = await _seed_db(db_session)
+        self._seed_mart(db_session, 1, published_solutions=5)
+        self._seed_mart(db_session, 2, published_solutions=50)
+        self._seed_mart(db_session, 3, published_solutions=1)
+        await db_session.commit()
+
+        await self._setup(db_session, user)
+        try:
+            desc = client.get("/api/dashboard/students?sort=published_solutions&order=desc").json()
+            assert [s["student_id"] for s in desc["students"]] == [2, 1, 3]
+            asc = client.get("/api/dashboard/students?sort=published_solutions&order=asc").json()
+            assert [s["student_id"] for s in asc["students"]] == [3, 1, 2]
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_sort_last_activity_asc_nulls_last(self, db_session):
+        user = await _seed_db(db_session)
+        now = datetime.now(UTC).replace(tzinfo=None)
+        from datetime import timedelta as _td
+
+        self._seed_mart(db_session, 1, last_activity=now)
+        self._seed_mart(db_session, 2, last_activity=None)
+        self._seed_mart(db_session, 3, last_activity=now - _td(days=10))
+        await db_session.commit()
+
+        await self._setup(db_session, user)
+        try:
+            data = client.get("/api/dashboard/students?sort=last_activity&order=asc").json()
+            assert [s["student_id"] for s in data["students"]] == [3, 1, 2]
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_sort_by_name(self, db_session):
+        user = await _seed_db(db_session)
+        self._seed_mart(db_session, 1, name="Иван Петров")
+        self._seed_mart(db_session, 2, name="Анна Иванова")
+        self._seed_mart(db_session, 3, name="Олег Сидоров")
+        await db_session.commit()
+
+        await self._setup(db_session, user)
+        try:
+            data = client.get("/api/dashboard/students?sort=name&order=asc").json()
+            assert [s["student_id"] for s in data["students"]] == [2, 1, 3]
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_invalid_sort_field_returns_400(self, db_session):
+        user = await _seed_db(db_session)
+        self._seed_mart(db_session, 1)
+        await db_session.commit()
+
+        await self._setup(db_session, user)
+        try:
+            response = client.get("/api/dashboard/students?sort=nope")
+            assert response.status_code == 400
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_invalid_order_returns_400(self, db_session):
+        user = await _seed_db(db_session)
+        self._seed_mart(db_session, 1)
+        await db_session.commit()
+
+        await self._setup(db_session, user)
+        try:
+            response = client.get("/api/dashboard/students?sort=courses_count&order=sideways")
+            assert response.status_code == 400
         finally:
             app.dependency_overrides.clear()
 

@@ -24,7 +24,6 @@ export function SyncProvider({ children }) {
     activeEnrolled: { months: [] },
     publishedSolutions: { months: [] },
     certificates: { months: [] },
-    students: { students: [], total: 0 },
   });
   const abortRef = useRef(null);
   const pollIntervalRef = useRef(30000);
@@ -49,7 +48,6 @@ export function SyncProvider({ children }) {
         activeEnrolledRes,
         publishedSolutionsRes,
         certificatesRes,
-        studentsRes,
       ] = await Promise.allSettled([
         api.get('/dashboard/kpi', { signal, ...courseParams }),
         api.get('/dashboard/cohorts', { signal, ...courseParams }),
@@ -62,7 +60,6 @@ export function SyncProvider({ children }) {
         api.get('/dashboard/active-enrolled-students', { signal, ...courseParams }),
         api.get('/dashboard/published-solutions', { signal, ...courseParams }),
         api.get('/dashboard/certificates', { signal, ...courseParams }),
-        api.get('/dashboard/students?limit=200', { signal, ...courseParams }),
       ]);
 
       setData((prev) => {
@@ -89,7 +86,6 @@ export function SyncProvider({ children }) {
             publishedSolutionsRes.status === 'fulfilled' ? publishedSolutionsRes.value.data : prev.publishedSolutions,
           certificates:
             certificatesRes.status === 'fulfilled' ? certificatesRes.value.data : prev.certificates,
-          students: studentsRes.status === 'fulfilled' ? studentsRes.value.data : prev.students,
         };
         if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
         return next;
@@ -107,7 +103,6 @@ export function SyncProvider({ children }) {
         activeEnrolledRes,
         publishedSolutionsRes,
         certificatesRes,
-        studentsRes,
       ].filter((r) => r.status === 'rejected');
       if (failures.length > 0) {
         setError(`${failures.length} endpoint(s) failed to load`);

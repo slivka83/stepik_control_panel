@@ -45,7 +45,7 @@ describe('Activities', () => {
     expect(screen.getByText('Активные студенты')).toBeInTheDocument();
     expect(screen.getByText('Сертификаты')).toBeInTheDocument();
     expect(screen.getByText('Комментарии')).toBeInTheDocument();
-    expect(screen.getAllByText('Отправленные решения').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Решения').length).toBeGreaterThanOrEqual(1);
   });
 
   it('comments chart shows the 18-month window ending with the current month', () => {
@@ -81,7 +81,7 @@ describe('Activities', () => {
     expect(figcaption.textContent).toContain('18');
   });
 
-  it('renders Опубликованные category on the Отправленные решения chart', () => {
+  it('renders Опубликованные category on the Решения chart', () => {
     render(
       <TestRouter
         syncValue={makeSyncValue({

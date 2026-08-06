@@ -95,8 +95,7 @@ COURSES_API_FIELDS = {
     "income",
     "published_at",
     "enrollment_count",
-    "submissions_total",
-    "submissions_correct",
+    "certificates_count",
     "comments_count",
     "reviews_count",
     "average_rating",
@@ -496,8 +495,7 @@ async def test_courses_api_returns_every_frontend_field(db_session):
         assert py["reviews_count"] == 100
         assert py["average_rating"] == 4.5
         assert py["enrollment_count"] == 2
-        assert py["submissions_total"] == 2
-        assert py["submissions_correct"] == 1
+        assert py["certificates_count"] == 1
 
         js = next(c for c in courses if c["title"] == "JS Basics")
         assert js["price"] == 1990
@@ -505,6 +503,7 @@ async def test_courses_api_returns_every_frontend_field(db_session):
         assert js["comments_count"] == 0
         assert js["reviews_count"] == 0
         assert js["average_rating"] == 0
+        assert js["certificates_count"] == 0
     finally:
         app.dependency_overrides.clear()
 

@@ -825,10 +825,10 @@ class TestTransformStudents:
                 is_author=True,
             )
         )
-        for cid, uid in [(1, 7), (2, 7), (3, 8)]:
+        for cid, uid, thread in [(1, 7, "solutions"), (2, 7, "step-10-1"), (3, 8, "solutions")]:
             await db_session.execute(
                 text("INSERT INTO raw_comment (comment_id, \"user\", _raw_json) VALUES (:c, 'x', :j)"),
-                {"c": cid, "j": json.dumps({"user": uid})},
+                {"c": cid, "j": json.dumps({"user": uid, "thread": thread})},
             )
         await db_session.execute(
             text("INSERT INTO raw_user (user_id, first_name, last_name) VALUES (7, 'Иван', 'Петров')")
@@ -839,7 +839,7 @@ class TestTransformStudents:
 
         r = await db_session.execute(
             text(
-                "SELECT student_id, name, cohort_status, courses_count, certificates, submissions_count, submissions_successful, comments_count, last_activity FROM student_marts ORDER BY student_id"
+                "SELECT student_id, name, cohort_status, courses_count, certificates, submissions_count, submissions_successful, comments_count, published_solutions, last_activity FROM student_marts ORDER BY student_id"
             )
         )
         rows = [dict(row._mapping) for row in r]
@@ -854,6 +854,7 @@ class TestTransformStudents:
         assert s7["submissions_count"] == 3
         assert s7["submissions_successful"] == 2
         assert s7["comments_count"] == 2
+        assert s7["published_solutions"] == 1
         assert s7["last_activity"] is not None
 
         s9 = by_id[9]

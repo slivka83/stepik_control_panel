@@ -97,6 +97,16 @@ class TestCoursesList:
                 points_earned=50,
             )
         )
+        db_session.add(
+            StudentEnrollment(
+                id=uuid.uuid4(),
+                course_id=c1.id,
+                student_id=2,
+                last_viewed_at=datetime.now(UTC).replace(tzinfo=None),
+                points_earned=90,
+                certificate_issued=True,
+            )
+        )
         await db_session.commit()
 
         _setup_overrides(db_session, user)
@@ -106,9 +116,11 @@ class TestCoursesList:
             courses = response.json()["courses"]
             assert len(courses) == 2
             py = next(c for c in courses if c["title"] == "Python")
-            assert py["enrollment_count"] == 1
+            assert py["enrollment_count"] == 2
+            assert py["certificates_count"] == 1
             js = next(c for c in courses if c["title"] == "JS")
             assert js["enrollment_count"] == 0
+            assert js["certificates_count"] == 0
         finally:
             app.dependency_overrides.clear()
 

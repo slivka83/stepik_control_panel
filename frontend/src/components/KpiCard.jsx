@@ -29,6 +29,7 @@ function KpiCard({
   secondHighlight = false,
   ratingColor = false,
   trendInverted = false,
+  trendTooltip = null,
 }) {
   const dp = Math.max(fractionDigits, minimumFractionDigits);
   const fmt = (val) => formatNumber(val, { minimumFractionDigits, maximumFractionDigits: fractionDigits });
@@ -60,6 +61,7 @@ function KpiCard({
         <div className="text-gray-400 text-xs">{title}</div>
         {trend !== null && (
           <span
+            title={trendTooltip || undefined}
             className={`text-xs font-mono ${trendInverted ? (trend > 0 ? 'text-crimson-alert' : 'text-neon-green') : trend > 0 ? 'text-neon-green' : 'text-crimson-alert'}`}
           >
             {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}%
@@ -121,6 +123,7 @@ KpiCard.propTypes = {
   ]),
   trend: PropTypes.number,
   trendInverted: PropTypes.bool,
+  trendTooltip: PropTypes.string,
   fractionDigits: PropTypes.number,
   secondValue: PropTypes.number,
   secondSuffix: PropTypes.string,

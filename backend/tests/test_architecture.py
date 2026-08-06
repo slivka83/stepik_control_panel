@@ -26,13 +26,13 @@ class TestAlembicGraph:
         assert len(heads) == 1, f"Expected 1 alembic head, got {heads}"
 
     def test_meta_tables_migration_after_raw_fixes(self):
-        """015 must be the head, chained after 014 (which followed 013)."""
+        """016 must be the head, chained after 015 (which followed 014)."""
         cfg = Config(str(BACKEND_DIR / "alembic.ini"))
         script = ScriptDirectory.from_config(cfg)
         head = script.get_heads()[0]
-        assert head == "015", head
+        assert head == "016", head
         rev = script.get_revision(head)
-        assert rev.down_revision == "014", rev.down_revision
+        assert rev.down_revision == "015", rev.down_revision
 
 
 class TestDeadArtifacts:

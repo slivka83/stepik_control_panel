@@ -4,6 +4,19 @@ import RevenueChart from '../components/RevenueChart';
 import SubmissionsChart from '../components/SubmissionsChart';
 import StudentsBar from '../components/StudentsBar';
 import ErrorBanner from '../components/ErrorBanner';
+import { formatNumber } from '../utils/formatNumber';
+
+function buildTrendTooltip(label, detail, pct, unit = '') {
+  if (!detail || pct === null || pct === undefined) return null;
+  const cur = `${formatNumber(detail.current)}${unit}`;
+  const prev = `${formatNumber(detail.previous)}${unit}`;
+  const sign = pct >= 0 ? '+' : '−';
+  return [
+    'Изменение за месяц',
+    `${label}: сейчас ${cur}, в прошлом месяце ${prev}`,
+    `Расчёт: (${cur} − ${prev}) ÷ ${prev} × 100 = ${sign}${Math.abs(pct)}%`,
+  ].join('\n');
+}
 
 export default function Dashboard() {
   const { data, error, refresh } = useSync();
@@ -18,6 +31,7 @@ export default function Dashboard() {
           title="Доход /месяц"
           value={kpi?.total_revenue || 0}
           trend={kpi?.revenue_change_pct}
+          trendTooltip={buildTrendTooltip('Доход', kpi?.revenue_change_detail, kpi?.revenue_change_pct, ' ₽')}
           color="white"
           suffix={'\u200A₽'}
         />
@@ -25,6 +39,7 @@ export default function Dashboard() {
           title="Покупки /месяц"
           value={kpi?.current_month_payments || 0}
           trend={kpi?.payments_change_pct}
+          trendTooltip={buildTrendTooltip('Покупки', kpi?.payments_change_detail, kpi?.payments_change_pct)}
           color="white"
         />
         <KpiCard
@@ -38,6 +53,7 @@ export default function Dashboard() {
           value={kpi?.students_prev_months ?? 0}
           secondValue={kpi?.current_month_students || 0}
           trend={kpi?.students_change_pct}
+          trendTooltip={buildTrendTooltip('Новые студенты', kpi?.students_change_detail, kpi?.students_change_pct)}
           secondHighlight
           color="white"
         />
@@ -62,6 +78,7 @@ export default function Dashboard() {
           title="Возвраты (₽) /месяц"
           value={kpi?.current_month_refunds_count || 0}
           trend={kpi?.refunds_change_pct}
+          trendTooltip={buildTrendTooltip('Возвраты (₽)', kpi?.refunds_change_detail, kpi?.refunds_change_pct, ' ₽')}
           trendInverted
           color="white"
           suffix={'\u200A₽'}
@@ -70,6 +87,7 @@ export default function Dashboard() {
           title="Возвраты (шт) /месяц"
           value={kpi?.current_month_refunds_pcs || 0}
           trend={kpi?.refunds_pcs_change_pct}
+          trendTooltip={buildTrendTooltip('Возвраты (шт)', kpi?.refunds_pcs_change_detail, kpi?.refunds_pcs_change_pct)}
           trendInverted
           color="white"
         />
@@ -78,6 +96,7 @@ export default function Dashboard() {
           value={kpi?.certificates_prev_months ?? 0}
           secondValue={kpi?.certificates_current_month || 0}
           trend={kpi?.certificates_change_pct}
+          trendTooltip={buildTrendTooltip('Сертификаты', kpi?.certificates_change_detail, kpi?.certificates_change_pct)}
           secondHighlight
           color="white"
         />
@@ -86,6 +105,11 @@ export default function Dashboard() {
           value={kpi?.published_solutions_prev_months ?? 0}
           secondValue={kpi?.published_solutions_current_month || 0}
           trend={kpi?.published_solutions_change_pct}
+          trendTooltip={buildTrendTooltip(
+            'Публичные решения',
+            kpi?.published_solutions_change_detail,
+            kpi?.published_solutions_change_pct,
+          )}
           secondHighlight
           color="white"
         />
@@ -94,6 +118,7 @@ export default function Dashboard() {
           value={kpi?.comments_prev_months ?? 0}
           secondValue={kpi?.current_month_comments || 0}
           trend={kpi?.comments_change_pct}
+          trendTooltip={buildTrendTooltip('Комментарии', kpi?.comments_change_detail, kpi?.comments_change_pct)}
           secondHighlight
           color="white"
         />
@@ -102,6 +127,7 @@ export default function Dashboard() {
           value={kpi?.reviews_prev_months ?? 0}
           secondValue={kpi?.reviews_current_month || 0}
           trend={kpi?.reviews_change_pct}
+          trendTooltip={buildTrendTooltip('Отзывы', kpi?.reviews_change_detail, kpi?.reviews_change_pct)}
           secondHighlight
           color="white"
         />

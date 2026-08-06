@@ -3,20 +3,24 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import TestRouter from './TestRouter';
 import Courses from '../pages/Courses';
 
+vi.mock('react-countup', () => ({
+  default: ({ end, formattingFn }) => <span>{formattingFn ? formattingFn(end) : end}</span>,
+}));
+
 const defaultCourse = {
   id: '1',
   title: 'C1',
   status: 'Published',
   stepik_course_id: 100,
   enrollment_count: 50,
-  submissions_total: 100,
-  submissions_correct: 80,
+  certificates_count: 100,
   comments_count: 30,
   reviews_count: 10,
   average_rating: 4.5,
+  income: 5000,
 };
 
-const makeSyncValue = (courses = []) => ({
+const makeSyncValue = (courses = [], extra = {}) => ({
   syncStatus: { in_progress: false, last_sync: null },
   data: {
     kpi: {
@@ -43,6 +47,8 @@ const makeSyncValue = (courses = []) => ({
   loading: false,
   error: null,
   refresh: vi.fn(),
+  selectedCourseIds: extra.selectedCourseIds ?? null,
+  isFilterActive: extra.isFilterActive ?? false,
 });
 
 describe('Courses', () => {
@@ -103,7 +109,7 @@ describe('Courses', () => {
         <Courses />
       </TestRouter>,
     );
-    expect(screen.getByText('42')).toBeInTheDocument();
+    expect(screen.getAllByText('42').length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders comments count', () => {
@@ -115,13 +121,22 @@ describe('Courses', () => {
     expect(screen.getByText('15')).toBeInTheDocument();
   });
 
-  it('renders submissions with percentage', () => {
+  it('renders certificates count', () => {
     render(
-      <TestRouter syncValue={makeSyncValue([{ ...defaultCourse, submissions_total: 200, submissions_correct: 150 }])}>
+      <TestRouter syncValue={makeSyncValue([{ ...defaultCourse, certificates_count: 7 }])}>
         <Courses />
       </TestRouter>,
     );
-    expect(screen.getByText('200 (75%)')).toBeInTheDocument();
+    expect(screen.getAllByText('7').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('renders Сертификаты column header', () => {
+    render(
+      <TestRouter syncValue={makeSyncValue([defaultCourse])}>
+        <Courses />
+      </TestRouter>,
+    );
+    expect(screen.getByText('Сертификаты')).toBeInTheDocument();
   });
 
   it('renders Опубликован status', () => {
@@ -261,5 +276,112 @@ describe('Courses', () => {
     expect(within(rows[0]).getByText('New')).toBeInTheDocument();
     expect(within(rows[1]).getByText('Old')).toBeInTheDocument();
     expect(within(rows[2]).getByText('Draft')).toBeInTheDocument();
+  });
+
+  it('ignores course filter — renders all courses when a subset is selected', () => {
+    render(
+      <TestRouter
+        syncValue={makeSyncValue(
+          [
+            { ...defaultCourse, id: '1', title: 'Python' },
+            { ...defaultCourse, id: '2', title: 'JS' },
+            { ...defaultCourse, id: '3', title: 'ML' },
+          ],
+          { selectedCourseIds: ['1'], isFilterActive: true },
+        )}
+      >
+        <Courses />
+      </TestRouter>,
+    );
+    expect(screen.getByText('Python')).toBeInTheDocument();
+    expect(screen.getByText('JS')).toBeInTheDocument();
+    expect(screen.getByText('ML')).toBeInTheDocument();
+  });
+
+  it('ignores course filter — renders table, not "Нет курсов", when nothing is selected', () => {
+    render(
+      <TestRouter
+        syncValue={makeSyncValue([defaultCourse], { selectedCourseIds: [], isFilterActive: true })}
+      >
+        <Courses />
+      </TestRouter>,
+    );
+    expect(screen.queryByText('Нет курсов')).not.toBeInTheDocument();
+    expect(screen.queryByText('Подключить Stepik')).not.toBeInTheDocument();
+    expect(screen.getByText('C1')).toBeInTheDocument();
+  });
+
+  it('computes KPI cards from the full course list regardless of the filter', () => {
+    render(
+      <TestRouter
+        syncValue={makeSyncValue(
+          [
+            { ...defaultCourse, id: '1', title: 'Published A', status: 'Published', enrollment_count: 30 },
+            { ...defaultCourse, id: '2', title: 'Draft B', status: 'Draft', enrollment_count: 12 },
+          ],
+          { selectedCourseIds: ['1'], isFilterActive: true },
+        )}
+      >
+        <Courses />
+      </TestRouter>,
+    );
+    expect(screen.getByText('Всего курсов').closest('.glass-panel').textContent).toContain('2');
+    expect(screen.getByText('Опубликовано').closest('.glass-panel').textContent).toContain('1');
+    expect(screen.getByText('Черновиков').closest('.glass-panel').textContent).toContain('1');
+    expect(screen.getByText('Всего студентов').closest('.glass-panel').textContent).toContain('42');
+    expect(
+      screen.getAllByText('Доход').some((el) => el.closest('.glass-panel')?.textContent.includes('10\u00A0000')),
+    ).toBe(true);
+  });
+
+  it('Regression: average rating ignores courses without reviews (0 rating)', () => {
+    render(
+      <TestRouter
+        syncValue={makeSyncValue([
+          { ...defaultCourse, id: '1', title: 'Rated', average_rating: 4.5 },
+          { ...defaultCourse, id: '2', title: 'No reviews', average_rating: 0 },
+        ])}
+      >
+        <Courses />
+      </TestRouter>,
+    );
+    const card = screen.getByText('Средний рейтинг').closest('.glass-panel');
+    expect(card.textContent).toContain('4,50');
+    expect(card.textContent).not.toContain('2,25');
+  });
+
+  it('shows arrow pointing at the anchor values (up on first click, down on second)', () => {
+    render(
+      <TestRouter syncValue={makeSyncValue([defaultCourse])}>
+        <Courses />
+      </TestRouter>,
+    );
+    const arrowOf = (th) => th.querySelector('span.text-cyber-blue').textContent;
+    expect(arrowOf(screen.getAllByText('Опубликован')[0].closest('th'))).toBe('↑');
+
+    const header = screen.getByText('Студенты').closest('th');
+    fireEvent.click(header);
+    expect(arrowOf(header)).toBe('↑');
+    fireEvent.click(header);
+    expect(arrowOf(header)).toBe('↓');
+    fireEvent.click(header);
+    expect(arrowOf(header)).toBe('↑');
+  });
+
+  it('paginates courses', () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      ...defaultCourse,
+      id: String(i + 1),
+      title: `Курс ${i + 1}`,
+    }));
+    render(
+      <TestRouter syncValue={makeSyncValue(many)}>
+        <Courses />
+      </TestRouter>,
+    );
+    expect(screen.getByText('Страница 1 из 2')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Вперёд →'));
+    expect(screen.getByText('Страница 2 из 2')).toBeInTheDocument();
+    expect(screen.queryByText('Курс 1')).not.toBeInTheDocument();
   });
 });

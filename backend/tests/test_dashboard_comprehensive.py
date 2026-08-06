@@ -517,6 +517,7 @@ class TestDashboardKPITrends:
             response = client.get("/api/dashboard/kpi")
             data = response.json()
             assert data["revenue_change_pct"] == 25
+            assert data["revenue_change_detail"] == {"current": 10000, "previous": 8000}
         finally:
             app.dependency_overrides.clear()
 
@@ -556,6 +557,7 @@ class TestDashboardKPITrends:
             response = client.get("/api/dashboard/kpi")
             data = response.json()
             assert data["payments_change_pct"] == 100
+            assert data["payments_change_detail"] == {"current": 10, "previous": 5}
         finally:
             app.dependency_overrides.clear()
 
@@ -595,6 +597,7 @@ class TestDashboardKPITrends:
             response = client.get("/api/dashboard/kpi")
             data = response.json()
             assert data["revenue_change_pct"] == 0
+            assert data["revenue_change_detail"] == {"current": 0, "previous": 0}
         finally:
             app.dependency_overrides.clear()
 
@@ -633,6 +636,7 @@ class TestDashboardKPITrends:
             response = client.get("/api/dashboard/kpi")
             data = response.json()
             assert data["revenue_change_pct"] is None
+            assert data["revenue_change_detail"] is None
         finally:
             app.dependency_overrides.clear()
 
@@ -681,6 +685,49 @@ class TestDashboardKPITrends:
             data = response.json()
             assert data["current_month_submissions"] == 10
             assert data["submissions_change_pct"] == 100
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_students_change_detail(self, db_session):
+        user = _make_user_in_db(db_session)
+        course = _make_course_in_db(db_session, user.id)
+        await db_session.flush()
+
+        now = datetime.now(UTC)
+        if now.month == 1:
+            prev_year, prev_month = now.year - 1, 12
+        else:
+            prev_year, prev_month = now.year, now.month - 1
+
+        for i in range(2):
+            db_session.add(
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=course.id,
+                    student_id=f"prev{i}",
+                    date_joined=datetime(prev_year, prev_month, 10, tzinfo=UTC),
+                    points_earned=0,
+                )
+            )
+        for i in range(5):
+            db_session.add(
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=course.id,
+                    student_id=f"cur{i}",
+                    date_joined=datetime(now.year, now.month, 10, tzinfo=UTC),
+                    points_earned=0,
+                )
+            )
+        await db_session.flush()
+
+        _setup_overrides(db_session, user)
+        try:
+            response = client.get("/api/dashboard/kpi")
+            data = response.json()
+            assert data["current_month_students"] == 5
+            assert data["students_change_pct"] == 150
+            assert data["students_change_detail"] == {"current": 5, "previous": 2}
         finally:
             app.dependency_overrides.clear()
 
@@ -811,8 +858,10 @@ class TestDashboardKPITrends:
             data = response.json()
             assert data["current_month_refunds_count"] == 1200
             assert data["refunds_change_pct"] == 140
+            assert data["refunds_change_detail"] == {"current": 1200, "previous": 500}
             assert data["current_month_refunds_pcs"] == 3
             assert data["refunds_pcs_change_pct"] == 200
+            assert data["refunds_pcs_change_detail"] == {"current": 3, "previous": 1}
         finally:
             app.dependency_overrides.clear()
 
@@ -931,5 +980,6 @@ class TestDashboardKPINoSnapshot:
             assert data["total_reviews"] == 0
             assert data["average_rating"] == 0
             assert data["revenue_change_pct"] is None
+            assert data["revenue_change_detail"] is None
         finally:
             app.dependency_overrides.clear()

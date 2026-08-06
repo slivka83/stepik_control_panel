@@ -6,30 +6,41 @@ import Dashboard from '../pages/Dashboard';
 const mockKpi = {
   total_revenue: 50000,
   revenue_change_pct: 12,
+  revenue_change_detail: { current: 50000, previous: 44643 },
   current_month_payments: 55,
   payments_change_pct: 8,
+  payments_change_detail: { current: 55, previous: 51 },
   current_month_refunds_count: 21930,
   refunds_change_pct: -3,
+  refunds_change_detail: { current: 21930, previous: 22608 },
+  current_month_refunds_pcs: 9,
+  refunds_pcs_change_pct: 200,
+  refunds_pcs_change_detail: { current: 9, previous: 3 },
   courses_published: 5,
   courses_unpublished: 2,
   students_prev_months: 7563,
   current_month_students: 55,
   students_change_pct: 45,
+  students_change_detail: { current: 55, previous: 38 },
   average_rating: 4.95,
   current_month_submissions: 8123,
   submissions_change_pct: 10,
   reviews_prev_months: 20,
   reviews_current_month: 0,
   reviews_change_pct: 0,
+  reviews_change_detail: { current: 0, previous: 0 },
   current_month_comments: 71,
   comments_change_pct: 318,
+  comments_change_detail: { current: 71, previous: 17 },
   comments_prev_months: 1490,
   published_solutions_prev_months: 96,
   published_solutions_current_month: 5,
   published_solutions_change_pct: 25,
+  published_solutions_change_detail: { current: 5, previous: 4 },
   certificates_prev_months: 178,
   certificates_current_month: 7,
   certificates_change_pct: 133,
+  certificates_change_detail: { current: 7, previous: 3 },
   steps_average_grade: 4.7,
 };
 
@@ -141,6 +152,24 @@ describe('Dashboard', () => {
     expect(await screen.findByText('4,70')).toBeInTheDocument();
   });
 
+  it('shows trend tooltips explaining how each percentage is calculated', () => {
+    render(
+      <TestRouter syncValue={fullSyncValue}>
+        <Dashboard />
+      </TestRouter>,
+    );
+
+    const tooltips = screen.getAllByTitle(/Изменение за месяц/);
+    expect(tooltips.length).toBeGreaterThanOrEqual(9);
+
+    const studentsTip = tooltips.find((el) => el.getAttribute('title').includes('Новые студенты'));
+    expect(studentsTip).toHaveAttribute(
+      'title',
+      expect.stringContaining('Новые студенты: сейчас 55, в прошлом месяце 38'),
+    );
+    expect(studentsTip.getAttribute('title')).toContain('Расчёт: (55 − 38) ÷ 38 × 100 = +45%');
+  });
+
   it('renders with zero KPI values', () => {
     const zeroValue = {
       ...fullSyncValue,
@@ -168,7 +197,7 @@ describe('Dashboard', () => {
       </TestRouter>,
     );
     expect(screen.getByText('Доход по месяцам')).toBeInTheDocument();
-    expect(screen.getByText('Отправленные решения')).toBeInTheDocument();
+    expect(screen.getByText('Решения')).toBeInTheDocument();
   });
 
   it('renders KPI cards and charts while loading (no skeleton placeholders)', () => {
@@ -192,7 +221,7 @@ describe('Dashboard', () => {
     expect(screen.getByText('Network error')).toBeInTheDocument();
   });
 
-  it('renders Опубликованные category on the Отправленные решения chart', () => {
+  it('renders Опубликованные category on the Решения chart', () => {
     render(
       <TestRouter
         syncValue={{

@@ -29,8 +29,8 @@ export default function Activities() {
         <ActiveStudentsChart
           data={data.certificates}
           title="Сертификаты"
-          primaryColor="#581c87"
-          secondaryColor="#c084fc"
+          primaryColor="#B70094"
+          secondaryColor="#DB62C4"
           hatched
           lightLabel="Обычные"
           darkLabel="С отличием"

@@ -844,6 +844,7 @@ async def transform_students(session: AsyncSession):
     # the mapped `user` column may hold a stale OAuth client name
     comment_rows = await session.execute(text("SELECT _raw_json FROM raw_comment"))
     comments_by_user: dict[int, int] = {}
+    solutions_by_user: dict[int, int] = {}
     for (raw_json,) in comment_rows:
         obj = _ensure_json(raw_json)
         if not isinstance(obj, dict):
@@ -853,6 +854,9 @@ async def transform_students(session: AsyncSession):
         except (TypeError, ValueError):
             continue
         comments_by_user[uid] = comments_by_user.get(uid, 0) + 1
+        thread = obj.get("thread")
+        if isinstance(thread, str) and "solution" in thread:
+            solutions_by_user[uid] = solutions_by_user.get(uid, 0) + 1
 
     name_rows = await session.execute(text("SELECT user_id, first_name, last_name FROM raw_user"))
     names: dict[int, str] = {}
@@ -879,6 +883,7 @@ async def transform_students(session: AsyncSession):
                 "submissions_count": subs_cnt,
                 "submissions_successful": subs_correct,
                 "comments_count": comments_by_user.get(sid, 0),
+                "published_solutions": solutions_by_user.get(sid, 0),
                 "last_activity": r.last_activity,
                 "updated_at": datetime.now(UTC).replace(tzinfo=None),
             }

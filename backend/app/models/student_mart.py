@@ -26,6 +26,7 @@ class StudentMart(Base):
     submissions_count: Mapped[int] = mapped_column(Integer, default=0)
     submissions_successful: Mapped[int] = mapped_column(Integer, default=0)
     comments_count: Mapped[int] = mapped_column(Integer, default=0)
+    published_solutions: Mapped[int] = mapped_column(Integer, default=0)
     last_activity: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
 
