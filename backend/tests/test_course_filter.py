@@ -140,7 +140,7 @@ async def _seed_scenario(session):
     for cid_, target, thread, body in comments:
         await session.execute(
             text(
-                "INSERT INTO raw_comment (comment_id, \"user\", target, \"time\", thread, _raw_json) "
+                'INSERT INTO raw_comment (comment_id, "user", target, "time", thread, _raw_json) '
                 "VALUES (:cid, '1', :t, :tm, :th, :j)"
             ),
             {
@@ -152,7 +152,9 @@ async def _seed_scenario(session):
             },
         )
     await session.execute(
-        text("INSERT INTO raw_certificate (certificate_id, user_id, course_id, _raw_json) VALUES ('cert1', '1', '100', :j)"),
+        text(
+            "INSERT INTO raw_certificate (certificate_id, user_id, course_id, _raw_json) VALUES ('cert1', '1', '100', :j)"
+        ),
         {"j": json.dumps({"issue_date": cur_key + "-15T10:00:00Z"})},
     )
     await session.execute(
@@ -163,9 +165,36 @@ async def _seed_scenario(session):
     month_label = f"{MONTH_NAMES.get(now.month, str(now.month))} {now.year}"
     t_p = (now - timedelta(days=2)).replace(tzinfo=None).isoformat() + "Z"
     raw_payments = [
-        {"id": 1, "course": 100, "status": "paid", "amount": 1000, "payment_amount": 1000, "time": t_p, "promo_code": "PROMO1", "last_course_click_utm": {"utm_source": "yandex_stpk"}},
-        {"id": 2, "course": 100, "status": "refunded", "amount": 200, "payment_amount": 200, "time": t_p, "promo_code": None, "last_course_click_utm": {"utm_source": "stepik_telegram"}},
-        {"id": 3, "course": 200, "status": "paid", "amount": 5000, "payment_amount": 5000, "time": t_p, "promo_code": "PROMO2", "last_course_click_utm": {"utm_source": "yandex_stpk"}},
+        {
+            "id": 1,
+            "course": 100,
+            "status": "paid",
+            "amount": 1000,
+            "payment_amount": 1000,
+            "time": t_p,
+            "promo_code": "PROMO1",
+            "last_course_click_utm": {"utm_source": "yandex_stpk"},
+        },
+        {
+            "id": 2,
+            "course": 100,
+            "status": "refunded",
+            "amount": -200,
+            "payment_amount": 200,
+            "time": t_p,
+            "promo_code": None,
+            "last_course_click_utm": {"utm_source": "stepik_telegram"},
+        },
+        {
+            "id": 3,
+            "course": 200,
+            "status": "paid",
+            "amount": 5000,
+            "payment_amount": 5000,
+            "time": t_p,
+            "promo_code": "PROMO2",
+            "last_course_click_utm": {"utm_source": "yandex_stpk"},
+        },
     ]
     recent_payments = [
         {
@@ -182,13 +211,12 @@ async def _seed_scenario(session):
     snapshot_data = {
         "summary": {
             "total_turnover": 5800,
-            "total_income": 6000,
+            "total_income": 5800,
             "total_refunds": 200,
             "total_payments": 3,
             "total_refunds_count": 1,
-            "net_income": 5800,
             "current_month_turnover": 5800,
-            "current_month_income": 6000,
+            "current_month_income": 5800,
             "current_month_payments": 3,
         },
         "months": [
@@ -197,15 +225,31 @@ async def _seed_scenario(session):
                 "year": now.year,
                 "month_num": now.month,
                 "turnover": 5800,
-                "income": 6000,
+                "income": 5800,
                 "refunds": 200,
                 "payments_count": 3,
                 "refunds_count": 1,
             }
         ],
         "courses": [
-            {"course_id": 200, "title": "Java", "price": 5000, "turnover": 5000, "income": 5000, "refunds": 0, "payments": 1},
-            {"course_id": 100, "title": "Python", "price": 1000, "turnover": 800, "income": 1000, "refunds": 200, "payments": 2},
+            {
+                "course_id": 200,
+                "title": "Java",
+                "price": 5000,
+                "turnover": 5000,
+                "income": 5000,
+                "refunds": 0,
+                "payments": 1,
+            },
+            {
+                "course_id": 100,
+                "title": "Python",
+                "price": 1000,
+                "turnover": 800,
+                "income": 800,
+                "refunds": 200,
+                "payments": 2,
+            },
         ],
         "promos": [
             {"promo_code": "PROMO1", "payments": 1, "turnover": 1000, "income": 1000, "refunds": 0, "last_used": t_p},
@@ -213,7 +257,7 @@ async def _seed_scenario(session):
         ],
         "utms": [
             {"utm_source": "Я.Директ", "payments": 2, "turnover": 6000, "income": 6000, "refunds": 0, "last_used": t_p},
-            {"utm_source": "Telegram", "payments": 1, "turnover": 0, "income": 0, "refunds": 200, "last_used": t_p},
+            {"utm_source": "Telegram", "payments": 1, "turnover": 0, "income": -200, "refunds": 200, "last_used": t_p},
         ],
         "recent_payments": recent_payments,
         "community": {
@@ -229,9 +273,7 @@ async def _seed_scenario(session):
             },
         },
     }
-    session.add(
-        FinancialSnapshot(id=uuid.uuid4(), data=snapshot_data, updated_at=now.replace(tzinfo=None))
-    )
+    session.add(FinancialSnapshot(id=uuid.uuid4(), data=snapshot_data, updated_at=now.replace(tzinfo=None)))
     await session.commit()
     return user, u1, u2, u3
 
@@ -426,18 +468,18 @@ class TestFilterFinancials:
             response = client.get(f"/api/financials?course_ids={u1.id}")
             data = response.json()
             assert data["summary"]["total_turnover"] == 800
-            assert data["summary"]["total_income"] == 1000
+            assert data["summary"]["total_income"] == 800
             assert data["summary"]["total_refunds"] == 200
             assert data["summary"]["total_payments"] == 2
             assert data["summary"]["total_refunds_count"] == 1
-            assert data["summary"]["net_income"] == 800
+            assert "net_income" not in data["summary"]
 
             assert len(data["months"]) == 1
             m = data["months"][0]
             assert m["payments_count"] == 2
             assert m["refunds_count"] == 1
             assert m["turnover"] == 800
-            assert m["income"] == 1000
+            assert m["income"] == 800
             assert m["refunds"] == 200
 
             assert len(data["courses"]) == 1
@@ -494,7 +536,7 @@ class TestFilterCharts:
             response = client.get(f"/api/dashboard/revenue?course_ids={u1.id}")
             months = response.json()["months"]
             assert len(months) == 1
-            assert months[0]["income"] == 1000
+            assert months[0]["income"] == 800
             assert months[0]["turnover"] == 800
         finally:
             app.dependency_overrides.clear()
@@ -525,11 +567,12 @@ class TestFilterCharts:
         ]
         for cid_, course, issue, ctype in certs:
             await db_session.execute(
-                text(
-                    "INSERT INTO raw_certificate (certificate_id, course_id, _raw_json) "
-                    "VALUES (:cid, :course, :j)"
-                ),
-                {"cid": cid_, "course": course, "j": json.dumps({"issue_date": issue + "-15T10:00:00Z", "type": ctype})},
+                text("INSERT INTO raw_certificate (certificate_id, course_id, _raw_json) VALUES (:cid, :course, :j)"),
+                {
+                    "cid": cid_,
+                    "course": course,
+                    "j": json.dumps({"issue_date": issue + "-15T10:00:00Z", "type": ctype}),
+                },
             )
         await db_session.commit()
         _override(user, db_session)
@@ -567,7 +610,7 @@ class TestFilterKPI:
             assert data["certificates_issued"] == 1
             assert data["current_month_submissions"] == 3
             assert data["current_month_students"] == 2
-            assert data["total_income"] == 1000
+            assert data["total_income"] == 800
             assert data["current_month_turnover"] == 800
             assert data["total_comments"] == 2
             assert data["total_reviews"] == 2

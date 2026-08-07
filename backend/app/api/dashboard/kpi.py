@@ -80,7 +80,6 @@ async def get_kpi(
             "courses_published": 0,
             "courses_unpublished": 0,
             "total_income": 0,
-            "net_income": 0,
             "total_turnover": 0,
             "total_refunds": 0,
             "total_payments": 0,
@@ -269,7 +268,9 @@ async def get_kpi(
         "current_month_comments": cur_comments,
         "comments_change_pct": _pct(cur_comments, prev_comments),
         "comments_change_detail": (
-            {"current": cur_comments, "previous": prev_comments} if _pct(cur_comments, prev_comments) is not None else None
+            {"current": cur_comments, "previous": prev_comments}
+            if _pct(cur_comments, prev_comments) is not None
+            else None
         ),
         "total_students": total_students,
         "students_prev_months": max(0, total_students - cur_enroll),
@@ -286,7 +287,6 @@ async def get_kpi(
         "courses_published": sum(1 for c in courses if c.status == "Published"),
         "courses_unpublished": sum(1 for c in courses if c.status != "Published"),
         "total_income": summary.get("total_income", 0),
-        "net_income": summary.get("net_income", 0),
         "total_turnover": summary.get("total_turnover", 0),
         "total_refunds": summary.get("total_refunds", 0),
         "total_refunds_count": summary.get("total_refunds_count", 0),

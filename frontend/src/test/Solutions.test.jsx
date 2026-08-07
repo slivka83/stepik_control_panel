@@ -132,8 +132,30 @@ describe('Solutions', () => {
     vi.mocked(api.get).mockResolvedValue({
       data: {
         steps: [
-          { stepik_step_id: 1, lesson_id: 100, step_number: 2, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50, weighted_success_pct: 50, students: 8 },
-          { stepik_step_id: 2, lesson_id: 200, step_number: 1, course_title: 'Курс Б', total: 5, correct: 1, wrong: 4, success_pct: 20, weighted_success_pct: 20, students: 3 },
+          {
+            stepik_step_id: 1,
+            lesson_id: 100,
+            step_number: 2,
+            course_title: 'Курс А',
+            total: 10,
+            correct: 5,
+            wrong: 5,
+            success_pct: 50,
+            weighted_success_pct: 50,
+            students: 8,
+          },
+          {
+            stepik_step_id: 2,
+            lesson_id: 200,
+            step_number: 1,
+            course_title: 'Курс Б',
+            total: 5,
+            correct: 1,
+            wrong: 4,
+            success_pct: 20,
+            weighted_success_pct: 20,
+            students: 3,
+          },
         ],
       },
     });
@@ -158,15 +180,45 @@ describe('Solutions', () => {
     vi.mocked(api.get).mockResolvedValue({
       data: {
         steps: [
-          { stepik_step_id: 1, lesson_id: 100, step_number: 2, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50, weighted_success_pct: 40 },
-          { stepik_step_id: 2, lesson_id: 200, step_number: 1, course_title: 'Курс Б', total: 5, correct: 1, wrong: 4, success_pct: 20, weighted_success_pct: 30 },
+          {
+            stepik_step_id: 1,
+            lesson_id: 100,
+            step_number: 2,
+            course_title: 'Курс А',
+            total: 10,
+            correct: 5,
+            wrong: 5,
+            success_pct: 50,
+            weighted_success_pct: 40,
+          },
+          {
+            stepik_step_id: 2,
+            lesson_id: 200,
+            step_number: 1,
+            course_title: 'Курс Б',
+            total: 5,
+            correct: 1,
+            wrong: 4,
+            success_pct: 20,
+            weighted_success_pct: 30,
+          },
         ],
       },
     });
     renderSolutions({
       months: [{ month: 'Январь 2026', total: 5, correct: 1, success_pct: 3.6, weighted_success_pct: 15.4 }],
       years: [{ year: 2026, total: 5, correct: 1, success_pct: 3.6, weighted_success_pct: 15.4 }],
-      by_course: [{ course_id: 1, stepik_course_id: 101, title: 'Тестовый курс', total: 5, correct: 1, success_pct: 3.6, weighted_success_pct: 15.4 }],
+      by_course: [
+        {
+          course_id: 1,
+          stepik_course_id: 101,
+          title: 'Тестовый курс',
+          total: 5,
+          correct: 1,
+          success_pct: 3.6,
+          weighted_success_pct: 15.4,
+        },
+      ],
     });
     expect(screen.queryByText('Взв. успех')).not.toBeInTheDocument();
     await user.click(screen.getByText('По годам'));
@@ -231,8 +283,26 @@ describe('Solutions', () => {
     vi.mocked(api.get).mockResolvedValue({
       data: {
         steps: [
-          { stepik_step_id: 1, lesson_id: 100, step_number: 2, course_title: 'Курс Б', total: 10, correct: 5, wrong: 5, success_pct: 80 },
-          { stepik_step_id: 2, lesson_id: 200, step_number: 1, course_title: 'Курс А', total: 5, correct: 1, wrong: 4, success_pct: 20 },
+          {
+            stepik_step_id: 1,
+            lesson_id: 100,
+            step_number: 2,
+            course_title: 'Курс Б',
+            total: 10,
+            correct: 5,
+            wrong: 5,
+            success_pct: 80,
+          },
+          {
+            stepik_step_id: 2,
+            lesson_id: 200,
+            step_number: 1,
+            course_title: 'Курс А',
+            total: 5,
+            correct: 1,
+            wrong: 4,
+            success_pct: 20,
+          },
         ],
       },
     });
@@ -332,8 +402,28 @@ describe('Solutions', () => {
     api.get.mockResolvedValue({
       data: {
         steps: [
-          { stepik_step_id: 1, lesson_id: 100, step_number: 2, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50, weighted_success_pct: 40 },
-          { stepik_step_id: 2, lesson_id: 200, step_number: 1, course_title: 'Курс Б', total: 5, correct: 1, wrong: 4, success_pct: 20, weighted_success_pct: 30 },
+          {
+            stepik_step_id: 1,
+            lesson_id: 100,
+            step_number: 2,
+            course_title: 'Курс А',
+            total: 10,
+            correct: 5,
+            wrong: 5,
+            success_pct: 50,
+            weighted_success_pct: 40,
+          },
+          {
+            stepik_step_id: 2,
+            lesson_id: 200,
+            step_number: 1,
+            course_title: 'Курс Б',
+            total: 5,
+            correct: 1,
+            wrong: 4,
+            success_pct: 20,
+            weighted_success_pct: 30,
+          },
         ],
       },
     });
@@ -377,7 +467,20 @@ describe('Solutions', () => {
     api.get.mockResolvedValue({
       data: {
         steps: [
-          { stepik_step_id: 42, lesson_id: 7, step_number: 5, module_number: 3, lesson_number: 7, module_title: 'Модуль', lesson_title: 'Урок', course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50 },
+          {
+            stepik_step_id: 42,
+            lesson_id: 7,
+            step_number: 5,
+            module_number: 3,
+            lesson_number: 7,
+            module_title: 'Модуль',
+            lesson_title: 'Урок',
+            course_title: 'Курс А',
+            total: 10,
+            correct: 5,
+            wrong: 5,
+            success_pct: 50,
+          },
         ],
       },
     });
@@ -413,7 +516,16 @@ describe('Solutions', () => {
     api.get.mockResolvedValue({
       data: {
         steps: [
-          { stepik_step_id: 42, lesson_id: 7, step_number: 5, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50 },
+          {
+            stepik_step_id: 42,
+            lesson_id: 7,
+            step_number: 5,
+            course_title: 'Курс А',
+            total: 10,
+            correct: 5,
+            wrong: 5,
+            success_pct: 50,
+          },
         ],
       },
     });
@@ -429,7 +541,18 @@ describe('Solutions', () => {
     api.get.mockResolvedValue({
       data: {
         steps: [
-          { stepik_step_id: 42, lesson_id: 7, step_number: 2, module_number: 3, lesson_number: 7, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50 },
+          {
+            stepik_step_id: 42,
+            lesson_id: 7,
+            step_number: 2,
+            module_number: 3,
+            lesson_number: 7,
+            course_title: 'Курс А',
+            total: 10,
+            correct: 5,
+            wrong: 5,
+            success_pct: 50,
+          },
         ],
       },
     });
@@ -444,7 +567,16 @@ describe('Solutions', () => {
     api.get.mockResolvedValue({
       data: {
         steps: [
-          { stepik_step_id: 42, lesson_id: 7, step_number: 5, course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50 },
+          {
+            stepik_step_id: 42,
+            lesson_id: 7,
+            step_number: 5,
+            course_title: 'Курс А',
+            total: 10,
+            correct: 5,
+            wrong: 5,
+            success_pct: 50,
+          },
         ],
       },
     });
@@ -459,7 +591,20 @@ describe('Solutions', () => {
     api.get.mockResolvedValue({
       data: {
         steps: [
-          { stepik_step_id: 42, lesson_id: 7, step_number: 2, module_number: 3, lesson_number: 7, module_title: 'Деревья решений', lesson_title: 'Регрессия', course_title: 'Курс А', total: 10, correct: 5, wrong: 5, success_pct: 50 },
+          {
+            stepik_step_id: 42,
+            lesson_id: 7,
+            step_number: 2,
+            module_number: 3,
+            lesson_number: 7,
+            module_title: 'Деревья решений',
+            lesson_title: 'Регрессия',
+            course_title: 'Курс А',
+            total: 10,
+            correct: 5,
+            wrong: 5,
+            success_pct: 50,
+          },
         ],
       },
     });
@@ -473,7 +618,21 @@ describe('Solutions', () => {
   it('passes course_ids to the hardest-steps fetch when a filter is active', async () => {
     const user = userEvent.setup();
     api.get.mockResolvedValue({
-      data: { steps: [{ stepik_step_id: 1, lesson_id: 100, step_number: 1, course_title: 'Курс А', total: 3, correct: 1, wrong: 2, success_pct: 20, weighted_success_pct: 20 }] },
+      data: {
+        steps: [
+          {
+            stepik_step_id: 1,
+            lesson_id: 100,
+            step_number: 1,
+            course_title: 'Курс А',
+            total: 3,
+            correct: 1,
+            wrong: 2,
+            success_pct: 20,
+            weighted_success_pct: 20,
+          },
+        ],
+      },
     });
     const syncValue = makeSyncValue();
     syncValue.selectedCourseIds = ['c1', 'c2'];

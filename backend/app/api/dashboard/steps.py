@@ -106,11 +106,7 @@ async def get_hardest_steps(
             text(f"SELECT DISTINCT step_id, lesson FROM raw_step WHERE step_id IN ({placeholders})"),
             params,
         )
-        step_lesson = {
-            int(r[0]): int(r[1])
-            for r in res
-            if r[0] is not None and r[1] is not None
-        }
+        step_lesson = {int(r[0]): int(r[1]) for r in res if r[0] is not None and r[1] is not None}
 
     step_number_map = {}
     lesson_title_map = {}
@@ -138,8 +134,7 @@ async def get_hardest_steps(
     if lesson_ids:
         res_u = await db.execute(
             text(
-                "SELECT DISTINCT lesson_id, section_id, position "
-                f"FROM raw_unit WHERE lesson_id IN ({placeholders_l})"
+                f"SELECT DISTINCT lesson_id, section_id, position FROM raw_unit WHERE lesson_id IN ({placeholders_l})"
             ),
             params_l,
         )
@@ -187,9 +182,7 @@ async def get_hardest_steps(
             for r in res_c:
                 if r[0] is None or r[1] is None:
                     continue
-                all_sections.setdefault(int(r[1]), []).append(
-                    (int(r[2]) if r[2] is not None else None, int(r[0]))
-                )
+                all_sections.setdefault(int(r[1]), []).append((int(r[2]) if r[2] is not None else None, int(r[0])))
             params_u = {}
             all_section_ids = sorted({sid_ for secs in all_sections.values() for _, sid_ in secs})
             params_u = {f"sid{i}": str(sid_) for i, sid_ in enumerate(all_section_ids)}

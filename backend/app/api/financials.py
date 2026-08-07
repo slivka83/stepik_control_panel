@@ -50,6 +50,7 @@ def _build_daily_stats(recent_payments: list[dict]) -> list[dict]:
             b["refunds"] += abs(amount)
             b["refunds_count"] += 1
             b["turnover"] -= payment_amount
+            b["income"] += amount
         else:
             b["turnover"] += payment_amount
             b["income"] += amount
@@ -90,7 +91,6 @@ async def get_financials(
                 "total_income": 0,
                 "total_refunds": 0,
                 "total_payments": 0,
-                "net_income": 0,
             },
             "months": [],
             "years": [],

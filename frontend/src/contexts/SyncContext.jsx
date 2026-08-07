@@ -34,8 +34,7 @@ export function SyncProvider({ children }) {
   const fetchAll = useCallback(async (signal) => {
     try {
       const courseIds = filterRef.current;
-      const courseParams =
-        courseIds === null ? {} : { params: { course_ids: courseIds.join(',') } };
+      const courseParams = courseIds === null ? {} : { params: { course_ids: courseIds.join(',') } };
       const [
         kpiRes,
         cohortsRes,
@@ -84,8 +83,7 @@ export function SyncProvider({ children }) {
           activeEnrolled: activeEnrolledRes.status === 'fulfilled' ? activeEnrolledRes.value.data : prev.activeEnrolled,
           publishedSolutions:
             publishedSolutionsRes.status === 'fulfilled' ? publishedSolutionsRes.value.data : prev.publishedSolutions,
-          certificates:
-            certificatesRes.status === 'fulfilled' ? certificatesRes.value.data : prev.certificates,
+          certificates: certificatesRes.status === 'fulfilled' ? certificatesRes.value.data : prev.certificates,
         };
         if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
         return next;
@@ -226,7 +224,18 @@ export function SyncProvider({ children }) {
       selectAllCourses,
       selectNoneCourses,
     }),
-    [syncStatus, data, loading, error, fetchAll, updateSyncStatus, selectedCourseIds, toggleCourse, selectAllCourses, selectNoneCourses],
+    [
+      syncStatus,
+      data,
+      loading,
+      error,
+      fetchAll,
+      updateSyncStatus,
+      selectedCourseIds,
+      toggleCourse,
+      selectAllCourses,
+      selectNoneCourses,
+    ],
   );
 
   return <SyncContext.Provider value={contextValue}>{children}</SyncContext.Provider>;

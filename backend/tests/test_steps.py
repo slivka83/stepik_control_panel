@@ -219,7 +219,9 @@ async def test_hardest_steps_returns_lesson_and_step_number(db_session):
     user = _make_user(1)
     course = _make_course(user.id, 101)
     await _seed_user_course_submissions(
-        db_session, user, course,
+        db_session,
+        user,
+        course,
         rows=[(500, "wrong"), (501, "wrong"), (500, "correct")],
     )
     await db_session.execute(
@@ -254,7 +256,9 @@ async def test_hardest_steps_position_from_lesson_steps_order(db_session):
     user = _make_user(2)
     course = _make_course(user.id, 202)
     await _seed_user_course_submissions(
-        db_session, user, course,
+        db_session,
+        user,
+        course,
         rows=[(500, "wrong"), (501, "wrong"), (500, "correct")],
     )
     await db_session.execute(
@@ -287,7 +291,9 @@ async def test_hardest_steps_no_lesson_no_step_number(db_session):
     user = _make_user(3)
     course = _make_course(user.id, 303)
     await _seed_user_course_submissions(
-        db_session, user, course,
+        db_session,
+        user,
+        course,
         rows=[(500, "wrong")],
     )
 
@@ -316,7 +322,9 @@ async def test_hardest_steps_orders_worst_first(db_session):
     user = _make_user(5)
     course = _make_course(user.id, 505, title="Bad")
     await _seed_user_course_submissions(
-        db_session, user, course,
+        db_session,
+        user,
+        course,
         rows=[(900, "wrong"), (901, "correct"), (901, "wrong"), (902, "correct"), (902, "correct")],
     )
 
@@ -409,7 +417,9 @@ async def test_hardest_steps_respects_min_submissions(db_session):
     user = _make_user(6)
     course = _make_course(user.id, 606)
     await _seed_user_course_submissions(
-        db_session, user, course,
+        db_session,
+        user,
+        course,
         rows=[(910, "wrong")],
     )
 
@@ -471,7 +481,9 @@ async def test_hardest_steps_only_own_courses(db_session):
     stranger = _make_user(10)
     course_other = _make_course(stranger.id, 1010)
     await _seed_user_course_submissions(
-        db_session, stranger, course_other,
+        db_session,
+        stranger,
+        course_other,
         rows=[(950, "wrong")],
     )
     db_session.add(_make_submission(course_own.id, 9500, 951, "wrong"))
@@ -524,7 +536,9 @@ async def test_hardest_steps_module_and_lesson_numbers(db_session):
     user = _make_user(12)
     course = _make_course(user.id, 1212)
     await _seed_user_course_submissions(
-        db_session, user, course,
+        db_session,
+        user,
+        course,
         rows=[(500, "wrong"), (501, "wrong"), (500, "correct")],
     )
     await db_session.execute(
@@ -578,7 +592,9 @@ async def test_hardest_steps_module_lesson_missing_returns_none(db_session):
     user = _make_user(13)
     course = _make_course(user.id, 1313)
     await _seed_user_course_submissions(
-        db_session, user, course,
+        db_session,
+        user,
+        course,
         rows=[(520, "wrong")],
     )
 

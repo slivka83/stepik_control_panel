@@ -5,7 +5,14 @@ import DataTable, { makeComparator } from '../components/DataTable';
 const columns = [
   { key: 'name', label: 'Имя', width: 'w-[20%]' },
   { key: 'score', label: 'Балл', align: 'right', width: 'w-[20%]', numeric: true },
-  { key: 'note', label: 'Заметка', align: 'right', width: 'w-[20%]', nullLast: true, render: (r) => <td>{r.note ?? '—'}</td> },
+  {
+    key: 'note',
+    label: 'Заметка',
+    align: 'right',
+    width: 'w-[20%]',
+    nullLast: true,
+    render: (r) => <td>{r.note ?? '—'}</td>,
+  },
 ];
 
 const rows = [
@@ -26,7 +33,11 @@ function renderTable(overrides = {}) {
   );
 }
 
-const rowNames = () => screen.getAllByRole('row').slice(1).map((tr) => tr.textContent);
+const rowNames = () =>
+  screen
+    .getAllByRole('row')
+    .slice(1)
+    .map((tr) => tr.textContent);
 
 describe('DataTable', () => {
   it('sorts numeric column desc on first click and asc on second', () => {

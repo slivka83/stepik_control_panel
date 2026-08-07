@@ -51,9 +51,7 @@ const refundsCell = (row) => (
     {row.refunds > 0 ? `-${formatCurrency(row.refunds)}` : '—'}
   </td>
 );
-const paymentsCell = (row) => (
-  <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300">{row.payments}</td>
-);
+const paymentsCell = (row) => <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300">{row.payments}</td>;
 const lastUsedCell = (row) => (
   <td className="text-right text-gray-400 text-xs pl-1 pr-1 truncate">
     {row.last_used ? new Date(row.last_used).toLocaleDateString('ru-RU') : '—'}
@@ -76,15 +74,35 @@ const MONTHS_COLUMNS = [
     getValue: monthCompositeValue,
     render: (m) => <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate">{yearMonthLabel(m.month)}</td>,
   },
-  { key: 'payments_count', label: 'Покупок', align: 'right', width: 'w-[16%]', numeric: true, render: (m) => <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300">{m.payments_count}</td> },
+  {
+    key: 'payments_count',
+    label: 'Покупок',
+    align: 'right',
+    width: 'w-[16%]',
+    numeric: true,
+    render: (m) => <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300">{m.payments_count}</td>,
+  },
   { key: 'turnover', label: 'Оборот', align: 'right', width: 'w-[22%]', numeric: true, render: grayMoneyCell },
   { key: 'income', label: 'Доход', align: 'right', width: 'w-[20%]', numeric: true, render: greenMoneyCell },
   { key: 'refunds', label: 'Возвраты', align: 'right', width: 'w-[14%]', numeric: true, render: refundsCell },
 ];
 
 const YEARS_COLUMNS = [
-  { key: 'year', label: 'Год', width: 'w-[28%]', numeric: true, render: (m) => <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate">{m.year}</td> },
-  { key: 'payments_count', label: 'Покупок', align: 'right', width: 'w-[16%]', numeric: true, render: (m) => <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300">{m.payments_count}</td> },
+  {
+    key: 'year',
+    label: 'Год',
+    width: 'w-[28%]',
+    numeric: true,
+    render: (m) => <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate">{m.year}</td>,
+  },
+  {
+    key: 'payments_count',
+    label: 'Покупок',
+    align: 'right',
+    width: 'w-[16%]',
+    numeric: true,
+    render: (m) => <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300">{m.payments_count}</td>,
+  },
   { key: 'turnover', label: 'Оборот', align: 'right', width: 'w-[22%]', numeric: true, render: grayMoneyCell },
   { key: 'income', label: 'Доход', align: 'right', width: 'w-[20%]', numeric: true, render: greenMoneyCell },
   { key: 'refunds', label: 'Возвраты', align: 'right', width: 'w-[14%]', numeric: true, render: refundsCell },
@@ -102,9 +120,18 @@ const DAYS_COLUMNS = [
     width: 'w-[28%]',
     numeric: true,
     getValue: dayCompositeValue,
-    render: (d) => <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate">{d.day.split('-').reverse().join('.')}</td>,
+    render: (d) => (
+      <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate">{d.day.split('-').reverse().join('.')}</td>
+    ),
   },
-  { key: 'payments_count', label: 'Покупок', align: 'right', width: 'w-[16%]', numeric: true, render: (d) => <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300">{d.payments_count}</td> },
+  {
+    key: 'payments_count',
+    label: 'Покупок',
+    align: 'right',
+    width: 'w-[16%]',
+    numeric: true,
+    render: (d) => <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300">{d.payments_count}</td>,
+  },
   { key: 'turnover', label: 'Оборот', align: 'right', width: 'w-[22%]', numeric: true, render: grayMoneyCell },
   { key: 'income', label: 'Доход', align: 'right', width: 'w-[20%]', numeric: true, render: greenMoneyCell },
   { key: 'refunds', label: 'Возвраты', align: 'right', width: 'w-[14%]', numeric: true, render: refundsCell },
@@ -139,26 +166,56 @@ const COURSES_COLUMNS = [
     width: 'w-[14%]',
     numeric: true,
     nullLast: true,
-    render: (c) => <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300">{c.price ? formatCurrency(c.price) : '—'}</td>,
+    render: (c) => (
+      <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300">
+        {c.price ? formatCurrency(c.price) : '—'}
+      </td>
+    ),
   },
 ];
 
 const PROMOS_COLUMNS = [
-  { key: 'promo_code', label: 'Промокод', width: 'w-[18%]', render: (p) => <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate">{p.promo_code}</td> },
+  {
+    key: 'promo_code',
+    label: 'Промокод',
+    width: 'w-[18%]',
+    render: (p) => <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate">{p.promo_code}</td>,
+  },
   { key: 'payments', label: 'Покупок', align: 'right', width: 'w-[12%]', numeric: true, render: paymentsCell },
   { key: 'turnover', label: 'Оборот', align: 'right', width: 'w-[18%]', numeric: true, render: grayMoneyCell },
   { key: 'income', label: 'Доход', align: 'right', width: 'w-[16%]', numeric: true, render: greenMoneyCell },
   { key: 'refunds', label: 'Возвраты', align: 'right', width: 'w-[14%]', numeric: true, render: refundsCell },
-  { key: 'last_used', label: 'Последнее применение', align: 'right', width: 'w-[22%]', nullLast: true, naturalDir: 'asc', render: lastUsedCell },
+  {
+    key: 'last_used',
+    label: 'Последнее применение',
+    align: 'right',
+    width: 'w-[22%]',
+    nullLast: true,
+    naturalDir: 'asc',
+    render: lastUsedCell,
+  },
 ];
 
 const UTMS_COLUMNS = [
-  { key: 'utm_source', label: 'UTM', width: 'w-[18%]', render: (u) => <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate">{u.utm_source}</td> },
+  {
+    key: 'utm_source',
+    label: 'UTM',
+    width: 'w-[18%]',
+    render: (u) => <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate">{u.utm_source}</td>,
+  },
   { key: 'payments', label: 'Покупок', align: 'right', width: 'w-[12%]', numeric: true, render: paymentsCell },
   { key: 'turnover', label: 'Оборот', align: 'right', width: 'w-[18%]', numeric: true, render: grayMoneyCell },
   { key: 'income', label: 'Доход', align: 'right', width: 'w-[16%]', numeric: true, render: greenMoneyCell },
   { key: 'refunds', label: 'Возвраты', align: 'right', width: 'w-[14%]', numeric: true, render: refundsCell },
-  { key: 'last_used', label: 'Последнее применение', align: 'right', width: 'w-[22%]', nullLast: true, naturalDir: 'asc', render: lastUsedCell },
+  {
+    key: 'last_used',
+    label: 'Последнее применение',
+    align: 'right',
+    width: 'w-[22%]',
+    nullLast: true,
+    naturalDir: 'asc',
+    render: lastUsedCell,
+  },
 ];
 
 const RECENT_COLUMNS = [
@@ -213,7 +270,11 @@ const RECENT_COLUMNS = [
     width: 'w-[8%]',
     numeric: true,
     nullLast: true,
-    render: (p) => <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300 truncate">{formatCurrency(p.payment_amount)}</td>,
+    render: (p) => (
+      <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300 truncate">
+        {formatCurrency(p.payment_amount)}
+      </td>
+    ),
   },
   {
     key: 'commission',
@@ -243,7 +304,9 @@ const RECENT_COLUMNS = [
     numeric: true,
     nullLast: true,
     render: (p) => (
-      <td className={`text-right font-mono text-xs pl-1 pr-1 truncate ${p.status === 'refunded' ? 'text-crimson-alert line-through' : 'text-neon-green'}`}>
+      <td
+        className={`text-right font-mono text-xs pl-1 pr-1 truncate ${p.status === 'refunded' ? 'text-crimson-alert line-through' : 'text-neon-green'}`}
+      >
         {formatCurrency(p.amount)}
       </td>
     ),
@@ -328,11 +391,10 @@ export default function Financials() {
     <div className="flex flex-col flex-1 h-0 gap-4">
       {error && <ErrorBanner message={error} onRetry={refresh} />}
 
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 shrink-0">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
         <KpiCard title="Оборот" value={summary?.total_turnover || 0} color="white" suffix={'\u200A₽'} />
         <KpiCard title="Доход" value={summary?.total_income || 0} color="white" suffix={'\u200A₽'} />
         <KpiCard title="Возвраты" value={summary?.total_refunds || 0} color="white" suffix={'\u200A₽'} />
-        <KpiCard title="Чистый доход" value={summary?.net_income || 0} color="white" suffix={'\u200A₽'} />
         <KpiCard title="Покупок" value={summary?.total_payments || 0} color="white" />
       </div>
 

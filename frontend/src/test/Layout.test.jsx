@@ -261,7 +261,9 @@ describe('Layout', () => {
       expect(screen.getByTitle(/Синхронизация не удалась/)).toBeInTheDocument();
     });
     rerender(
-      <TestRouter syncValue={{ ...failedValue, syncStatus: { ...failedValue.syncStatus, in_progress: true, progress: 10 } }}>
+      <TestRouter
+        syncValue={{ ...failedValue, syncStatus: { ...failedValue.syncStatus, in_progress: true, progress: 10 } }}
+      >
         <Layout>
           <div>Content</div>
         </Layout>

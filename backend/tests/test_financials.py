@@ -34,7 +34,6 @@ class TestFinancials:
                         "total_income": 150000,
                         "total_refunds": 5000,
                         "total_payments": 42,
-                        "net_income": 145000,
                     },
                     "months": [
                         {
@@ -79,7 +78,7 @@ class TestFinancials:
                         },
                         {
                             "id": 2,
-                            "amount": 1000,
+                            "amount": -1000,
                             "payment_amount": 1200,
                             "status": "refunded",
                             "time": (now - timedelta(days=1)).isoformat(),
@@ -111,7 +110,7 @@ class TestFinancials:
             assert response.status_code == 200
             data = response.json()
             assert data["summary"]["total_turnover"] == 200000
-            assert data["summary"]["net_income"] == 145000
+            assert "net_income" not in data["summary"]
             assert len(data["months"]) == 3
             assert len(data["courses"]) == 1
             assert [y["year"] for y in data["years"]] == [2025, 2026]
@@ -130,7 +129,7 @@ class TestFinancials:
             y = next(d for d in data["days"] if d["day"] == yesterday)
             assert y["payments_count"] == 2
             assert y["turnover"] == 2800
-            assert y["income"] == 2940
+            assert y["income"] == 1940
             assert y["refunds"] == 1000
             assert y["refunds_count"] == 1
             d3 = (today - timedelta(days=3)).isoformat()

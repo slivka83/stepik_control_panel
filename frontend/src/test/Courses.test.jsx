@@ -30,7 +30,6 @@ const makeSyncValue = (courses = [], extra = {}) => ({
       courses_count: courses.length,
       courses_published: courses.filter((c) => c.status === 'Published').length,
       courses_unpublished: courses.filter((c) => c.status !== 'Published').length,
-      net_income: 0,
       total_turnover: 0,
       total_payments: 0,
       total_refunds: 0,
@@ -300,9 +299,7 @@ describe('Courses', () => {
 
   it('ignores course filter — renders table, not "Нет курсов", when nothing is selected', () => {
     render(
-      <TestRouter
-        syncValue={makeSyncValue([defaultCourse], { selectedCourseIds: [], isFilterActive: true })}
-      >
+      <TestRouter syncValue={makeSyncValue([defaultCourse], { selectedCourseIds: [], isFilterActive: true })}>
         <Courses />
       </TestRouter>,
     );

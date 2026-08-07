@@ -12,7 +12,6 @@ const mockFinancials = {
     total_income: 150000,
     total_refunds: 5000,
     total_payments: 42,
-    net_income: 145000,
   },
   months: [
     {
@@ -105,7 +104,6 @@ const makeSyncValue = (financials = mockFinancials) => ({
       total_students: 0,
       certificates_issued: 0,
       courses_count: 0,
-      net_income: 0,
       total_turnover: 0,
       total_payments: 0,
       total_refunds: 0,
@@ -143,7 +141,7 @@ describe('Financials', () => {
 
   it('renders empty state with zeroed KPI cards and empty tables', () => {
     renderFinancials({
-      summary: { total_turnover: 0, total_income: 0, total_refunds: 0, total_payments: 0, net_income: 0 },
+      summary: { total_turnover: 0, total_income: 0, total_refunds: 0, total_payments: 0 },
       months: [],
       courses: [],
       recent_payments: [],
@@ -183,12 +181,12 @@ describe('Financials', () => {
     expect(screen.getByText('-500 ₽')).toHaveClass('text-crimson-alert');
   });
 
-  it('renders 5 KPI cards', () => {
+  it('renders 4 KPI cards', () => {
     renderFinancials();
     expect(screen.getAllByText('Оборот').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Доход').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Возвраты').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByText('Чистый доход')).toBeInTheDocument();
+    expect(screen.queryByText('Чистый доход')).not.toBeInTheDocument();
     expect(screen.getAllByText('Покупок').length).toBeGreaterThanOrEqual(1);
   });
 
@@ -273,8 +271,24 @@ describe('Financials', () => {
     renderFinancials({
       summary: mockFinancials.summary,
       months: [
-        { month: 'Январь 2026', year: 2026, month_num: 1, turnover: 70000, income: 50000, refunds: 0, payments_count: 15 },
-        { month: 'Февраль 2026', year: 2026, month_num: 2, turnover: 90000, income: 60000, refunds: 0, payments_count: 20 },
+        {
+          month: 'Январь 2026',
+          year: 2026,
+          month_num: 1,
+          turnover: 70000,
+          income: 50000,
+          refunds: 0,
+          payments_count: 15,
+        },
+        {
+          month: 'Февраль 2026',
+          year: 2026,
+          month_num: 2,
+          turnover: 90000,
+          income: 60000,
+          refunds: 0,
+          payments_count: 20,
+        },
       ],
       years: [],
       courses: [],

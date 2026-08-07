@@ -11,7 +11,6 @@ const makeSyncValue = (overrides = {}) => ({
       total_students: 0,
       certificates_issued: 0,
       courses_count: 0,
-      net_income: 0,
       total_turnover: 0,
       total_payments: 0,
       total_refunds: 0,

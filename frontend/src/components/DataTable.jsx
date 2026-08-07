@@ -156,9 +156,7 @@ const Row = memo(function Row({ columns, row }) {
   return (
     <tr className="border-b border-gray-800">
       {columns.map((col) => (
-        <Fragment key={col.key}>
-          {col.render ? col.render(row) : <DefaultCell column={col} row={row} />}
-        </Fragment>
+        <Fragment key={col.key}>{col.render ? col.render(row) : <DefaultCell column={col} row={row} />}</Fragment>
       ))}
     </tr>
   );

@@ -526,6 +526,7 @@ async def transform_financials(session: AsyncSession):
         if status == "refunded":
             cs["refunds"] += abs(amount)
             cs["turnover"] -= payment_amount
+            cs["income"] += amount
         else:
             cs["turnover"] += payment_amount
             cs["income"] += amount
@@ -550,6 +551,7 @@ async def transform_financials(session: AsyncSession):
         payment_amount = float(b.get("payment_amount", 0) or 0)
         if b.get("status") == "refunded":
             ps["refunds"] += abs(amount)
+            ps["income"] += amount
         else:
             ps["turnover"] += payment_amount
             ps["income"] += amount
@@ -578,6 +580,7 @@ async def transform_financials(session: AsyncSession):
         payment_amount = float(b.get("payment_amount", 0) or 0)
         if b.get("status") == "refunded":
             us["refunds"] += abs(amount)
+            us["income"] += amount
         else:
             us["turnover"] += payment_amount
             us["income"] += amount
@@ -627,7 +630,6 @@ async def transform_financials(session: AsyncSession):
             "total_refunds": total_refunds,
             "total_payments": total_payments,
             "total_refunds_count": total_refunds_count,
-            "net_income": total_income - total_refunds,
             "current_month_turnover": current_month_turnover,
             "current_month_income": current_month_income,
             "current_month_payments": current_month_payments,

@@ -40,7 +40,13 @@ const makeStudent = (overrides = {}) => ({
   ...overrides,
 });
 
-const NUMERIC_SORT_KEYS = new Set(['courses_count', 'certificates', 'submissions_count', 'comments_count', 'published_solutions']);
+const NUMERIC_SORT_KEYS = new Set([
+  'courses_count',
+  'certificates',
+  'submissions_count',
+  'comments_count',
+  'published_solutions',
+]);
 
 // Mimics the server-side sort + pagination of /dashboard/students.
 function applyServerSort(list, key, dir) {
@@ -369,7 +375,10 @@ describe('Students', () => {
     mockStudentsApi([makeStudent()]);
     render(
       <TestRouter
-        syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 }, { selectedCourseIds: ['u1', 'u2'], isFilterActive: true })}
+        syncValue={makeSyncValue(
+          { active: 1, passive: 0, fading: 0, sleeping: 0 },
+          { selectedCourseIds: ['u1', 'u2'], isFilterActive: true },
+        )}
       >
         <Students />
       </TestRouter>,

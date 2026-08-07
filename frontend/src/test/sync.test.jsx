@@ -223,7 +223,12 @@ describe('SyncContext', () => {
     mockApiInstance.get.mockImplementation((url) => {
       if (url === '/courses') {
         return Promise.resolve({
-          data: { courses: [{ id: 'c1', title: 'A' }, { id: 'c2', title: 'B' }] },
+          data: {
+            courses: [
+              { id: 'c1', title: 'A' },
+              { id: 'c2', title: 'B' },
+            ],
+          },
         });
       }
       return Promise.resolve({ data: {} });
@@ -252,14 +257,22 @@ describe('SyncContext', () => {
     const filtered = calls.find((call) => call[1].params && call[1].params.course_ids);
     expect(filtered).toBeDefined();
     expect(filtered[1].params.course_ids).toBe('c2');
-    expect(mockApiInstance.get).toHaveBeenCalledWith('/courses', expect.not.objectContaining({ params: { course_ids: 'c2' } }));
+    expect(mockApiInstance.get).toHaveBeenCalledWith(
+      '/courses',
+      expect.not.objectContaining({ params: { course_ids: 'c2' } }),
+    );
   });
 
   it('returns to all-courses mode via selectAllCourses (no course_ids)', async () => {
     mockApiInstance.get.mockImplementation((url) => {
       if (url === '/courses') {
         return Promise.resolve({
-          data: { courses: [{ id: 'c1', title: 'A' }, { id: 'c2', title: 'B' }] },
+          data: {
+            courses: [
+              { id: 'c1', title: 'A' },
+              { id: 'c2', title: 'B' },
+            ],
+          },
         });
       }
       return Promise.resolve({ data: {} });
@@ -295,7 +308,12 @@ describe('SyncContext', () => {
     mockApiInstance.get.mockImplementation((url) => {
       if (url === '/courses') {
         return Promise.resolve({
-          data: { courses: [{ id: 'c1', title: 'A' }, { id: 'c2', title: 'B' }] },
+          data: {
+            courses: [
+              { id: 'c1', title: 'A' },
+              { id: 'c2', title: 'B' },
+            ],
+          },
         });
       }
       return Promise.resolve({ data: {} });

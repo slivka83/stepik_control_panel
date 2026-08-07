@@ -108,6 +108,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
         if status == "refunded":
             cs["refunds"] += abs(amount)
             cs["turnover"] -= payment_amount
+            cs["income"] += amount
         else:
             cs["turnover"] += payment_amount
             cs["income"] += amount
@@ -131,6 +132,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
                 ms["refunds"] += abs(amount)
                 ms["refunds_count"] += 1
                 ms["turnover"] -= payment_amount
+                ms["income"] += amount
             else:
                 ms["turnover"] += payment_amount
                 ms["income"] += amount
@@ -151,6 +153,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
             ps["payments"] += 1
             if status == "refunded":
                 ps["refunds"] += abs(amount)
+                ps["income"] += amount
             else:
                 ps["turnover"] += payment_amount
                 ps["income"] += amount
@@ -175,6 +178,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
             us["payments"] += 1
             if status == "refunded":
                 us["refunds"] += abs(amount)
+                us["income"] += amount
             else:
                 us["turnover"] += payment_amount
                 us["income"] += amount
@@ -213,9 +217,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
             current_month_income = m["income"]
             current_month_payments = m["payments_count"]
 
-    orig_courses = {
-        c.get("course_id"): c for c in data.get("courses", []) or [] if isinstance(c, dict)
-    }
+    orig_courses = {c.get("course_id"): c for c in data.get("courses", []) or [] if isinstance(c, dict)}
     courses = []
     for cid, cs in course_stats.items():
         o = orig_courses.get(cid, {})
@@ -234,9 +236,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
 
     selected_ids = selected_stepik_ids
     recent_payments = [
-        p
-        for p in data.get("recent_payments", []) or []
-        if _int_or_none(p.get("raw", {}).get("course")) in selected_ids
+        p for p in data.get("recent_payments", []) or [] if _int_or_none(p.get("raw", {}).get("course")) in selected_ids
     ]
 
     return {
@@ -246,7 +246,6 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
             "total_refunds": total_refunds,
             "total_payments": total_payments,
             "total_refunds_count": total_refunds_count,
-            "net_income": total_income - total_refunds,
             "current_month_turnover": current_month_turnover,
             "current_month_income": current_month_income,
             "current_month_payments": current_month_payments,

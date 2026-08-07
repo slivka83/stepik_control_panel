@@ -41,7 +41,6 @@ SUMMARY_KEYS = {
     "total_refunds",
     "total_payments",
     "total_refunds_count",
-    "net_income",
     "current_month_turnover",
     "current_month_income",
     "current_month_payments",
@@ -490,7 +489,7 @@ async def test_courses_api_returns_every_frontend_field(db_session):
 
         py = next(c for c in courses if c["title"] == "Python 101")
         assert py["price"] == 2990
-        assert py["income"] == 1000
+        assert py["income"] == 800
         assert py["comments_count"] == 2
         assert py["reviews_count"] == 100
         assert py["average_rating"] == 4.5

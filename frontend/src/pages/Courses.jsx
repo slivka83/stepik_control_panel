@@ -28,9 +28,7 @@ function getRatingColor(rating) {
   return `rgb(${Math.round(r1 + (r2 - r1) * t)}, ${Math.round(g1 + (g2 - g1) * t)}, ${Math.round(b1 + (b2 - b1) * t)})`;
 }
 
-const numCell = (row, key) => (
-  <td className="text-right font-mono text-xs text-gray-300 pl-1 pr-1">{row[key] || 0}</td>
-);
+const numCell = (row, key) => <td className="text-right font-mono text-xs text-gray-300 pl-1 pr-1">{row[key] || 0}</td>;
 
 const COURSE_COLUMNS = [
   {
@@ -71,10 +69,38 @@ const COURSE_COLUMNS = [
       );
     },
   },
-  { key: 'enrollment_count', label: 'Студенты', align: 'right', width: 'w-[7%]', numeric: true, render: (c) => numCell(c, 'enrollment_count') },
-  { key: 'certificates_count', label: 'Сертификаты', align: 'right', width: 'w-[10%]', numeric: true, render: (c) => numCell(c, 'certificates_count') },
-  { key: 'comments_count', label: 'Комментарии', align: 'right', width: 'w-[9%]', numeric: true, render: (c) => numCell(c, 'comments_count') },
-  { key: 'reviews_count', label: 'Отзывы', align: 'right', width: 'w-[6%]', numeric: true, render: (c) => numCell(c, 'reviews_count') },
+  {
+    key: 'enrollment_count',
+    label: 'Студенты',
+    align: 'right',
+    width: 'w-[7%]',
+    numeric: true,
+    render: (c) => numCell(c, 'enrollment_count'),
+  },
+  {
+    key: 'certificates_count',
+    label: 'Сертификаты',
+    align: 'right',
+    width: 'w-[10%]',
+    numeric: true,
+    render: (c) => numCell(c, 'certificates_count'),
+  },
+  {
+    key: 'comments_count',
+    label: 'Комментарии',
+    align: 'right',
+    width: 'w-[9%]',
+    numeric: true,
+    render: (c) => numCell(c, 'comments_count'),
+  },
+  {
+    key: 'reviews_count',
+    label: 'Отзывы',
+    align: 'right',
+    width: 'w-[6%]',
+    numeric: true,
+    render: (c) => numCell(c, 'reviews_count'),
+  },
   {
     key: 'average_rating',
     label: 'Рейтинг',
@@ -128,9 +154,7 @@ const COURSE_COLUMNS = [
     nullLast: true,
     naturalDir: 'asc',
     render: (c) => (
-      <td className="text-right font-mono text-xs text-gray-300 pl-1 pr-1 truncate">
-        {fmtDate(c.published_at)}
-      </td>
+      <td className="text-right font-mono text-xs text-gray-300 pl-1 pr-1 truncate">{fmtDate(c.published_at)}</td>
     ),
   },
 ];

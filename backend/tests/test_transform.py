@@ -418,16 +418,18 @@ class TestTransformFinancials:
         assert s["total_income"] == 12000
         assert s["total_refunds"] == 300
         assert s["total_payments"] == 15
-        assert s["net_income"] == 11700
+        assert "net_income" not in s
 
         assert len(data["months"]) == 2
         assert len(data["courses"]) == 1
         assert data["courses"][0]["title"] == "Python 101"
         assert data["courses"][0]["refunds"] == 200
+        assert data["courses"][0]["income"] == 800
 
         assert len(data["promos"]) == 1
         assert data["promos"][0]["promo_code"] == "DISCOUNT10"
         assert data["promos"][0]["refunds"] == 200
+        assert data["promos"][0]["income"] == -200
 
         assert len(data["utms"]) == 1
         u = data["utms"][0]
@@ -447,6 +449,108 @@ class TestTransformFinancials:
         assert data["recent_payments"][1]["channel"] == "Stepik"
         assert data["recent_payments"][1]["is_gift"] is False
         assert data["recent_payments"][1]["raw"]["last_course_click_utm"]["utm_campaign"] == "rsya_yad_feed_stepik_rus"
+
+    @pytest.mark.asyncio
+    async def test_income_is_net_of_refunds_across_levels(self, db_session):
+        """Regression: «Доход = то, что получает автор» — income на всех уровнях
+        (summary, months, courses, promos, utms) учитывает отрицательные refunded
+        amount'ы, а не только не-refunded платежи."""
+        from app.services.transform import transform_financials
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=101, title="Python 101")
+        await db_session.commit()
+
+        now = datetime.now(UTC)
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course_benefit_by_month (year, month, total_turnover, total_user_income, total_refunds, count_payments, count_refunds, _raw_json)
+            VALUES (:y, :m, '12000', '8000', '1000', 10, 1, :j)
+        """),
+            {
+                "y": now.year,
+                "m": now.month,
+                "j": json.dumps(
+                    {
+                        "year": now.year,
+                        "month": now.month,
+                        "total_turnover": 12000,
+                        "total_user_income": 8000,
+                        "total_refunds": 1000,
+                        "count_payments": 10,
+                        "count_refunds": 1,
+                    }
+                ),
+            },
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course_benefit (course, amount, payment_amount, status, "time", buyer, promo_code, currency_code, _raw_json)
+            VALUES (101, '3000', '3600', 'completed', :t1, 1001, 'PROMO', 'RUB', :j1),
+                   (101, '-1000', '1200', 'refunded', :t2, 1002, 'PROMO', 'RUB', :j2)
+        """),
+            {
+                "t1": f"{now.year}-{now.month:02d}-01T10:00:00Z",
+                "t2": f"{now.year}-{now.month:02d}-02T10:00:00Z",
+                "j1": json.dumps(
+                    {
+                        "course": 101,
+                        "amount": 3000,
+                        "payment_amount": 3600,
+                        "status": "completed",
+                        "time": f"{now.year}-{now.month:02d}-01T10:00:00Z",
+                        "buyer": 1001,
+                        "promo_code": "PROMO",
+                        "currency_code": "RUB",
+                        "last_course_click_utm": {"utm_source": "yandex_stpk"},
+                    }
+                ),
+                "j2": json.dumps(
+                    {
+                        "course": 101,
+                        "amount": -1000,
+                        "payment_amount": 1200,
+                        "status": "refunded",
+                        "time": f"{now.year}-{now.month:02d}-02T10:00:00Z",
+                        "buyer": 1002,
+                        "promo_code": "PROMO",
+                        "currency_code": "RUB",
+                        "last_course_click_utm": {"utm_source": "stepik_telegram"},
+                    }
+                ),
+            },
+        )
+        await db_session.commit()
+
+        await transform_financials(db_session)
+        await db_session.commit()
+
+        r = await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
+        row = r.fetchone()
+        data = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+
+        s = data["summary"]
+        assert s["total_income"] == 8000, "summary income приходит из API (total_user_income, уже net)"
+        assert s["total_refunds"] == 1000
+        assert "net_income" not in s
+
+        month = data["months"][0]
+        assert month["income"] == 8000
+
+        course = data["courses"][0]
+        assert course["course_id"] == 101
+        assert course["income"] == 2000, "курс: 3000 − 1000 (refunded) = 2000"
+        assert course["refunds"] == 1000
+        assert course["turnover"] == 2400, "3600 − 1200 (payment_amount refunded)"
+
+        promo = data["promos"][0]
+        assert promo["promo_code"] == "PROMO"
+        assert promo["income"] == 2000, "промо: 3000 − 1000 = 2000"
+        assert promo["refunds"] == 1000
+
+        utm = {u["utm_source"]: u for u in data["utms"]}
+        assert utm["Я.Директ"]["income"] == 3000
+        assert utm["Telegram"]["income"] == -1000, "возврат по UTM уменьшает income этого источника"
 
     @pytest.mark.asyncio
     async def test_recent_payments_returns_all(self, db_session):
