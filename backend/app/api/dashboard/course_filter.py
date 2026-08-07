@@ -258,7 +258,45 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
     }
 
 
-async def _build_step_course_map(db: AsyncSession) -> dict[int, int]:
+async def published_solutions_stats(
+    db: AsyncSession, step_course: dict[int, int], selected_stepik_ids: set[int]
+) -> tuple[dict[tuple[int, int], int], dict[int, int], dict[int, int]]:
+    """Count of published solutions (comments in solution threads) grouped by
+    month `(year, month)`, by year, and by stepik course id.
+
+    Mirrors filter_community's solution counting: a comment counts as a
+    published solution when `_raw_json.thread` contains "solution"; it is
+    attributed to a course via the step→course map. Returns
+    `(monthly, yearly, per_course)`.
+    """
+    monthly: dict[tuple[int, int], int] = {}
+    yearly: dict[int, int] = {}
+    per_course: dict[int, int] = {}
+    rows = await db.execute(text("SELECT _raw_json FROM raw_comment"))
+    for (raw_json,) in rows:
+        cm = _parse_json(raw_json)
+        if not cm:
+            continue
+        time_raw = cm.get("time")
+        target = _int_or_none(cm.get("target"))
+        if not time_raw or target is None:
+            continue
+        cid = step_course.get(target)
+        if cid is None or cid not in selected_stepik_ids:
+            continue
+        thread = cm.get("thread", "")
+        if not thread or "solution" not in thread:
+            continue
+        ym = _month_tuple(time_raw)
+        if not ym:
+            continue
+        monthly[ym] = monthly.get(ym, 0) + 1
+        yearly[ym[0]] = yearly.get(ym[0], 0) + 1
+        per_course[cid] = per_course.get(cid, 0) + 1
+    return monthly, yearly, per_course
+
+
+async def build_step_course_map(db: AsyncSession) -> dict[int, int]:
     r = await db.execute(
         text(
             """
@@ -301,7 +339,7 @@ async def filter_community(db: AsyncSession, data: dict, selected_stepik_ids: se
             ratings.append(float(avg))
     average_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
 
-    step_course = await _build_step_course_map(db)
+    step_course = await build_step_course_map(db)
     comments_monthly = {}
     solutions_monthly = {}
     total_comments = 0
@@ -343,7 +381,7 @@ async def filter_community(db: AsyncSession, data: dict, selected_stepik_ids: se
 
 async def filter_steps_average_grade(db: AsyncSession, selected_stepik_ids: set[int]) -> float:
     """Average step grade (votes-weighted) over steps of selected courses."""
-    step_course = await _build_step_course_map(db)
+    step_course = await build_step_course_map(db)
     if not step_course:
         return 0.0
     rows = await db.execute(text("SELECT step_id, _raw_json FROM raw_step"))

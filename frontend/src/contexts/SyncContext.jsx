@@ -1,7 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import api from '../api';
-import { mergePublishedIntoSubmissions } from '../utils/mergePublished';
 
 const SyncContext = createContext();
 
@@ -20,9 +19,9 @@ export function SyncProvider({ children }) {
     courses: [],
     financials: null,
     submissions: null,
+    comments: null,
     activeStudents: { months: [] },
     activeEnrolled: { months: [] },
-    publishedSolutions: { months: [] },
     certificates: { months: [] },
   });
   const abortRef = useRef(null);
@@ -43,9 +42,9 @@ export function SyncProvider({ children }) {
         coursesRes,
         financialsRes,
         submissionsRes,
+        commentsRes,
         activeStudentsRes,
         activeEnrolledRes,
-        publishedSolutionsRes,
         certificatesRes,
       ] = await Promise.allSettled([
         api.get('/dashboard/kpi', { signal, ...courseParams }),
@@ -55,9 +54,9 @@ export function SyncProvider({ children }) {
         api.get('/courses', { signal }),
         api.get('/financials', { signal, ...courseParams }),
         api.get('/dashboard/submissions', { signal, ...courseParams }),
+        api.get('/dashboard/comments', { signal, ...courseParams }),
         api.get('/dashboard/active-students', { signal, ...courseParams }),
         api.get('/dashboard/active-enrolled-students', { signal, ...courseParams }),
-        api.get('/dashboard/published-solutions', { signal, ...courseParams }),
         api.get('/dashboard/certificates', { signal, ...courseParams }),
       ]);
 
@@ -70,19 +69,10 @@ export function SyncProvider({ children }) {
           alerts: alertsRes.status === 'fulfilled' ? alertsRes.value.data.alerts || [] : prev.alerts,
           courses: coursesRes.status === 'fulfilled' ? coursesRes.value.data.courses || [] : prev.courses,
           financials: financialsRes.status === 'fulfilled' ? financialsRes.value.data : prev.financials,
-          submissions:
-            submissionsRes.status === 'fulfilled'
-              ? mergePublishedIntoSubmissions(
-                  submissionsRes.value.data,
-                  publishedSolutionsRes.status === 'fulfilled'
-                    ? publishedSolutionsRes.value.data
-                    : prev.publishedSolutions,
-                )
-              : prev.submissions,
+          submissions: submissionsRes.status === 'fulfilled' ? submissionsRes.value.data : prev.submissions,
+          comments: commentsRes.status === 'fulfilled' ? commentsRes.value.data : prev.comments,
           activeStudents: activeStudentsRes.status === 'fulfilled' ? activeStudentsRes.value.data : prev.activeStudents,
           activeEnrolled: activeEnrolledRes.status === 'fulfilled' ? activeEnrolledRes.value.data : prev.activeEnrolled,
-          publishedSolutions:
-            publishedSolutionsRes.status === 'fulfilled' ? publishedSolutionsRes.value.data : prev.publishedSolutions,
           certificates: certificatesRes.status === 'fulfilled' ? certificatesRes.value.data : prev.certificates,
         };
         if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
@@ -97,9 +87,9 @@ export function SyncProvider({ children }) {
         coursesRes,
         financialsRes,
         submissionsRes,
+        commentsRes,
         activeStudentsRes,
         activeEnrolledRes,
-        publishedSolutionsRes,
         certificatesRes,
       ].filter((r) => r.status === 'rejected');
       if (failures.length > 0) {

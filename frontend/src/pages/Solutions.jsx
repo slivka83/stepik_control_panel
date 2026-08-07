@@ -76,15 +76,23 @@ const MONTH_COLUMNS = [
     key: 'correct',
     label: 'Правильно',
     align: 'right',
-    width: 'w-[20%]',
+    width: 'w-[16%]',
     numeric: true,
     render: (m) => num(m, 'correct'),
+  },
+  {
+    key: 'published',
+    label: 'Опубликованные',
+    align: 'right',
+    width: 'w-[14%]',
+    numeric: true,
+    render: (m) => num(m, 'published'),
   },
   {
     key: 'wrong',
     label: 'Неверно',
     align: 'right',
-    width: 'w-[18%]',
+    width: 'w-[13%]',
     numeric: true,
     getValue: calcWrong,
     render: (m) => numCell(calcWrong(m)),
@@ -93,7 +101,7 @@ const MONTH_COLUMNS = [
     key: 'success',
     label: 'Успех',
     align: 'right',
-    width: 'w-[18%]',
+    width: 'w-[13%]',
     numeric: true,
     getValue: calcPct,
     render: (m) => successCell(calcPct(m)),
@@ -104,7 +112,7 @@ const YEARS_COLUMNS = [
   {
     key: 'year',
     label: 'Год',
-    width: 'w-[22%]',
+    width: 'w-[16%]',
     numeric: true,
     render: (m) => <td className="text-gray-300 font-mono text-xs pl-1 truncate">{m.year}</td>,
   },
@@ -112,24 +120,32 @@ const YEARS_COLUMNS = [
     key: 'students',
     label: 'Студенты',
     align: 'right',
-    width: 'w-[16%]',
+    width: 'w-[14%]',
     numeric: true,
     render: (m) => num(m, 'students'),
   },
-  { key: 'total', label: 'Всего', align: 'right', width: 'w-[16%]', numeric: true, render: (m) => num(m, 'total') },
+  { key: 'total', label: 'Всего', align: 'right', width: 'w-[14%]', numeric: true, render: (m) => num(m, 'total') },
   {
     key: 'correct',
     label: 'Правильно',
     align: 'right',
-    width: 'w-[20%]',
+    width: 'w-[17%]',
     numeric: true,
     render: (m) => num(m, 'correct'),
+  },
+  {
+    key: 'published',
+    label: 'Опубликованные',
+    align: 'right',
+    width: 'w-[14%]',
+    numeric: true,
+    render: (m) => num(m, 'published'),
   },
   {
     key: 'wrong',
     label: 'Неверно',
     align: 'right',
-    width: 'w-[18%]',
+    width: 'w-[13%]',
     numeric: true,
     getValue: calcWrong,
     render: (m) => numCell(calcWrong(m)),
@@ -138,7 +154,7 @@ const YEARS_COLUMNS = [
     key: 'success',
     label: 'Успех',
     align: 'right',
-    width: 'w-[18%]',
+    width: 'w-[12%]',
     numeric: true,
     getValue: calcPct,
     render: (m) => successCell(calcPct(m)),
@@ -149,7 +165,7 @@ const COURSES_COLUMNS = [
   {
     key: 'title',
     label: 'Курс',
-    width: 'w-[30%]',
+    width: 'w-[24%]',
     render: (c) => (
       <td className="text-left pl-1 text-xs truncate">
         {c.stepik_course_id ? (
@@ -171,24 +187,32 @@ const COURSES_COLUMNS = [
     key: 'students',
     label: 'Студенты',
     align: 'right',
-    width: 'w-[14%]',
+    width: 'w-[12%]',
     numeric: true,
     render: (c) => num(c, 'students'),
   },
-  { key: 'total', label: 'Всего', align: 'right', width: 'w-[14%]', numeric: true, render: (c) => num(c, 'total') },
+  { key: 'total', label: 'Всего', align: 'right', width: 'w-[13%]', numeric: true, render: (c) => num(c, 'total') },
   {
     key: 'correct',
     label: 'Правильно',
     align: 'right',
-    width: 'w-[18%]',
+    width: 'w-[15%]',
     numeric: true,
     render: (c) => num(c, 'correct'),
+  },
+  {
+    key: 'published',
+    label: 'Опубликованные',
+    align: 'right',
+    width: 'w-[13%]',
+    numeric: true,
+    render: (c) => num(c, 'published'),
   },
   {
     key: 'wrong',
     label: 'Неверно',
     align: 'right',
-    width: 'w-[16%]',
+    width: 'w-[12%]',
     numeric: true,
     getValue: calcWrong,
     render: (c) => numCell(calcWrong(c)),
@@ -197,7 +221,7 @@ const COURSES_COLUMNS = [
     key: 'success',
     label: 'Успех',
     align: 'right',
-    width: 'w-[14%]',
+    width: 'w-[11%]',
     numeric: true,
     getValue: calcPct,
     render: (c) => successCell(calcPct(c)),
@@ -356,16 +380,18 @@ export default function Solutions() {
   const totalSubmissions = months.reduce((s, m) => s + (m.total || 0), 0);
   const totalCorrect = months.reduce((s, m) => s + (m.correct || 0), 0);
   const totalWrong = totalSubmissions - totalCorrect;
+  const totalPublished = months.reduce((s, m) => s + (m.published || 0), 0);
   const avgSuccess = totalSubmissions > 0 ? Math.round((totalCorrect / totalSubmissions) * 100) : 0;
 
   return (
     <div className="flex flex-col flex-1 h-0 gap-4">
       {error && <ErrorBanner message={error} onRetry={refresh} />}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 shrink-0">
         <KpiCard title="Всего решений" value={totalSubmissions} color="white" />
         <KpiCard title="Правильных" value={totalCorrect} color="white" />
         <KpiCard title="Неправильных" value={totalWrong} color="white" />
+        <KpiCard title="Опубликованные" value={totalPublished} color="white" />
         <KpiCard
           title="Успех"
           value={avgSuccess}

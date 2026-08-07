@@ -110,7 +110,7 @@ function Sidebar() {
             }
           >
             <span
-              className="text-lg leading-none"
+              className="text-lg leading-none flex items-center"
               aria-hidden="true"
               style={item.iconScale ? { transform: `scale(${item.iconScale})`, display: 'inline-block' } : undefined}
             >

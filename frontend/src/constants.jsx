@@ -50,8 +50,25 @@ export const NAV_ITEMS = [
   { to: '/', label: 'Дашборд', icon: '⊞' },
   { to: '/courses', label: 'Курсы', icon: '📖︎', iconScale: 0.75 },
   { to: '/solutions', label: 'Решения', icon: '☑' },
+  { to: '/comments', label: 'Комментарии', icon: '🗨', iconScale: 0.85 },
   { to: '/financials', label: 'Финансы', icon: '$' },
-  { to: '/students', label: 'Студенты', icon: '🎓︎', iconScale: 0.85 },
+  { to: '/students', label: 'Студенты', icon: (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  ) },
   {
     to: '/activities',
     label: 'Активности',
@@ -80,4 +97,5 @@ export const STEPIK_URLS = {
   announcements: (courseId) => `https://stepik.org/course/${courseId}/announcements`,
   certificates: (courseId) => `https://stepik.org/course/${courseId}/certificates`,
   students: (courseId) => `https://stepik.org/course/${courseId}/students`,
+  comment: (lessonId, commentId) => `https://stepik.org/lesson/${lessonId}?discussion=${commentId}`,
 };

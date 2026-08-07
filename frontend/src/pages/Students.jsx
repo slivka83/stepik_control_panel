@@ -134,7 +134,7 @@ export default function Students() {
       return;
     }
     setPage(1);
-  }, [selectedCourseIds]);
+  }, [selectedCourseIds, sort.key, sort.dir]);
 
   useEffect(() => {
     if (prevLastSyncRef.current !== null && syncStatus.last_sync !== prevLastSyncRef.current) {

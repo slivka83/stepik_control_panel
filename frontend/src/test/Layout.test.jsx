@@ -29,6 +29,7 @@ const NAV_LINKS = {
   Дашборд: '/',
   Курсы: '/courses',
   Решения: '/solutions',
+  Комментарии: '/comments',
   Финансы: '/financials',
   Студенты: '/students',
   Активности: '/activities',
@@ -277,13 +278,16 @@ describe('Layout', () => {
     expect(btn.querySelector('.bg-cyber-blue\\/25')).toBeInTheDocument();
   });
 
-  it('applies visual scale to course and student icons only', async () => {
+  it('applies visual scale to course icon and renders students as svg only', async () => {
     renderLayout(false);
     await waitFor(() => {
       expect(screen.getByRole('link', { name: 'Курсы' })).toBeInTheDocument();
     });
     expect(screen.getByRole('link', { name: 'Курсы' }).querySelector('span')).toHaveStyle('transform: scale(0.75)');
-    expect(screen.getByRole('link', { name: 'Студенты' }).querySelector('span')).toHaveStyle('transform: scale(0.85)');
+    expect(screen.getByRole('link', { name: 'Студенты' }).querySelector('svg')).not.toBeNull();
+    expect(screen.getByRole('link', { name: 'Студенты' }).querySelector('span')).not.toHaveStyle(
+      'transform: scale(0.85)',
+    );
     expect(screen.getByRole('link', { name: 'Дашборд' }).querySelector('span')).not.toHaveStyle(
       'transform: scale(0.75)',
     );

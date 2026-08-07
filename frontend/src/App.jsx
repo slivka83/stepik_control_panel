@@ -5,6 +5,7 @@ import Layout from './components/Layout';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Courses = lazy(() => import('./pages/Courses'));
 const Solutions = lazy(() => import('./pages/Solutions'));
+const Comments = lazy(() => import('./pages/Comments'));
 const Financials = lazy(() => import('./pages/Financials'));
 const Students = lazy(() => import('./pages/Students'));
 const Activities = lazy(() => import('./pages/Activities'));
@@ -33,6 +34,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/courses" element={<Courses />} />
             <Route path="/solutions" element={<Solutions />} />
+            <Route path="/comments" element={<Comments />} />
             <Route path="/financials" element={<Financials />} />
             <Route path="/students" element={<Students />} />
             <Route path="/activities" element={<Activities />} />

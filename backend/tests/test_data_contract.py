@@ -517,6 +517,7 @@ PAGE_VAR_TO_PAYLOAD = {
     "Dashboard.jsx": {"kpi": "kpi"},
     "Students.jsx": {"s": "students"},
     "Solutions.jsx": {"s": "steps", "submissions": "submissions"},
+    "Comments.jsx": {"comments": "comments"},
     "Financials.jsx": {"financials": "financials"},
 }
 
@@ -532,6 +533,7 @@ async def test_frontend_field_references_exist_in_api(db_session):
         students = client.get("/api/dashboard/students").json()["students"]
         steps = client.get("/api/dashboard/hardest-steps?min_submissions=1").json()["steps"]
         submissions = client.get("/api/dashboard/submissions").json()
+        comments = client.get("/api/dashboard/comments").json()
         financials = client.get("/api/financials").json()
         assert courses, "seed must produce courses"
         assert students, "seed must produce students"
@@ -544,6 +546,7 @@ async def test_frontend_field_references_exist_in_api(db_session):
             "students": students[0],
             "steps": steps[0],
             "submissions": submissions,
+            "comments": comments,
             "financials": financials,
         }
 

@@ -90,8 +90,8 @@ describe('Constants', () => {
   });
 
   describe('NAV_ITEMS', () => {
-    it('has six navigation items', () => {
-      expect(NAV_ITEMS).toHaveLength(6);
+    it('has seven navigation items', () => {
+      expect(NAV_ITEMS).toHaveLength(7);
     });
 
     it('each item has to, label, and icon', () => {
@@ -107,9 +107,14 @@ describe('Constants', () => {
       expect(NAV_ITEMS[0].label).toBe('Дашборд');
     });
 
+    it('has comments item after solutions', () => {
+      expect(NAV_ITEMS[3].to).toBe('/comments');
+      expect(NAV_ITEMS[3].label).toBe('Комментарии');
+    });
+
     it('last item is activities', () => {
-      expect(NAV_ITEMS[5].to).toBe('/activities');
-      expect(NAV_ITEMS[5].label).toBe('Активности');
+      expect(NAV_ITEMS[6].to).toBe('/activities');
+      expect(NAV_ITEMS[6].label).toBe('Активности');
     });
   });
 });

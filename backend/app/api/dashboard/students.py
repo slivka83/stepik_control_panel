@@ -53,7 +53,8 @@ async def get_students(
     if order not in ("asc", "desc"):
         raise HTTPException(status_code=400, detail="order must be 'asc' or 'desc'")
 
-    order_by = col.asc().nullslast() if order == "asc" else col.desc().nullslast()
+    primary = col.asc().nullslast() if order == "asc" else col.desc().nullslast()
+    order_by = [primary, StudentMart.student_id.asc()]
 
     base = select(StudentMart)
     count_base = select(func.count(StudentMart.id))
@@ -68,7 +69,7 @@ async def get_students(
     total_result = await db.execute(count_base)
     total = total_result.scalar() or 0
 
-    result = await db.execute(base.order_by(order_by).offset(skip).limit(limit))
+    result = await db.execute(base.order_by(*order_by).offset(skip).limit(limit))
 
     students = []
     for m in result.scalars().all():

@@ -581,6 +581,41 @@ class TestDashboardStudents:
         finally:
             app.dependency_overrides.clear()
 
+    async def test_orders_ties_by_student_id(self, db_session):
+        """Regression: без tiebreaker'а равные значения сортировки давали
+        нестабильный порядок — один и тот же студент попадал на разные
+        страницы пагинации."""
+        user = await _seed_db(db_session)
+        self._seed_mart(db_session, 5, courses_count=1)
+        self._seed_mart(db_session, 1, courses_count=1)
+        self._seed_mart(db_session, 3, courses_count=2)
+        await db_session.commit()
+
+        await self._setup(db_session, user)
+        try:
+            data = client.get("/api/dashboard/students?sort=courses_count&order=desc").json()
+            assert [s["student_id"] for s in data["students"]] == [3, 1, 5]
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_pagination_pages_do_not_overlap(self, db_session):
+        """Regression: при равных значениях сортировки страницы пагинации
+        не должны пересекаться и терять студентов."""
+        user = await _seed_db(db_session)
+        for sid in range(1, 10):
+            self._seed_mart(db_session, sid, courses_count=1)
+        await db_session.commit()
+
+        await self._setup(db_session, user)
+        try:
+            seen = []
+            for skip in (0, 3, 6):
+                data = client.get(f"/api/dashboard/students?sort=courses_count&order=desc&skip={skip}&limit=3").json()
+                seen.extend(s["student_id"] for s in data["students"])
+            assert seen == list(range(1, 10))
+        finally:
+            app.dependency_overrides.clear()
+
     async def test_students_empty_without_mart(self, db_session):
         user = await _seed_db(db_session)
 

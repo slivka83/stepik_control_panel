@@ -361,6 +361,31 @@ describe('Students', () => {
     });
   });
 
+  it('resets to page 1 when sorting from a later page', async () => {
+    const many = Array.from({ length: 20 }, (_, i) => ({
+      ...makeStudent({ student_id: i + 1, name: `Студент ${i + 1}`, courses_count: (i % 3) + 1 }),
+    }));
+    mockStudentsApi(many);
+    render(
+      <TestRouter syncValue={makeSyncValue({ active: 20, passive: 0, fading: 0, sleeping: 0 })}>
+        <Students />
+      </TestRouter>,
+    );
+
+    expect(await screen.findByText('Страница 1 из 2')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Вперёд →'));
+    expect(await screen.findByText('Страница 2 из 2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Курсы').closest('th'));
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenLastCalledWith('/dashboard/students', {
+        params: expect.objectContaining({ skip: 0, limit: expect.any(Number), sort: 'courses_count', order: 'desc' }),
+      });
+    });
+    expect(await screen.findByText('Страница 1 из 2')).toBeInTheDocument();
+  });
+
   it('renders activity date in dd.mm.yyyy format like Опубликован on Courses', async () => {
     mockStudentsApi([makeStudent({ last_activity: '2024-01-15T10:00:00Z' })]);
     render(

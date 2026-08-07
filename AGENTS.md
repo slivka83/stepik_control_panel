@@ -284,7 +284,7 @@ Y-ось графиков:
 - SubmissionsChart: `0, 0.5k, 1.0k, 1.5k, 2.0k` — `toFixed(1)` + `k`
 - RevenueChart: `0, 2k, 4k, 6k` — `value/1000` + `.0` cleanup
 
-График «Решения» (`SubmissionsChart`, дашборд + страница Активности) — 3 категории: **Правильные** (яркий синий `#38bdf8`, низ стека) → **Опубликованные** (среднее между «Правильные» и «Всего» — динамически `mixColors(bright, dim)`, над Правильными) → **Не завершён** (тёмный `#1a6a9e`, верх). Опубликованные = `community.solutions_monthly` (комментарии к сабмишн-тредам), **всегда часть Правильных**: `published = min(published, correct)`, сегмент правильных уменьшается на `published` (высота стека = total). Данные мержатся по метке месяца в `SyncContext` (`mergePublishedIntoSubmissions()` из `utils/mergePublished.js`: `published-solutions` → `submissions.months[*].published`, 0 по умолчанию) — обе страницы используют один и тот же объект. Тултип показывает `correctTotal`/`publishedTotal` (полные значения). Серия рисуется только если в данных есть ключ `published` (график «Комментарии» не затрагивается).
+График «Решения» (`SubmissionsChart`, дашборд + страница Активности) — 3 категории: **Правильные** (яркий синий `#38bdf8`, низ стека) → **Опубликованные** (среднее между «Правильные» и «Всего» — динамически `mixColors(bright, dim)`, над Правильными) → **Не завершён** (тёмный `#1a6a9e`, верх). Опубликованные = `community.solutions_monthly` (комментарии к сабмишн-тредам), **всегда часть Правильных**: `published = min(published, correct)`, сегмент правильных уменьшается на `published` (высота стека = total). `published` приходит **с бэкенда** в `/dashboard/submissions` (`published_solutions_stats()` в `course_filter.py`: скан `raw_comment`, комментарии с `thread`, содержащим `solution`, атрибуция через step→course map; месяцы/годы/курсы) — без фронт-мержа. Тултип показывает `correctTotal`/`publishedTotal` (полные значения). Серия рисуется только если в данных есть ключ `published` (график «Комментарии» не затрагивается).
 
 График «Сертификаты» (страница Активности, `ActiveStudentsChart`) — сертификаты по месяцам выдачи, 2 категории: **С отличием** (светлый пурпур `#DB62C4`, верх стека) и **Обычные** (яркий маджента `#B70094`, низ). Источник: `GET /api/dashboard/certificates` (в `app/api/dashboard/charts.py`) — читает `raw_certificate._raw_json`, группирует по `issue_date[:7]`, `type == 'distinction'` → «С отличием». Ответ `{months: [{month, dark, light}]}`: `dark` = всего, `light` = обычные — сегмент «С отличием» = `overlap = dark − light` (компонент рисует light снизу, overlap сверху). Фильтр курсов: `WHERE course_id IN (...)` по stepik-курсам. Легенда/тултип через пропы `lightLabel`/`darkLabel`; тултип верхнего сегмента показывает `overlap` при `darkTooltipOverlap` (`darkTooltipValue()`), т.к. `dark` = всего, а не «С отличием».
 
@@ -312,14 +312,34 @@ Y-ось графиков:
 ## Страница «Решения» (4 вкладки)
 
 - Вкладки: **По месяцам / По годам / По курсам / Самые сложные** (`frontend/src/pages/Solutions.jsx`)
-- Таблицы: колонки `Группа | Студенты | Всего | Правильно | Неверно | Успех (цвет)` + `Шаг | Взв. успех (цвет)` у hardest
-- **«Шаг» = путь `модуль.урок-шаг`** (например `3.7-2`): модуль из `raw_section.position`, урок — **сквозной номер в курсе** (сумма уроков предыдущих модулей + позиция внутри своего модуля из `raw_unit.position`), шаг — позиция в `raw_lesson.steps`. Если данных структуры нет — fallback на `stepik_step_id`. Внутри — ссылка на Stepik (`lesson_id`/`step_number`), в tooltip — **название модуля — название урока** (`raw_section.title`/`raw_lesson.title`, fallback: курс и числовой ID шага)
+- Таблицы (по месяцам/годам/курсам): колонки `Группа | Студенты | Всего | Правильно | Опубликованные | Неверно | Успех (цвет)` + `Шаг | Взв. успех (цвет)` у hardest
+- **«Опубликованные»** — решения, опубликованные студентами на Stepik (комментарии в тредах решений): приходит **с бэкенда** в `/dashboard/submissions` полем `published` для всех группировок (`published_solutions_stats()` в `course_filter.py` — скан `raw_comment`, `_raw_json.thread` содержит `solution`, атрибуция через `build_step_course_map`; та же семантика, что у «Публичных решений» на дашборде и «Опубликованных» у студентов). KPI-плашка «Опубликованные» = сумма `published` по месяцам
+- **«Шаг» = путь `модуль.урок-шаг`** (например `3.7-2`): модуль из `raw_section.position`, урок — **сквозной номер в курсе** (сумма уроков предыдущих модулей + позиция внутри своего модуля из `raw_unit.position`), шаг — позиция в `raw_lesson.steps`. Если данных структуры нет — fallback на `stepik_step_id`. Внутри — ссылка на Stepik (`lesson_id`/`step_number`), в tooltip — **название модуля — название урока** (`raw_section.title`/`raw_lesson.title`, fallback: курс и числовой ID шага). Считается единым хелпером **`build_step_path_maps(db, step_ids)`** в `app/api/dashboard/common.py` (переиспользуется списками комментариев)
 - **`students`** — уникальные студенты в группировке = `COUNT(DISTINCT submissions.user_id)` (NULL игнорируются, `is_author=False`)
 - **«Успех» = Wilson-нижняя граница 95% доверительного интервала** (`wilson_success_pct()` в `app/api/dashboard/common.py`), а не `correct/total`: чем меньше попыток, тем сильнее число занижается (данным нельзя верить); чем больше попыток, тем ближе к наблюдённому. 1 верная из 5 (20%) → 3.6%; 200 из 1000 (20%) → 17.6%. API отдаёт `success_pct` для всех группировок (months/years/by_course/steps); фронт использует его с fallback на raw-расчёт
 - **«Взв. успех» = наблюдённый процент, притянутый к среднему по шагам** (`weighted_success_pct()` в `app/api/dashboard/common.py`): `(correct + 20 × global_pct) / (total + 20) × 100`, где `global_pct` — **unweighted mean** успеха по строкам группировки (не по попыткам — иначе доминирующий шаг сдвигает среднее). Мало попыток → цифра ≈ среднего, не лезет в топ; много попыток → честный `correct/total`. Колонка показывается **только на вкладке «Самые сложные»** (там она осмысленна — малые выборки шагов); API отдаёт `weighted_success_pct` для всех группировок
 - Источники: `GET /dashboard/submissions` → `{months, by_course, years}` (в `app/api/dashboard/charts.py`); `GET /dashboard/hardest-steps` → `{steps}` (в `app/api/dashboard/steps.py`). Годы считают `students` **отдельным запросом** (не суммой по месяцам — один студент в нескольких месяцах одного года посчитался бы дважды). hardest сортирует по `weighted_success_pct` в Python (не в SQL) — мусор с 1-2 попытками не всплывает наверх
 - Сортировка: первый клик — «естественный порядок» (числа/даты — больше/новые сверху, текст — А→Я), стрелка указывает **на главные значения** (по `naturalDir` в конфиге колонки); повторный клик — наоборот
-- Верхние KPI-плашки: Всего решений / Правильных / Неправильных (белые) + Успех (цвет как в колонке: `successColor` <33 красный, <66 жёлтый, ≥66 зелёный)
+- Верхние KPI-плашки: Всего решений / Правильных / Неправильных / Опубликованные (белые) + Успех (цвет как в колонке: `successColor` <33 красный, <66 жёлтый, ≥66 зелёный)
+
+## Страница «Комментарии» (5 вкладок)
+
+- Вкладки: **По месяцам / По годам / По курсам / Не отвеченные / Дизлайки** (`frontend/src/pages/Comments.jsx`)
+- Таблицы (агрегаты): колонки `Группа | Студенты | Всего | Лайки (цвет) | Дизлайки (цвет) | Ответы`
+- Источник агрегатов: `GET /api/dashboard/comments` → `{months, years, by_course, totals}` (в `app/api/dashboard/comments.py`) — скан `raw_comment._raw_json` (как `filter_community`), курс комментария через `build_step_course_map()` (raw_step JOIN raw_unit JOIN raw_section)
+- **«Не отвеченные» / «Дизлайки»** — списки отдельных комментариев через **`GET /api/dashboard/comments/list?type=unanswered|disliked&skip&limit&sort&order&course_ids`** (тот же `comments.py`). Серверная пагинация/сортировка (как `/students`): ответ `{comments: [...], total}`, whitelist сортировки `time/student/course/text/likes/dislikes/replies/step`, NULLS LAST, `step` — числовой композит `module*100000+lesson*1000+step`
+  - `unanswered`: `_raw_json.is_staff_replied != true` **и** `_raw_json.user_role != "teacher"` (только обращения студентов; колонка `is_staff_replied` в БД пустая — не в `meta_field_mapping`, данные только в `_raw_json`)
+  - `disliked`: `vote_delta < 0`
+  - оба: `is_deleted` truthy пропускается; не-атрибутируемые шаги пропускаются и при фильтре, и без (инвариант держится)
+- Колонки списков: `Дата (fmtDate) | Студент (имя из raw_user, fallback «—») | Курс (ссылка) | Комментарий (HTML вырезан `_strip_html`, truncate + title) | Лайки (green) | Дизлайки (red) | Ответы | Шаг (модуль.урок-шаг)`
+- Колонка **«Шаг»** в списках — путь `модуль.урок-шаг` (fallback `step_number`/`comment_id`), tooltip «модуль — урок», ссылка на комментарий: `https://stepik.org/lesson/{lesson_id}?discussion={comment_id}` (`STEPIK_URLS.comment`), `target="_blank"`
+- Пути шагов — единый хелпер **`build_step_path_maps(db, step_ids)`** в `app/api/dashboard/common.py` (модуль/урок/шаг из raw_section/raw_unit/raw_lesson; используется и `steps.py`, и `comments.py`); `_parse_step_positions` тоже в common.py, из `steps.py` re-exportится (тест `test_steps.py` импортирует оттуда)
+- Списки грузятся **lazy** при активации вкладки (серверный режим DataTable по образцу Students.jsx: `useRowsPerPage`/`useSortState`/`reqIdRef`, сброс на стр. 1 при смене фильтра/сортировки, refetch при смене `last_sync`); агрегаты из контекста, 4 KPI-плашки общие
+- `students` в группировке — **distinct авторов** (`_raw_json.user`, не-числовые значения — имена OAuth-клиентов — пропускаются); KPI «Студенты» = distinct по всем комментариям (сумма по месяцам задвоила бы)
+- **Лайки/Дизлайки считаются из `vote_delta`** (Stepik не отдаёт раздельных счётчиков: `/votes?ids[]=` возвращает только собственный голос вызывающего, агрегатных полей в синкаемых данных нет): **Лайки = сумма положительных `vote_delta`**, **Дизлайки = модуль суммы отрицательных** по комментариям в группе. Это «суммарный балл оценок», а не точное число нажатий
+- «Ответы» = сумма `reply_count`
+- Комментарии, чей шаг не атрибутирован к курсам (`target` не в step→course map), **пропускаются и при фильтре, и без него** — инвариант «фильтр = все курсы» == «без фильтра» держится (как в `filter_community`)
+- KPI-плашки: Всего комментариев / Студенты (белые) + Лайки (`neon-green`) + Дизлайки (`crimson-alert`)
 
 ## Страница «Финансы» (7 вкладок)
 
@@ -445,24 +465,24 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-407 тестов, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
-
+423 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
 | Файл | Тестов | Что тестирует |
 |---|---|---|
 | `tests/test_stepik_api.py` | 20 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` |
 | `tests/test_stepik_api_comprehensive.py` | 14 | `get_finance_token`, 5xx retries, constants |
 | `tests/test_raw_sync.py` | 15 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions` (+404-шаги, конфликтные upsert'ы, str-bind для TEXT-колонок), `sync_financials`, `sync_community`, регрессии `became_published_at` и stale sequence |
 | `tests/test_raw_sync_edge_cases.py` | 12 | `_paginated_fetch`, пустые/ошибочные данные transform и raw_sync |
-| `tests/test_transform.py` | 17 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита) |
+| `tests/test_transform.py` | 18 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита) |
 | `tests/test_sync_integration.py` | 18 | `sync_all`, cohort status, интеграция raw_sync → transform, stepwise-коммиты raw_sync внутри sync-этапов |
 | `tests/test_sync_comprehensive.py` | 21 | `sync_all`, `sync_community_stats`, `sync_financials` |
 | `tests/test_sync_edge_cases.py` | 24 | Разрешение конфликтов, отсутствие данных, ошибки API, регрессии `_last_sync_error` (падение → error виден в статусе, успех → очищен) |
 | `tests/test_data_contract.py` | 5 | Глобальные контракты снапшота/API/фронта (price, per_course, поля страниц, recent_payments/utms) |
-| `tests/test_schema_contract.py` | 9 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот), **live-PG свежесть данных** (трансформы на реальных данных производят строки и догоняют raw — регрессия «0 submissions upserted») |
+| `tests/test_schema_contract.py` | 10 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот), **live-PG свежесть данных** (трансформы на реальных данных производят строки и догоняют raw — регрессия «0 submissions upserted») |
 | `tests/test_architecture.py` | 19 | Архитектурные гарантии: один alembic head, нет dead-артефактов (step_sync_state, orphan-скрипты), единый источник констант, дефолты конфига = docker-compose, сплит dashboard-пакета, rebuild_marts.py (все трансформы, без API) |
 | `tests/test_steps.py` | 35 | hardest-steps: `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id), `wilson_success_pct` (объём попыток: 1/5 → 3.6%, 200/1000 → 17.6%), `weighted_success_pct` (мусор с малым числом попыток не всплывает в топ), `module_number`/`lesson_number` (сквозная нумерация уроков по курсу), `module_title`/`lesson_title` |
-| `tests/test_course_filter.py` | 18 | Фильтр по курсам: `parse_course_ids` (None/`[]`), безопасность (чужие UUID отбрасываются), SQL-эндпоинты (submissions/active-students/cohorts/alerts/hardest-steps/students), пересчёт снапшота (financials/revenue/kpi/published-solutions/community), инвариант «фильтр = все курсы» == «без фильтра», пустой `?course_ids=` = пустой выбор |
-| Остальные | 180 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
+| `tests/test_course_filter.py` | 20 | Фильтр по курсам: `parse_course_ids` (None/`[]`), безопасность (чужие UUID отбрасываются), SQL-эндпоинты (submissions/active-students/cohorts/alerts/hardest-steps/students), пересчёт снапшота (financials/revenue/kpi/published-solutions/community), `published` в submissions (в т.ч. по курсам, инвариант «фильтр = все курсы» == «без фильтра»), пустой `?course_ids=` = пустой выбор |
+| `tests/test_comments.py` | 12 | `/api/dashboard/comments`: months/years/by_course группировки, totals, Лайки/Дизлайки из `vote_delta`, distinct-студенты (OAuth-клиенты отбрасываются), атрибуция через step→course map, инвариант «фильтр = все курсы» == «без фильтра»; `/comments/list`: фильтры `unanswered` (is_staff_replied + teacher + deleted) и `disliked` (vote_delta<0), имена из raw_user, пути шагов, HTML-стрип, фильтр курсов + инвариант, сортировка/пагинация/NULLS LAST, 400 на неверные параметры, пустые данные |
+| Остальные | 170 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).
 

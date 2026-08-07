@@ -35,6 +35,7 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Дашборд' })).toHaveAttribute('href', '/');
     expect(screen.getByRole('link', { name: 'Курсы' })).toHaveAttribute('href', '/courses');
     expect(screen.getByRole('link', { name: 'Решения' })).toHaveAttribute('href', '/solutions');
+    expect(screen.getByRole('link', { name: 'Комментарии' })).toHaveAttribute('href', '/comments');
     expect(screen.getByRole('link', { name: 'Финансы' })).toHaveAttribute('href', '/financials');
     expect(screen.getByRole('link', { name: 'Студенты' })).toHaveAttribute('href', '/students');
     expect(screen.getByRole('link', { name: 'Активности' })).toHaveAttribute('href', '/activities');

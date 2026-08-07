@@ -4,19 +4,21 @@
 - kpi: dashboard KPI card data
 - cohorts: cohort segmentation
 - charts: monthly series (revenue, submissions, active students, certificates, published solutions)
+- comments: comments analytics (months/years/courses + like/dislike totals)
 - students: paginated student list
 - steps: hardest steps ranking
 """
 
 from fastapi import APIRouter
 
-from app.api.dashboard import alerts, charts, cohorts, kpi, steps, students
+from app.api.dashboard import alerts, charts, cohorts, comments, kpi, steps, students
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 router.include_router(alerts.router)
 router.include_router(kpi.router)
 router.include_router(cohorts.router)
 router.include_router(charts.router)
+router.include_router(comments.router)
 router.include_router(students.router)
 router.include_router(steps.router)
 

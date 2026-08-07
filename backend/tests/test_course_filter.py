@@ -338,10 +338,28 @@ class TestFilterSubmissions:
             assert data["months"][0]["total"] == 3
             assert data["months"][0]["correct"] == 2
             assert data["months"][0]["students"] == 3
+            assert data["months"][0]["published"] == 1
             assert len(data["by_course"]) == 1
             assert data["by_course"][0]["stepik_course_id"] == 100
             assert data["by_course"][0]["title"] == "Python"
+            assert data["by_course"][0]["published"] == 1
             assert data["years"][0]["total"] == 3
+            assert data["years"][0]["published"] == 1
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_submissions_published_per_course(self, db_session):
+        """Regression: «Опубликованные» считаются из комментариев в тредах решений."""
+        user, u1, u2, u3 = await _seed_scenario(db_session)
+        _override(user, db_session)
+        try:
+            response = client.get("/api/dashboard/submissions")
+            data = response.json()
+            assert data["months"][0]["published"] == 1
+            by_course = {c["stepik_course_id"]: c for c in data["by_course"]}
+            assert by_course[100]["published"] == 1
+            assert by_course[200]["published"] == 0
+            assert data["years"][0]["published"] == 1
         finally:
             app.dependency_overrides.clear()
 
@@ -524,6 +542,11 @@ class TestFilterFinancials:
             kpi_all = client.get("/api/dashboard/kpi")
             kpi_both = client.get(f"/api/dashboard/kpi?course_ids={u1.id},{u2.id}")
             assert kpi_both.json() == kpi_all.json()
+
+            sub_all = client.get("/api/dashboard/submissions")
+            sub_both = client.get(f"/api/dashboard/submissions?course_ids={u1.id},{u2.id}")
+            assert sub_both.status_code == 200
+            assert sub_both.json() == sub_all.json()
         finally:
             app.dependency_overrides.clear()
 

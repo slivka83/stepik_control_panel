@@ -13,9 +13,11 @@ from app.api.dashboard.common import (
     wilson_success_pct,
 )
 from app.api.dashboard.course_filter import (
+    build_step_course_map,
     filter_community,
     filter_financials,
     parse_course_ids,
+    published_solutions_stats,
 )
 from app.database import get_db
 from app.models import FinancialSnapshot, StudentEnrollment, Submission, User
@@ -54,6 +56,12 @@ async def get_submissions(
     if not course_ids:
         return {"months": [], "by_course": [], "years": []}
 
+    selected_stepik_ids = {c.stepik_course_id for c in courses}
+    step_course = await build_step_course_map(db)
+    published_monthly, published_yearly, published_per_course = await published_solutions_stats(
+        db, step_course, selected_stepik_ids
+    )
+
     month_result = await db.execute(
         select(
             extract("year", Submission.submission_time).label("year"),
@@ -82,6 +90,7 @@ async def get_submissions(
                 "total": row.total,
                 "correct": row.correct,
                 "students": row.students,
+                "published": published_monthly.get((y, m), 0),
                 "success_pct": round(wilson_success_pct(row.correct, row.total), 1),
                 "weighted_success_pct": round(weighted_success_pct(row.correct, row.total, global_pct), 1),
             }
@@ -112,6 +121,7 @@ async def get_submissions(
         years.append(
             {
                 **agg,
+                "published": published_yearly.get(y, 0),
                 "success_pct": round(wilson_success_pct(agg["correct"], agg["total"]), 1),
                 "weighted_success_pct": round(weighted_success_pct(agg["correct"], agg["total"], global_pct), 1),
             }
@@ -142,6 +152,7 @@ async def get_submissions(
                 "total": course_row.total,
                 "correct": course_row.correct,
                 "students": course_row.students,
+                "published": published_per_course.get(course_obj.stepik_course_id, 0) if course_obj else 0,
                 "success_pct": round(wilson_success_pct(course_row.correct, course_row.total), 1),
                 "weighted_success_pct": round(
                     weighted_success_pct(course_row.correct, course_row.total, global_pct), 1

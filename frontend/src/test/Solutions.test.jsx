@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { SyncContext } from '../contexts/SyncContext';
@@ -13,16 +13,16 @@ vi.mock('../api', () => ({
 
 const mockSubmissions = {
   months: [
-    { month: 'Январь 2026', total: 10, correct: 7, students: 6 },
-    { month: 'Февраль 2026', total: 20, correct: 15, students: 9 },
+    { month: 'Январь 2026', total: 10, correct: 7, students: 6, published: 3 },
+    { month: 'Февраль 2026', total: 20, correct: 15, students: 9, published: 5 },
   ],
   years: [
-    { year: 2026, total: 30, correct: 22, students: 12 },
-    { year: 2025, total: 5, correct: 4, students: 3 },
+    { year: 2026, total: 30, correct: 22, students: 12, published: 8 },
+    { year: 2025, total: 5, correct: 4, students: 3, published: 1 },
   ],
   by_course: [
-    { course_id: 1, stepik_course_id: 101, title: 'Тестовый курс', total: 30, correct: 22, students: 11 },
-    { course_id: 2, stepik_course_id: 102, title: 'Алгоритмы', total: 5, correct: 2, students: 2 },
+    { course_id: 1, stepik_course_id: 101, title: 'Тестовый курс', total: 30, correct: 22, students: 11, published: 8 },
+    { course_id: 2, stepik_course_id: 102, title: 'Алгоритмы', total: 5, correct: 2, students: 2, published: 1 },
   ],
 };
 
@@ -104,6 +104,61 @@ describe('Solutions', () => {
     expect(cardOf('Правильных').querySelector('.text-gray-300')).not.toBeNull();
     expect(cardOf('Неправильных').querySelector('.text-gray-300')).not.toBeNull();
     expect(screen.getAllByText('Успех')[0].closest('.glass-panel').querySelector('.text-neon-green')).not.toBeNull();
+  });
+
+  it('shows Опубликованные KPI card (sum of monthly published) before Успех', async () => {
+    renderSolutions();
+    const kpi = screen.getAllByText('Опубликованные').find((el) => el.closest('.glass-panel'));
+    expect(kpi).not.toBeUndefined();
+    const card = kpi.closest('.glass-panel');
+    await waitFor(() => expect(card.textContent).toContain('8'), { timeout: 4000 });
+  });
+
+  it('renders Опубликованные column before Успех in months/years/courses tabs', async () => {
+    const user = userEvent.setup();
+    renderSolutions();
+    const cellOf = (row, idx) => row.querySelectorAll('td')[idx].textContent;
+    const headerLabels = () => screen.getAllByRole('columnheader').map((th) => th.textContent.trim().replace(/[↓↑]/g, ''));
+
+    let labels = headerLabels();
+    expect(labels.indexOf('Опубликованные')).toBeGreaterThan(-1);
+    expect(labels.indexOf('Опубликованные')).toBeLessThan(labels.indexOf('Успех'));
+
+    let rows = screen.getAllByRole('row').slice(1);
+    expect(cellOf(rows[0], 4)).toBe('5');
+    expect(cellOf(rows[1], 4)).toBe('3');
+
+    await user.click(screen.getByText('По годам'));
+    labels = headerLabels();
+    expect(labels.indexOf('Опубликованные')).toBeGreaterThan(-1);
+    expect(labels.indexOf('Опубликованные')).toBeLessThan(labels.indexOf('Успех'));
+    rows = screen.getAllByRole('row').slice(1);
+    expect(cellOf(rows[0], 4)).toBe('8');
+    expect(cellOf(rows[1], 4)).toBe('1');
+
+    await user.click(screen.getByText('По курсам'));
+    labels = headerLabels();
+    expect(labels.indexOf('Опубликованные')).toBeGreaterThan(-1);
+    expect(labels.indexOf('Опубликованные')).toBeLessThan(labels.indexOf('Успех'));
+    rows = screen.getAllByRole('row').slice(1);
+    expect(cellOf(rows[0], 4)).toBe('1');
+    expect(cellOf(rows[1], 4)).toBe('8');
+  });
+
+  it('sorts by Опубликованные numeric (desc first, asc second)', async () => {
+    const user = userEvent.setup();
+    renderSolutions();
+    const header = screen
+      .getAllByRole('columnheader')
+      .find((th) => th.textContent.includes('Опубликованные'));
+    await user.click(header);
+    let rows = screen.getAllByRole('row').slice(1);
+    expect(within(rows[0]).getByText('2026 Февраль')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('2026 Январь')).toBeInTheDocument();
+    await user.click(header);
+    rows = screen.getAllByRole('row').slice(1);
+    expect(within(rows[0]).getByText('2026 Январь')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('2026 Февраль')).toBeInTheDocument();
   });
 
   it('shows newest month first by default', () => {
@@ -379,9 +434,9 @@ describe('Solutions', () => {
       by_course: [],
     });
     const rows = screen.getAllByRole('row').slice(1);
-    expect(rows[0].children[5].style.color).toBe('rgb(74, 222, 128)');
-    expect(rows[1].children[5].style.color).toBe('rgb(245, 158, 11)');
-    expect(rows[2].children[5].style.color).toBe('rgb(244, 63, 94)');
+    expect(rows[0].children[6].style.color).toBe('rgb(74, 222, 128)');
+    expect(rows[1].children[6].style.color).toBe('rgb(245, 158, 11)');
+    expect(rows[2].children[6].style.color).toBe('rgb(244, 63, 94)');
   });
 
   it('uses backend success_pct (Wilson) when present', () => {

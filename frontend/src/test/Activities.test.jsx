@@ -25,7 +25,6 @@ const makeSyncValue = (overrides = {}) => ({
     submissions: { months: [] },
     activeStudents: { months: [] },
     activeEnrolled: { months: [] },
-    publishedSolutions: { months: [] },
     certificates: { months: [] },
   },
   loading: false,
