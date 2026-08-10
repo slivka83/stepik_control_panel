@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Features (Курсы — вкладки «Курсы»/«Шаги», тепловая карта структуры)
+- Страница «Курсы» разделена на вкладки **«Курсы»** (прежняя таблица + empty-state «Подключить Stepik») и **«Шаги»** — тепловая карта структуры **одного** курса (не зависит от глобального фильтра, свой селектор курса). KPI-плашки общие над вкладками
+- **Матрица**: строки = уроки (заголовки-полосы модулей), столбцы = № шага в уроке, ячейка = шаг; CSS-grid, без recharts. Переключатель метрики: **Просмотры / Отправлено / Успешных / Оценка / Тип блока**
+- Цвета: Просмотры/Отправлено/Успешных — последовательная шкала `rgba(56,189,248, α)`, Оценка — красно-жёлто-зелёный градиент (из `correct_ratio` → rating 1..5), Тип блока — категориальная палитра (`text`/`code`/`external-grader`/`choice` из `_raw_json.block.name`); нет данных — тёмная клетка
+- Ховер-тултип (portal): модуль — урок, шаг, все метрики; клик — deep link `stepik.org/lesson/{lesson_id}/step/{n}` (`target="_blank"`)
+- Новый **`GET /api/courses/{course_id}/structure`** (в `app/api/courses.py`) — владение курсом (404 иначе), сборка из raw-слоя: `raw_section` → модули, `raw_unit` → уроки, `raw_lesson` (`title`, `steps[]` → `step_number` через `_parse_step_positions` из `common.py`, работает и с TEXT, и с jsonb); сквозной `lesson_number` по курсу; метрики шага: `viewed_by`/`passed_by`/`correct_ratio` из `raw_step._raw_json` (`_parse_raw` для dict-jsonb и TEXT-строки), `total`/`correct`/`students` из `submissions` (ORM-запрос — `text()`-биндинг UUID в SQLite не совпадает: hex без дефисов), `is_author=False`
+- Тесты: `tests/test_course_structure.py` (10), фронт `frontend/src/test/CourseStructureMatrix.test.jsx` + вкладки в `Courses.test.jsx`
+
 ### Features (Финансы — вкладка «По дням» и колонка «Комиссия»)
 - Новая вкладка **«По дням»** (между «По годам» и «По курсам»): агрегация `recent_payments` по календарному дню за последние **30 дней включительно с нулевыми днями** (все 30 строк), новые сверху. Считается на лету в `/api/financials` (`_build_daily_stats`, `DAYS_BACK=30`) из полей `time`/`amount`/`payment_amount`/`status`; формула как в `filter_financials` (`refunded` → `refunds += abs(amount)`, `turnover -= payment_amount`). Фильтр по курсам работает автоматически. Даты рендерятся как `dd.mm.yyyy` без timezone-сдвигов
 - Колонка **«Комиссия»** (между «Оплата» и «Доход») во вкладке «Последние операции» — комиссия Stepik в % от платежа: `(payment_amount − abs(amount)) / payment_amount × 100`, округление до целых; тултип — сумма комиссии в ₽ (`commissionOf()` в `Financials.jsx`). API готовый процент не отдаёт (в `raw_course._raw_json` есть только курсовые ставки `commission_basic`/`commission_promo`, которые не объясняют промо-платежи)

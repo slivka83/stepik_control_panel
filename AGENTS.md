@@ -309,6 +309,21 @@ Y-ось графиков:
 - Хелперы ячеек-заголовков: `yearMonthLabel`/`fmtDate` в `frontend/src/utils/format.js`
 - Юнит-тесты компонента: `frontend/src/test/DataTable.test.jsx`, `frontend/src/test/Tabs.test.jsx`
 
+## Страница «Курсы» (2 вкладки)
+
+- Вкладки: **Курсы / Шаги** (`frontend/src/pages/Courses.jsx`), KPI-плашки общие над вкладками
+- **«Курсы»** — прежняя таблица (`DataTable`, `COURSE_COLUMNS`), пустой-state с «Подключить Stepik»
+- **«Шаги»** — тепловая карта структуры **одного** курса (не зависит от глобального фильтра):
+  - Свой селектор курса + переключатель метрики: **Просмотры / Отправлено / Успешных / Оценка / Тип блока** (`STEP_METRICS` в `CourseStructureMatrix.jsx`)
+  - Матрица: **строки = уроки** (заголовки-полосы модулей), **столбцы = № шага в уроке** (максимум шагов среди уроков курса), ячейка = шаг; CSS-grid, без recharts
+  - Цвета: Просмотры/Отправлено/Успешных — последовательная шкала `rgba(56,189,248, α)`, Оценка — красно-жёлто-зелёный градиент (из `correct_ratio` → rating 1..5), Тип блока — категориальная палитра (`text`/`code`/`external-grader`/`choice` из `_raw_json.block.name`); нет данных — тёмная клетка
+  - Ховер-тултип (portal): модуль — урок, шаг, все метрики; клик — deep link `stepik.org/lesson/{lesson_id}/step/{n}` (`target="_blank"`)
+- Источник: **`GET /api/courses/{course_id}/structure`** (в `app/api/courses.py`) — владение курсом (404 иначе), сборка из raw-слоя:
+  - `raw_section` (`course = stepik_course_id`, `ORDER BY position`) → модули; `raw_unit` → уроки модуля (`position`); `raw_lesson` (`title`, `steps[]` → `step_number` через `_parse_step_positions` из `common.py` — работает и с TEXT, и с jsonb)
+  - Сквозной `lesson_number` по курсу (смещение = сумма уроков предыдущих модулей)
+  - Метрики шага: `viewed_by`/`passed_by`/`correct_ratio` из `raw_step._raw_json` (агрегаты Stepik API, `_parse_raw` обрабатывает dict-jsonb и TEXT-строку), `total`/`correct`/`students` из `submissions` (**ORM-запрос** — `text()`-биндинг UUID в SQLite не совпадает: там hex без дефисов, а `str(uuid)` с дефисами), `is_author=False`
+  - Тесты: `tests/test_course_structure.py`, фронт `frontend/src/test/CourseStructureMatrix.test.jsx` + вкладки в `Courses.test.jsx`
+
 ## Страница «Решения» (4 вкладки)
 
 - Вкладки: **По месяцам / По годам / По курсам / Самые сложные** (`frontend/src/pages/Solutions.jsx`)
@@ -483,7 +498,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-433 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
+443 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
 | Файл | Тестов | Что тестирует |
 |---|---|---|
 | `tests/test_stepik_api.py` | 20 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` |
@@ -502,6 +517,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 | `tests/test_comments.py` | 12 | `/api/dashboard/comments`: months/years/by_course группировки, totals, Лайки/Дизлайки из `vote_delta`, distinct-студенты (OAuth-клиенты отбрасываются), атрибуция через step→course map, инвариант «фильтр = все курсы» == «без фильтра»; `/comments/list`: фильтры `unanswered` (is_staff_replied + teacher + deleted) и `disliked` (vote_delta<0), имена из raw_user, пути шагов, HTML-стрип, фильтр курсов + инвариант, сортировка/пагинация/NULLS LAST, 400 на неверные параметры, пустые данные |
 | `tests/test_certificates.py` | 5 | `/api/dashboard/certificates/stats`: months/years/by_course группировки, distinction/regular, distinct-студенты, фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
 | `tests/test_reviews.py` | 5 | `/api/dashboard/reviews/stats`: months/years/by_course группировки, avg_score (score без числа не входит), distinct-студенты (OAuth-клиенты отбрасываются), фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
+| `tests/test_course_structure.py` | 10 | `/api/courses/{id}/structure`: владение курсом (404 чужих/битых ID), порядок модулей/уроков/шагов по position, сквозной `lesson_number`, `lesson_id`/`step_number` у шагов, метрики из `raw_step._raw_json` (dict-jsonb и TEXT-строка), `total`/`correct`/`students` из submissions (ORM, `is_author=False`), пустые уроки |
 | Остальные | 180 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).

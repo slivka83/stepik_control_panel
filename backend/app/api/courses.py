@@ -1,12 +1,14 @@
+import json
 import uuid as uuid_module
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
+from app.api.dashboard.common import _parse_step_positions
 from app.database import get_db
-from app.models import Course, FinancialSnapshot, StudentEnrollment, User
+from app.models import Course, FinancialSnapshot, StudentEnrollment, Submission, User
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
 
@@ -98,3 +100,194 @@ async def get_course(
             "status": course.status,
         }
     }
+
+
+def _parse_raw(raw) -> dict:
+    """Разобрать `_raw_json`: dict (PG jsonb) или JSON-строка (SQLite TEXT)."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, (str, bytes, bytearray)):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _to_int(value):
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_float(value):
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+@router.get("/{course_id}/structure")
+async def get_course_structure(
+    course_id: str,
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Структура одного курса: модули → уроки → шаги со статистикой.
+
+    Читается из raw-слоя (raw_section/raw_unit/raw_lesson/raw_step) + таблицы
+    submissions. Метрики шага: viewed_by/passed_by/correct_ratio из
+    `raw_step._raw_json` (агрегаты Stepik API), total/correct/students из
+    submissions (is_author=False).
+    """
+    try:
+        course_uuid = uuid_module.UUID(course_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Course not found") from None
+    result = await db.execute(select(Course).where(Course.id == course_uuid, Course.user_id == user.id))
+    course = result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    course_payload = {
+        "id": str(course.id),
+        "stepik_course_id": course.stepik_course_id,
+        "title": course.title,
+    }
+
+    sections_result = await db.execute(
+        text("SELECT section_id, position, title FROM raw_section WHERE course = :cid ORDER BY position"),
+        {"cid": str(course.stepik_course_id)},
+    )
+    sections = [
+        {
+            "section_id": int(r[0]) if r[0] is not None else None,
+            "position": int(r[1]) if r[1] is not None else None,
+            "title": r[2],
+        }
+        for r in sections_result
+    ]
+
+    if not sections:
+        return {"course": course_payload, "modules": []}
+
+    section_ids = [s["section_id"] for s in sections if s["section_id"] is not None]
+    units_by_section: dict[int, list[tuple[int, int]]] = {}
+    if section_ids:
+        params = {f"sid{i}": str(sid) for i, sid in enumerate(section_ids)}
+        placeholders = ", ".join(f":sid{i}" for i in range(len(section_ids)))
+        units_result = await db.execute(
+            text(f"SELECT lesson_id, section_id, position FROM raw_unit WHERE section_id IN ({placeholders})"),
+            params,
+        )
+        for r in units_result:
+            if r[0] is None or r[1] is None:
+                continue
+            units_by_section.setdefault(int(r[1]), []).append(
+                (int(r[2]) if r[2] is not None else 0, int(r[0]))
+            )
+
+    lesson_ids = sorted({lid for lst in units_by_section.values() for _, lid in lst})
+    lesson_info: dict[int, dict] = {}
+    if lesson_ids:
+        params_l = {f"lid{i}": str(lid) for i, lid in enumerate(lesson_ids)}
+        placeholders_l = ", ".join(f":lid{i}" for i in range(len(lesson_ids)))
+        lessons_result = await db.execute(
+            text(f"SELECT lesson_id, title, steps FROM raw_lesson WHERE lesson_id IN ({placeholders_l})"),
+            params_l,
+        )
+        for r in lessons_result:
+            if r[0] is None:
+                continue
+            lesson_info[int(r[0])] = {
+                "title": r[1],
+                "step_positions": _parse_step_positions(r[2]),
+            }
+
+    step_ids = sorted({sid for info in lesson_info.values() for sid in info["step_positions"]})
+    step_meta: dict[int, dict] = {}
+    if step_ids:
+        params_s = {f"st{i}": str(sid) for i, sid in enumerate(step_ids)}
+        placeholders_s = ", ".join(f":st{i}" for i in range(len(step_ids)))
+        steps_result = await db.execute(
+            text(f"SELECT step_id, _raw_json FROM raw_step WHERE step_id IN ({placeholders_s})"),
+            params_s,
+        )
+        for r in steps_result:
+            if r[0] is None:
+                continue
+            raw = _parse_raw(r[1])
+            block = raw.get("block") if isinstance(raw.get("block"), dict) else None
+            step_meta[int(r[0])] = {
+                "block": block.get("name") if isinstance(block, dict) else None,
+                "viewed_by": raw.get("viewed_by"),
+                "passed_by": raw.get("passed_by"),
+                "correct_ratio": raw.get("correct_ratio"),
+            }
+
+    stats: dict[int, dict] = {}
+    sub_result = await db.execute(
+        select(
+            Submission.stepik_step_id,
+            func.count(Submission.id).label("total"),
+            func.count(case((Submission.status == "correct", 1), else_=None)).label("correct"),
+            func.count(func.distinct(Submission.user_id)).label("students"),
+        )
+        .where(Submission.course_id == course_uuid, Submission.is_author.is_(False))
+        .group_by(Submission.stepik_step_id)
+    )
+    for r in sub_result:
+        if r[0] is None:
+            continue
+        stats[int(r[0])] = {"total": r[1], "correct": r[2], "students": r[3]}
+
+    modules = []
+    lesson_offset = 0
+    for section in sections:
+        sid = section["section_id"]
+        if sid is None:
+            continue
+        units = sorted(units_by_section.get(sid, []))
+        lessons = []
+        for unit_pos, lid in units:
+            info = lesson_info.get(lid)
+            if not info:
+                continue
+            steps = []
+            for step_id, step_number in sorted(info["step_positions"].items(), key=lambda kv: kv[1]):
+                meta = step_meta.get(step_id, {})
+                st = stats.get(step_id, {})
+                steps.append(
+                    {
+                        "step_id": step_id,
+                        "lesson_id": lid,
+                        "step_number": step_number,
+                        "block": meta.get("block"),
+                        "viewed_by": _to_int(meta.get("viewed_by")),
+                        "passed_by": _to_int(meta.get("passed_by")),
+                        "correct_ratio": _to_float(meta.get("correct_ratio")),
+                        "total": st.get("total", 0),
+                        "correct": st.get("correct", 0),
+                        "students": st.get("students", 0),
+                    }
+                )
+            lessons.append(
+                {
+                    "lesson_id": lid,
+                    "lesson_number": lesson_offset + unit_pos,
+                    "title": info["title"],
+                    "steps": steps,
+                }
+            )
+        lesson_offset += len(units)
+        modules.append(
+            {
+                "position": section["position"],
+                "title": section["title"],
+                "lessons": lessons,
+            }
+        )
+
+    return {"course": course_payload, "modules": modules}

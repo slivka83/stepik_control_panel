@@ -1,10 +1,18 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSync } from '../contexts/SyncContext';
 import ErrorBanner from '../components/ErrorBanner';
 import KpiCard from '../components/KpiCard';
 import DataTable from '../components/DataTable';
+import Tabs from '../components/Tabs';
+import CourseStructureMatrix, { STEP_METRICS } from '../components/CourseStructureMatrix';
 import { STEPIK_URLS } from '../constants.jsx';
 import { fmtDate } from '../utils/format';
+import api from '../api';
+
+const TABS = [
+  { key: 'courses', label: 'Курсы' },
+  { key: 'steps', label: 'Шаги' },
+];
 
 function getRatingColor(rating) {
   const r = Math.max(1, Math.min(5, rating));
@@ -162,6 +170,7 @@ const COURSE_COLUMNS = [
 export default function Courses() {
   const { data, error, refresh } = useSync();
   const courses = data.courses || [];
+  const [activeTab, setActiveTab] = useState('courses');
 
   const publishedCount = courses.filter((c) => c.status?.toLowerCase() === 'published').length;
   const totalStudents = courses.reduce((s, c) => s + (c.enrollment_count || 0), 0);
@@ -173,7 +182,7 @@ export default function Courses() {
     <div className="flex flex-col flex-1 gap-4 min-h-0">
       {error && <ErrorBanner message={error} onRetry={refresh} />}
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 shrink-0">
         <KpiCard title="Всего курсов" value={courses.length} color="white" />
         <KpiCard title="Опубликовано" value={publishedCount} color="white" />
         <KpiCard title="Черновиков" value={courses.length - publishedCount} color="white" />
@@ -188,27 +197,138 @@ export default function Courses() {
         />
       </div>
 
-      {courses.length === 0 ? (
-        <div className="glass-panel p-8 text-center">
-          <div className="text-3xl mb-3">◆</div>
-          <h3 className="text-white text-lg mb-2">Нет курсов</h3>
-          <p className="text-gray-400 text-sm">Подключите аккаунт Stepik для импорта курсов</p>
-          <a
-            href="/api/auth/login"
-            className="inline-block mt-4 px-6 py-2 bg-cyber-blue/20 text-cyber-blue rounded-lg border border-cyber-blue/30 hover:bg-cyber-blue/30 transition-colors text-sm font-medium"
+      <Tabs items={TABS} active={activeTab} onChange={setActiveTab} />
+
+      {activeTab === 'courses' &&
+        (courses.length === 0 ? (
+          <div className="glass-panel p-8 text-center">
+            <div className="text-3xl mb-3">◆</div>
+            <h3 className="text-white text-lg mb-2">Нет курсов</h3>
+            <p className="text-gray-400 text-sm">Подключите аккаунт Stepik для импорта курсов</p>
+            <a
+              href="/api/auth/login"
+              className="inline-block mt-4 px-6 py-2 bg-cyber-blue/20 text-cyber-blue rounded-lg border border-cyber-blue/30 hover:bg-cyber-blue/30 transition-colors text-sm font-medium"
+            >
+              Подключить Stepik
+            </a>
+          </div>
+        ) : (
+          <DataTable
+            columns={COURSE_COLUMNS}
+            rows={courses}
+            initialSort={{ key: 'published_at', dir: 'desc' }}
+            rowKey={(c) => c.id}
+            panelClassName="glass-panel p-4 flex-1 flex flex-col min-h-0 overflow-hidden"
+          />
+        ))}
+
+      {activeTab === 'steps' && <CourseStepsTab courses={courses} />}
+    </div>
+  );
+}
+
+function CourseStepsTab({ courses }) {
+  const [courseId, setCourseId] = useState(courses[0]?.id || null);
+  const [metric, setMetric] = useState('grade');
+  const [structure, setStructure] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [retryTick, setRetryTick] = useState(0);
+
+  useEffect(() => {
+    if (!courseId) {
+      setStructure(null);
+      setLoadError(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(null);
+    api
+      .get(`/courses/${courseId}/structure`)
+      .then((res) => {
+        if (!cancelled) setStructure(res.data);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError('Не удалось загрузить структуру курса');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [courseId, retryTick]);
+
+  if (courses.length === 0) {
+    return (
+      <div className="glass-panel p-8 text-center">
+        <div className="text-3xl mb-3">◆</div>
+        <h3 className="text-white text-lg mb-2">Нет курсов</h3>
+        <p className="text-gray-400 text-sm">Подключите аккаунт Stepik для импорта курсов</p>
+        <a
+          href="/api/auth/login"
+          className="inline-block mt-4 px-6 py-2 bg-cyber-blue/20 text-cyber-blue rounded-lg border border-cyber-blue/30 hover:bg-cyber-blue/30 transition-colors text-sm font-medium"
+        >
+          Подключить Stepik
+        </a>
+      </div>
+    );
+  }
+
+  const selectedCourse = courses.find((c) => c.id === courseId) || courses[0];
+  const modules = structure?.modules || [];
+
+  return (
+    <div className="flex flex-col flex-1 min-h-0 gap-3">
+      <div className="flex items-center gap-4 shrink-0 flex-wrap">
+        <label className="flex items-center gap-2 text-sm text-gray-300">
+          <span className="text-gray-500">Курс</span>
+          <select
+            value={selectedCourse.id}
+            onChange={(e) => setCourseId(e.target.value)}
+            className="bg-space-gray border border-gray-700 rounded px-2 py-1 text-sm text-white"
           >
-            Подключить Stepik
-          </a>
+            {courses.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.title}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="flex items-center gap-2">
+          {Object.entries(STEP_METRICS).map(([key, m]) => (
+            <button
+              key={key}
+              onClick={() => setMetric(key)}
+              className={`px-3 py-1 text-xs font-medium rounded-lg border transition-colors ${
+                metric === key
+                  ? 'bg-cyber-blue/20 text-cyber-blue border-cyber-blue/40'
+                  : 'bg-transparent text-gray-400 border-gray-700 hover:text-gray-300'
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
         </div>
-      ) : (
-        <DataTable
-          columns={COURSE_COLUMNS}
-          rows={courses}
-          initialSort={{ key: 'published_at', dir: 'desc' }}
-          rowKey={(c) => c.id}
-          panelClassName="glass-panel p-4 flex-1 flex flex-col min-h-0 overflow-hidden"
-        />
+      </div>
+
+      {loadError && (
+        <div className="flex items-center justify-between px-4 py-3 rounded-lg bg-crimson-alert/10 border border-crimson-alert/30">
+          <span className="text-crimson-alert text-sm">{loadError}</span>
+          <button
+            onClick={() => setRetryTick((t) => t + 1)}
+            className="px-3 py-1 text-xs rounded bg-crimson-alert/20 text-crimson-alert hover:bg-crimson-alert/30"
+          >
+            Повторить
+          </button>
+        </div>
       )}
+
+      <div className="flex-1 min-h-0" style={loading ? { opacity: 0.6 } : undefined}>
+        <CourseStructureMatrix modules={modules} metric={metric} loading={loading} />
+      </div>
     </div>
   );
 }

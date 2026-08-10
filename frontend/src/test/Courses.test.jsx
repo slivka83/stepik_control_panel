@@ -1,10 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/react';
 import TestRouter from './TestRouter';
 import Courses from '../pages/Courses';
+import api from '../api';
 
 vi.mock('react-countup', () => ({
   default: ({ end, formattingFn }) => <span>{formattingFn ? formattingFn(end) : end}</span>,
+}));
+
+vi.mock('../api', () => ({
+  default: { get: vi.fn() },
 }));
 
 const defaultCourse = {
@@ -380,5 +385,107 @@ describe('Courses', () => {
     fireEvent.click(screen.getByText('Вперёд →'));
     expect(screen.getByText('Страница 2 из 2')).toBeInTheDocument();
     expect(screen.queryByText('Курс 1')).not.toBeInTheDocument();
+  });
+
+  it('renders both tabs', () => {
+    render(
+      <TestRouter syncValue={makeSyncValue([defaultCourse])}>
+        <Courses />
+      </TestRouter>,
+    );
+    expect(screen.getByText('Курсы')).toBeInTheDocument();
+    expect(screen.getByText('Шаги')).toBeInTheDocument();
+  });
+
+  it('shows course table by default on the Курсы tab', () => {
+    render(
+      <TestRouter
+        syncValue={makeSyncValue([
+          { ...defaultCourse, id: '1', title: 'Python' },
+          { ...defaultCourse, id: '2', title: 'JS' },
+        ])}
+      >
+        <Courses />
+      </TestRouter>,
+    );
+    expect(screen.getByText('Python')).toBeInTheDocument();
+    expect(screen.getByText('JS')).toBeInTheDocument();
+  });
+
+  it('loads course structure on the Шаги tab', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        course: { id: '1', stepik_course_id: 100, title: 'C1' },
+        modules: [
+          {
+            position: 1,
+            title: 'Введение',
+            lessons: [
+              {
+                lesson_id: 10,
+                lesson_number: 1,
+                title: 'Линейная регрессия',
+                steps: [
+                  { step_id: 500, lesson_id: 10, step_number: 1, block: 'text', viewed_by: 10, total: 5, correct: 4, correct_ratio: 0.8 },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    render(
+      <TestRouter syncValue={makeSyncValue([defaultCourse])}>
+        <Courses />
+      </TestRouter>,
+    );
+    fireEvent.click(screen.getByText('Шаги'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/courses/1/structure'));
+    expect(screen.getByText('Модуль 1. Введение')).toBeInTheDocument();
+    expect(screen.getByText('Линейная регрессия')).toBeInTheDocument();
+    expect(screen.getAllByText('Оценка').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('switches heatmap metric via toggle', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        course: { id: '1', stepik_course_id: 100, title: 'C1' },
+        modules: [
+          {
+            position: 1,
+            title: 'Введение',
+            lessons: [
+              {
+                lesson_id: 10,
+                lesson_number: 1,
+                title: 'Урок',
+                steps: [
+                  { step_id: 500, lesson_id: 10, step_number: 1, block: 'code', viewed_by: 10, total: 5, correct: 4, correct_ratio: 0.8 },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    render(
+      <TestRouter syncValue={makeSyncValue([defaultCourse])}>
+        <Courses />
+      </TestRouter>,
+    );
+    fireEvent.click(screen.getByText('Шаги'));
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+    fireEvent.click(screen.getByText('Тип блока'));
+    expect(screen.getByText('Код')).toBeInTheDocument();
+  });
+
+  it('shows empty state on Шаги tab when no courses', () => {
+    render(
+      <TestRouter syncValue={makeSyncValue()}>
+        <Courses />
+      </TestRouter>,
+    );
+    fireEvent.click(screen.getByText('Шаги'));
+    expect(screen.getByText('Нет курсов')).toBeInTheDocument();
   });
 });
