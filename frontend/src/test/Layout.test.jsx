@@ -32,6 +32,8 @@ const NAV_LINKS = {
   Комментарии: '/comments',
   Финансы: '/financials',
   Студенты: '/students',
+  Сертификаты: '/certificates',
+  Отзывы: '/reviews',
   Активности: '/activities',
 };
 

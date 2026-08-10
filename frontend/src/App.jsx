@@ -9,6 +9,8 @@ const Comments = lazy(() => import('./pages/Comments'));
 const Financials = lazy(() => import('./pages/Financials'));
 const Students = lazy(() => import('./pages/Students'));
 const Activities = lazy(() => import('./pages/Activities'));
+const Certificates = lazy(() => import('./pages/Certificates'));
+const Reviews = lazy(() => import('./pages/Reviews'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 function PageSkeleton() {
@@ -38,6 +40,8 @@ function App() {
             <Route path="/financials" element={<Financials />} />
             <Route path="/students" element={<Students />} />
             <Route path="/activities" element={<Activities />} />
+            <Route path="/certificates" element={<Certificates />} />
+            <Route path="/reviews" element={<Reviews />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

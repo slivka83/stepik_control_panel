@@ -23,6 +23,8 @@ export function SyncProvider({ children }) {
     activeStudents: { months: [] },
     activeEnrolled: { months: [] },
     certificates: { months: [] },
+    certificatesStats: null,
+    reviewsStats: null,
   });
   const abortRef = useRef(null);
   const pollIntervalRef = useRef(30000);
@@ -46,6 +48,8 @@ export function SyncProvider({ children }) {
         activeStudentsRes,
         activeEnrolledRes,
         certificatesRes,
+        certificatesStatsRes,
+        reviewsStatsRes,
       ] = await Promise.allSettled([
         api.get('/dashboard/kpi', { signal, ...courseParams }),
         api.get('/dashboard/cohorts', { signal, ...courseParams }),
@@ -58,6 +62,8 @@ export function SyncProvider({ children }) {
         api.get('/dashboard/active-students', { signal, ...courseParams }),
         api.get('/dashboard/active-enrolled-students', { signal, ...courseParams }),
         api.get('/dashboard/certificates', { signal, ...courseParams }),
+        api.get('/dashboard/certificates/stats', { signal, ...courseParams }),
+        api.get('/dashboard/reviews/stats', { signal, ...courseParams }),
       ]);
 
       setData((prev) => {
@@ -74,6 +80,9 @@ export function SyncProvider({ children }) {
           activeStudents: activeStudentsRes.status === 'fulfilled' ? activeStudentsRes.value.data : prev.activeStudents,
           activeEnrolled: activeEnrolledRes.status === 'fulfilled' ? activeEnrolledRes.value.data : prev.activeEnrolled,
           certificates: certificatesRes.status === 'fulfilled' ? certificatesRes.value.data : prev.certificates,
+          certificatesStats:
+            certificatesStatsRes.status === 'fulfilled' ? certificatesStatsRes.value.data : prev.certificatesStats,
+          reviewsStats: reviewsStatsRes.status === 'fulfilled' ? reviewsStatsRes.value.data : prev.reviewsStats,
         };
         if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
         return next;
@@ -91,6 +100,8 @@ export function SyncProvider({ children }) {
         activeStudentsRes,
         activeEnrolledRes,
         certificatesRes,
+        certificatesStatsRes,
+        reviewsStatsRes,
       ].filter((r) => r.status === 'rejected');
       if (failures.length > 0) {
         setError(`${failures.length} endpoint(s) failed to load`);

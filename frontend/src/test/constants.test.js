@@ -90,8 +90,8 @@ describe('Constants', () => {
   });
 
   describe('NAV_ITEMS', () => {
-    it('has seven navigation items', () => {
-      expect(NAV_ITEMS).toHaveLength(7);
+    it('has nine navigation items', () => {
+      expect(NAV_ITEMS).toHaveLength(9);
     });
 
     it('each item has to, label, and icon', () => {
@@ -113,8 +113,18 @@ describe('Constants', () => {
     });
 
     it('last item is activities', () => {
-      expect(NAV_ITEMS[6].to).toBe('/activities');
-      expect(NAV_ITEMS[6].label).toBe('Активности');
+      expect(NAV_ITEMS[8].to).toBe('/activities');
+      expect(NAV_ITEMS[8].label).toBe('Активности');
+    });
+
+    it('certificates item comes after students', () => {
+      expect(NAV_ITEMS[6].to).toBe('/certificates');
+      expect(NAV_ITEMS[6].label).toBe('Сертификаты');
+    });
+
+    it('reviews item comes after certificates', () => {
+      expect(NAV_ITEMS[7].to).toBe('/reviews');
+      expect(NAV_ITEMS[7].label).toBe('Отзывы');
     });
   });
 });

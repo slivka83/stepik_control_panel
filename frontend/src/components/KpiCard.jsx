@@ -12,6 +12,8 @@ const COLOR_CLASSES = {
   'dim-green': 'text-[#22763d] border-[#22763d]/20',
   'dim-blue': 'text-[#1a6a9e] border-[#1a6a9e]/20',
   'dim-crimson': 'text-[#8b2040] border-[#8b2040]/20',
+  distinction: 'text-[#DB62C4] border-[#DB62C4]/20',
+  regular: 'text-[#B70094] border-[#B70094]/20',
 };
 
 function KpiCard({
@@ -120,6 +122,8 @@ KpiCard.propTypes = {
     'dim-green',
     'dim-blue',
     'dim-crimson',
+    'distinction',
+    'regular',
   ]),
   trend: PropTypes.number,
   trendInverted: PropTypes.bool,

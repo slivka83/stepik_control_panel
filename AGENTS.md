@@ -341,6 +341,24 @@ Y-ось графиков:
 - Комментарии, чей шаг не атрибутирован к курсам (`target` не в step→course map), **пропускаются и при фильтре, и без него** — инвариант «фильтр = все курсы» == «без фильтра» держится (как в `filter_community`)
 - KPI-плашки: Всего комментариев / Студенты (белые) + Лайки (`neon-green`) + Дизлайки (`crimson-alert`)
 
+## Страница «Сертификаты» (3 вкладки)
+
+- Вкладки: **По месяцам / По годам / По курсам** (`frontend/src/pages/Certificates.jsx`)
+- Источник: `GET /api/dashboard/certificates/stats` → `{months, years, by_course, totals}` (в `app/api/dashboard/certificates.py`) — читает `raw_certificate` напрямую (курс на строке, step→course map не нужен), `issue_date`/`type` из `_raw_json` (в SQLite-фикстуре колонок нет; live PG хранит raw как TEXT/jsonb)
+- **«С отличием» = `type == 'distinction'`**, «Обычные» = остальные (то же разделение, что у графика на Активностях: `dark` = всего, `light` = обычные, overlap = с отличием). Кэшированный `/api/dashboard/certificates` (график) не затрагивается
+- `students` — distinct `user_id` (колонка `raw_certificate.user_id`, fallback `_raw_json.user`; не-числовые значения — имена OAuth-клиентов — пропускаются). Сертификаты без `issue_date` пропускаются; курс фильтруется по пересечению с курсами пользователя (`get_courses_for_user`, чужие курсы не видны)
+- `totals` = `{certificates, students, distinction, regular}`; фильтр `course_ids` работает через `WHERE course_id IN (...)`; инвариант «фильтр = все курсы» == «без фильтра»; пустой `?course_ids=` → пустой ответ
+- KPI-плашки: Всего сертификатов / Студенты (белые) + С отличием (`distinction` `#DB62C4`) + Обычные (`regular` `#B70094`). Новые цвета добавлены в палитру `KpiCard.COLOR_CLASSES` (chart-цвета пурпур/маджента)
+
+## Страница «Отзывы» (3 вкладки)
+
+- Вкладки: **По месяцам / По годам / По курсам** (`frontend/src/pages/Reviews.jsx`)
+- Источник: `GET /api/dashboard/reviews/stats` → `{months, years, by_course, totals}` (в `app/api/dashboard/reviews.py`) — читает `raw_course_review` напрямую (курс на строке, step→course map не нужен), `create_date`/`score`/`user` из `_raw_json` (работает и в SQLite-фикстуре, и в live PG)
+- **Без раскола по типу** — колонка **«Средняя оценка»** = средний `score` в группе (round 2, `0` → «—»). Отзывы без `create_date` пропускаются; `score` без числа в avg не входит
+- `students` — distinct числовые `_raw_json.user` (не-числовые — имена OAuth-клиентов — пропускаются)
+- `totals` = `{reviews, students, avg_score}`; фильтр `course_ids` через `WHERE course IN (...)` (колонка `course` = stepik_course_id); инвариант «фильтр = все курсы» == «без фильтра»; пустой `?course_ids=` → пустой ответ; чужие курсы исключены (`get_courses_for_user`)
+- KPI-плашки: Всего отзывов / Студенты (белые) + Средняя оценка (`ratingColor` градиент, ru-RU запятая). В таблице оценка рендерится `toFixed(2)` с градиентом `getRatingColor` (как в Courses.jsx), «—» при 0
+
 ## Страница «Финансы» (7 вкладок)
 
 - Вкладки: **По месяцам / По годам / По дням / По курсам / По промокодам / По UTM / Последние операции** (`frontend/src/pages/Financials.jsx`)
@@ -465,7 +483,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-423 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
+433 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
 | Файл | Тестов | Что тестирует |
 |---|---|---|
 | `tests/test_stepik_api.py` | 20 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` |
@@ -482,7 +500,9 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 | `tests/test_steps.py` | 35 | hardest-steps: `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id), `wilson_success_pct` (объём попыток: 1/5 → 3.6%, 200/1000 → 17.6%), `weighted_success_pct` (мусор с малым числом попыток не всплывает в топ), `module_number`/`lesson_number` (сквозная нумерация уроков по курсу), `module_title`/`lesson_title` |
 | `tests/test_course_filter.py` | 20 | Фильтр по курсам: `parse_course_ids` (None/`[]`), безопасность (чужие UUID отбрасываются), SQL-эндпоинты (submissions/active-students/cohorts/alerts/hardest-steps/students), пересчёт снапшота (financials/revenue/kpi/published-solutions/community), `published` в submissions (в т.ч. по курсам, инвариант «фильтр = все курсы» == «без фильтра»), пустой `?course_ids=` = пустой выбор |
 | `tests/test_comments.py` | 12 | `/api/dashboard/comments`: months/years/by_course группировки, totals, Лайки/Дизлайки из `vote_delta`, distinct-студенты (OAuth-клиенты отбрасываются), атрибуция через step→course map, инвариант «фильтр = все курсы» == «без фильтра»; `/comments/list`: фильтры `unanswered` (is_staff_replied + teacher + deleted) и `disliked` (vote_delta<0), имена из raw_user, пути шагов, HTML-стрип, фильтр курсов + инвариант, сортировка/пагинация/NULLS LAST, 400 на неверные параметры, пустые данные |
-| Остальные | 170 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
+| `tests/test_certificates.py` | 5 | `/api/dashboard/certificates/stats`: months/years/by_course группировки, distinction/regular, distinct-студенты, фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
+| `tests/test_reviews.py` | 5 | `/api/dashboard/reviews/stats`: months/years/by_course группировки, avg_score (score без числа не входит), distinct-студенты (OAuth-клиенты отбрасываются), фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
+| Остальные | 180 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).
 

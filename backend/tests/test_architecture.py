@@ -148,6 +148,8 @@ class TestDashboardPackage:
         "/api/dashboard/active-enrolled-students",
         "/api/dashboard/published-solutions",
         "/api/dashboard/certificates",
+        "/api/dashboard/certificates/stats",
+        "/api/dashboard/reviews/stats",
         "/api/dashboard/comments",
         "/api/dashboard/students",
         "/api/dashboard/hardest-steps",
@@ -162,7 +164,7 @@ class TestDashboardPackage:
     def test_dashboard_is_package(self):
         pkg = BACKEND_DIR / "app" / "api" / "dashboard"
         assert (pkg / "__init__.py").exists()
-        for module in ["alerts", "kpi", "cohorts", "charts", "comments", "students", "steps", "common"]:
+        for module in ["alerts", "kpi", "cohorts", "charts", "comments", "students", "steps", "certificates", "reviews", "common"]:
             assert (pkg / f"{module}.py").exists(), f"missing {module}.py"
 
     def test_old_god_file_removed(self):

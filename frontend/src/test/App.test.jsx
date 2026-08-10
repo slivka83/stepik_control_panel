@@ -38,6 +38,8 @@ describe('App', () => {
     expect(screen.getByRole('link', { name: 'Комментарии' })).toHaveAttribute('href', '/comments');
     expect(screen.getByRole('link', { name: 'Финансы' })).toHaveAttribute('href', '/financials');
     expect(screen.getByRole('link', { name: 'Студенты' })).toHaveAttribute('href', '/students');
+    expect(screen.getByRole('link', { name: 'Сертификаты' })).toHaveAttribute('href', '/certificates');
+    expect(screen.getByRole('link', { name: 'Отзывы' })).toHaveAttribute('href', '/reviews');
     expect(screen.getByRole('link', { name: 'Активности' })).toHaveAttribute('href', '/activities');
   });
 });
