@@ -426,7 +426,16 @@ describe('Courses', () => {
                 lesson_number: 1,
                 title: 'Линейная регрессия',
                 steps: [
-                  { step_id: 500, lesson_id: 10, step_number: 1, block: 'text', viewed_by: 10, total: 5, correct: 4, correct_ratio: 0.8 },
+                  {
+                    step_id: 500,
+                    lesson_id: 10,
+                    step_number: 1,
+                    block: 'text',
+                    viewed_by: 10,
+                    total: 5,
+                    correct: 4,
+                    correct_ratio: 0.8,
+                  },
                 ],
               },
             ],
@@ -460,7 +469,16 @@ describe('Courses', () => {
                 lesson_number: 1,
                 title: 'Урок',
                 steps: [
-                  { step_id: 500, lesson_id: 10, step_number: 1, block: 'code', viewed_by: 10, total: 5, correct: 4, correct_ratio: 0.8 },
+                  {
+                    step_id: 500,
+                    lesson_id: 10,
+                    step_number: 1,
+                    block: 'code',
+                    viewed_by: 10,
+                    total: 5,
+                    correct: 4,
+                    correct_ratio: 0.8,
+                  },
                 ],
               },
             ],
@@ -486,6 +504,48 @@ describe('Courses', () => {
       </TestRouter>,
     );
     fireEvent.click(screen.getByText('Шаги'));
+    expect(screen.getByText('Нет курсов')).toBeInTheDocument();
+  });
+
+  it('renders Воронка tab', () => {
+    render(
+      <TestRouter syncValue={makeSyncValue([defaultCourse])}>
+        <Courses />
+      </TestRouter>,
+    );
+    expect(screen.getByText('Воронка')).toBeInTheDocument();
+  });
+
+  it('loads funnel on the Воронка tab', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        course: { id: '1', stepik_course_id: 100, title: 'C1' },
+        stages: [
+          { key: 'enrolled', label: 'Записались', value: 100 },
+          { key: 'module', module_number: 1, label: 'Модуль 1. Введение', value: 60 },
+          { key: 'certificate', label: 'Получили сертификат', value: 10 },
+        ],
+      },
+    });
+    render(
+      <TestRouter syncValue={makeSyncValue([defaultCourse])}>
+        <Courses />
+      </TestRouter>,
+    );
+    fireEvent.click(screen.getByText('Воронка'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/courses/1/funnel'));
+    expect(await screen.findByText('Записались')).toBeInTheDocument();
+    expect(screen.getByText('Модуль 1. Введение')).toBeInTheDocument();
+    expect(screen.getByText('Получили сертификат')).toBeInTheDocument();
+  });
+
+  it('shows empty state on Воронка tab when no courses', () => {
+    render(
+      <TestRouter syncValue={makeSyncValue()}>
+        <Courses />
+      </TestRouter>,
+    );
+    fireEvent.click(screen.getByText('Воронка'));
     expect(screen.getByText('Нет курсов')).toBeInTheDocument();
   });
 });

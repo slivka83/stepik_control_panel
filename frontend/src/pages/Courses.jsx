@@ -5,6 +5,7 @@ import KpiCard from '../components/KpiCard';
 import DataTable from '../components/DataTable';
 import Tabs from '../components/Tabs';
 import CourseStructureMatrix, { STEP_METRICS } from '../components/CourseStructureMatrix';
+import CourseFunnel from '../components/CourseFunnel';
 import { STEPIK_URLS } from '../constants.jsx';
 import { fmtDate } from '../utils/format';
 import api from '../api';
@@ -12,6 +13,7 @@ import api from '../api';
 const TABS = [
   { key: 'courses', label: 'Курсы' },
   { key: 'steps', label: 'Шаги' },
+  { key: 'funnel', label: 'Воронка' },
 ];
 
 function getRatingColor(rating) {
@@ -223,6 +225,7 @@ export default function Courses() {
         ))}
 
       {activeTab === 'steps' && <CourseStepsTab courses={courses} />}
+      {activeTab === 'funnel' && <CourseFunnel courses={courses} />}
     </div>
   );
 }

@@ -309,20 +309,27 @@ Y-ось графиков:
 - Хелперы ячеек-заголовков: `yearMonthLabel`/`fmtDate` в `frontend/src/utils/format.js`
 - Юнит-тесты компонента: `frontend/src/test/DataTable.test.jsx`, `frontend/src/test/Tabs.test.jsx`
 
-## Страница «Курсы» (2 вкладки)
+## Страница «Курсы» (3 вкладки)
 
-- Вкладки: **Курсы / Шаги** (`frontend/src/pages/Courses.jsx`), KPI-плашки общие над вкладками
+- Вкладки: **Курсы / Шаги / Воронка** (`frontend/src/pages/Courses.jsx`), KPI-плашки общие над вкладками
 - **«Курсы»** — прежняя таблица (`DataTable`, `COURSE_COLUMNS`), пустой-state с «Подключить Stepik»
 - **«Шаги»** — тепловая карта структуры **одного** курса (не зависит от глобального фильтра):
   - Свой селектор курса + переключатель метрики: **Просмотры / Отправлено / Успешных / Оценка / Тип блока** (`STEP_METRICS` в `CourseStructureMatrix.jsx`)
   - Матрица: **строки = уроки** (заголовки-полосы модулей), **столбцы = № шага в уроке** (максимум шагов среди уроков курса), ячейка = шаг; CSS-grid, без recharts
   - Цвета: Просмотры/Отправлено/Успешных — последовательная шкала `rgba(56,189,248, α)`, Оценка — красно-жёлто-зелёный градиент (из `correct_ratio` → rating 1..5), Тип блока — категориальная палитра (`text`/`code`/`external-grader`/`choice` из `_raw_json.block.name`); нет данных — тёмная клетка
   - Ховер-тултип (portal): модуль — урок, шаг, все метрики; клик — deep link `stepik.org/lesson/{lesson_id}/step/{n}` (`target="_blank"`)
+- **«Воронка»** — воронка прохождения **одного** курса (свой селектор курса, не зависит от глобального фильтра), `frontend/src/components/CourseFunnel.jsx`:
+  - Этапы: **«Записались»** (строки `student_enrollments`) → **«Модуль N. {title}»** по порядку `raw_section.position` → **«Получили сертификат»** (`certificate_issued`)
+  - Значение модуля — **distinct-студенты с ≥1 решением в этом модуле или позже** (cumulative suffix-union из `submissions` через step→module карту: `raw_section` → `raw_unit` → `raw_lesson.steps`), поэтому воронка монотонно убывает; «Модуль 1» фактически = «начали курс»
+  - Шаги submissions, не атрибутированные в структуру, пропускаются (как не-атрибутируемые комментарии); авторские решения исключены (`is_author=False`)
+  - Визуал: recharts `FunnelChart` (градиент cyber-blue → dim-blue, финальный этап neon-green) + таблица «Этап | Студентов | % от записи | Отсев»; конверсия/отсев считаются на фронте из `value`
+  - Тесты: `tests/test_course_funnel.py`, фронт `frontend/src/test/CourseFunnel.test.jsx` + вкладки в `Courses.test.jsx`
 - Источник: **`GET /api/courses/{course_id}/structure`** (в `app/api/courses.py`) — владение курсом (404 иначе), сборка из raw-слоя:
   - `raw_section` (`course = stepik_course_id`, `ORDER BY position`) → модули; `raw_unit` → уроки модуля (`position`); `raw_lesson` (`title`, `steps[]` → `step_number` через `_parse_step_positions` из `common.py` — работает и с TEXT, и с jsonb)
   - Сквозной `lesson_number` по курсу (смещение = сумма уроков предыдущих модулей)
   - Метрики шага: `viewed_by`/`passed_by`/`correct_ratio` из `raw_step._raw_json` (агрегаты Stepik API, `_parse_raw` обрабатывает dict-jsonb и TEXT-строку), `total`/`correct`/`students` из `submissions` (**ORM-запрос** — `text()`-биндинг UUID в SQLite не совпадает: там hex без дефисов, а `str(uuid)` с дефисами), `is_author=False`
-  - Тесты: `tests/test_course_structure.py`, фронт `frontend/src/test/CourseStructureMatrix.test.jsx` + вкладки в `Courses.test.jsx`
+  - Источник воронки: **`GET /api/courses/{course_id}/funnel`** (там же) — та же проверка владения, step→module карта, `SELECT DISTINCT stepik_step_id, user_id FROM submissions` (ORM), ответ `{course, stages: [{key, module_number?, label, value}]}`
+  - Тесты: `tests/test_course_structure.py`, `tests/test_course_funnel.py`, фронт `frontend/src/test/CourseStructureMatrix.test.jsx` + `CourseFunnel.test.jsx` + вкладки в `Courses.test.jsx`
 
 ## Страница «Решения» (4 вкладки)
 
@@ -498,7 +505,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-443 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
+454 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
 | Файл | Тестов | Что тестирует |
 |---|---|---|
 | `tests/test_stepik_api.py` | 20 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` |
@@ -518,6 +525,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 | `tests/test_certificates.py` | 5 | `/api/dashboard/certificates/stats`: months/years/by_course группировки, distinction/regular, distinct-студенты, фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
 | `tests/test_reviews.py` | 5 | `/api/dashboard/reviews/stats`: months/years/by_course группировки, avg_score (score без числа не входит), distinct-студенты (OAuth-клиенты отбрасываются), фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
 | `tests/test_course_structure.py` | 10 | `/api/courses/{id}/structure`: владение курсом (404 чужих/битых ID), порядок модулей/уроков/шагов по position, сквозной `lesson_number`, `lesson_id`/`step_number` у шагов, метрики из `raw_step._raw_json` (dict-jsonb и TEXT-строка), `total`/`correct`/`students` из submissions (ORM, `is_author=False`), пустые уроки |
+| `tests/test_course_funnel.py` | 11 | `/api/courses/{id}/funnel`: владение курсом (404 чужих/битых ID), пустая структура → «Записались» + «Сертификат», cumulative distinct по модулям (монотонность), порядок по position, сертификаты отдельным этапом, исключение авторских submissions, не-атрибутируемые шаги пропускаются, модуль без шагов остаётся в воронке |
 | Остальные | 180 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).

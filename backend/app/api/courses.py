@@ -291,3 +291,140 @@ async def get_course_structure(
         )
 
     return {"course": course_payload, "modules": modules}
+
+
+@router.get("/{course_id}/funnel")
+async def get_course_funnel(
+    course_id: str,
+    user: User = Depends(get_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Воронка прохождения одного курса.
+
+    Этапы: «Записались» → «Модуль N» → «Получили сертификат». Значение этапа
+    модуля — distinct-студенты, отправившие хотя бы одно решение в этом модуле
+    или позже (cumulative suffix: воронка монотонно убывает). «Модуль 1»
+    фактически = «начали курс» (сделали хотя бы одно решение). Шаги, не
+    атрибутированные в структуру (не синканы), пропускаются. Авторские решения
+    (is_author=True) исключены.
+    """
+    try:
+        course_uuid = uuid_module.UUID(course_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Course not found") from None
+    result = await db.execute(select(Course).where(Course.id == course_uuid, Course.user_id == user.id))
+    course = result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    course_payload = {
+        "id": str(course.id),
+        "stepik_course_id": course.stepik_course_id,
+        "title": course.title,
+    }
+
+    sections_result = await db.execute(
+        text("SELECT section_id, position, title FROM raw_section WHERE course = :cid ORDER BY position"),
+        {"cid": str(course.stepik_course_id)},
+    )
+    sections = [
+        {
+            "section_id": int(r[0]) if r[0] is not None else None,
+            "position": int(r[1]) if r[1] is not None else None,
+            "title": r[2],
+        }
+        for r in sections_result
+    ]
+
+    module_titles: list[tuple[int, str]] = []
+    step_to_module: dict[int, int] = {}
+    if sections:
+        section_ids = [s["section_id"] for s in sections if s["section_id"] is not None]
+        units_by_section: dict[int, list[tuple[int, int]]] = {}
+        if section_ids:
+            params = {f"sid{i}": str(sid) for i, sid in enumerate(section_ids)}
+            placeholders = ", ".join(f":sid{i}" for i in range(len(section_ids)))
+            units_result = await db.execute(
+                text(f"SELECT lesson_id, section_id FROM raw_unit WHERE section_id IN ({placeholders})"),
+                params,
+            )
+            for r in units_result:
+                if r[0] is None or r[1] is None:
+                    continue
+                units_by_section.setdefault(int(r[1]), []).append(int(r[0]))
+
+        lesson_ids = sorted({lid for lst in units_by_section.values() for lid in lst})
+        lesson_steps: dict[int, dict[int, int]] = {}
+        if lesson_ids:
+            params_l = {f"lid{i}": str(lid) for i, lid in enumerate(lesson_ids)}
+            placeholders_l = ", ".join(f":lid{i}" for i in range(len(lesson_ids)))
+            lessons_result = await db.execute(
+                text(f"SELECT lesson_id, steps FROM raw_lesson WHERE lesson_id IN ({placeholders_l})"),
+                params_l,
+            )
+            for r in lessons_result:
+                if r[0] is None:
+                    continue
+                lesson_steps[int(r[0])] = _parse_step_positions(r[1])
+
+        for section in sections:
+            sid = section["section_id"]
+            if sid is None:
+                continue
+            idx = len(module_titles)
+            module_titles.append((section["position"], section["title"] or ""))
+            for lid in units_by_section.get(sid, []):
+                for step_id in lesson_steps.get(lid, {}):
+                    step_to_module[step_id] = idx
+
+    module_users: list[set] = [set() for _ in module_titles]
+    sub_result = await db.execute(
+        select(Submission.stepik_step_id, Submission.user_id)
+        .where(
+            Submission.course_id == course_uuid,
+            Submission.is_author.is_(False),
+            Submission.user_id.is_not(None),
+        )
+        .distinct()
+    )
+    for step_id, user_id in sub_result:
+        idx = step_to_module.get(int(step_id))
+        if idx is not None:
+            module_users[idx].add(user_id)
+
+    enroll_result = await db.execute(
+        select(func.count())
+        .select_from(StudentEnrollment)
+        .where(StudentEnrollment.course_id == course_uuid)
+    )
+    enrolled = enroll_result.scalar_one()
+
+    cert_result = await db.execute(
+        select(func.count())
+        .select_from(StudentEnrollment)
+        .where(
+            StudentEnrollment.course_id == course_uuid,
+            StudentEnrollment.certificate_issued.is_(True),
+        )
+    )
+    certificate_count = cert_result.scalar_one()
+
+    suffix_values = [0] * len(module_users)
+    suffix: set = set()
+    for i in range(len(module_users) - 1, -1, -1):
+        suffix |= module_users[i]
+        suffix_values[i] = len(suffix)
+
+    stages = [{"key": "enrolled", "label": "Записались", "value": enrolled}]
+    for i, (position, title) in enumerate(module_titles):
+        stages.append(
+            {
+                "key": "module",
+                "module_number": position,
+                "label": f"Модуль {position}. {title}" if title else f"Модуль {position}",
+                "value": suffix_values[i],
+            }
+        )
+    stages.append({"key": "certificate", "label": "Получили сертификат", "value": certificate_count})
+
+    return {"course": course_payload, "stages": stages}
