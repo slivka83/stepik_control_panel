@@ -528,6 +528,55 @@ class TestSyncSubmissionsStep404:
         assert r.scalar() == "2000"
 
 
+class TestSyncSubmissionsTheoryStep400:
+    @pytest.mark.asyncio
+    async def test_skips_400_theory_steps_without_aborting(self, db_session):
+        """Regression: sync падал на live PG с StepikAPIError 400.
+
+        Stepik возвращает 400 «Bad step parameter» для теоретических (text)
+        шагов, у которых нет решений, — один такой шаг не должен убивать
+        весь sync_submissions (как и 404 для удалённых).
+        """
+        from app.services.raw_sync import sync_submissions
+        from app.services.stepik_api import StepikAPIError
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('submissions', 'id', 'submission_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES
+                (500, 10, '{"block": {"name": "text"}}'),
+                (501, 11, '{}')
+        """)
+        )
+        await db_session.commit()
+
+        theory_step = {"id": 500, "status": "correct", "time": "2026-07-15T10:00:00Z"}
+        live_step = {"id": 2000, "status": "wrong", "time": "2026-07-15T11:00:00Z"}
+
+        def request_side_effect(method, path, token, params=None):
+            if "submissions" in path and "step" in str(params):
+                if params.get("step") == 500:
+                    raise StepikAPIError(400, '{"detail": "Bad step parameter."}')
+                return {"submissions": [live_step], "meta": {"has_next": False}}
+            return {}
+
+        with patch("app.services.raw_sync._request", side_effect=request_side_effect):
+            await sync_submissions(db_session, "fake_token")
+
+        assert await _count_rows(db_session, "raw_submission") == 1, (
+            "submission живого шага не записана — sync прервался на 400-шаге"
+        )
+        r = await db_session.execute(text("SELECT submission_id FROM raw_submission"))
+        assert r.scalar() == "2000"
+
+
 class TestSyncCommunityStrBind:
     @pytest.mark.asyncio
     async def test_course_id_bound_as_str(self, db_session):

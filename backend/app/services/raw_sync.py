@@ -353,9 +353,12 @@ async def sync_submissions(session: AsyncSession, token: str):
             try:
                 data = await _request("GET", "/submissions", token, {"step": sid, "page": page, "page_size": 500})
             except StepikAPIError as e:
-                # Stepik возвращает 404 для удалённых/недоступных шагов —
-                # не должен убивать весь sync
-                if e.status_code == 404:
+                # Stepik возвращает 404 для удалённых/недоступных шагов и
+                # 400 «Bad step parameter» для теоретических (text) шагов, у
+                # которых нет решений, — ни то, ни другое не должно убивать sync
+                is_deleted = e.status_code == 404
+                is_theory_step = e.status_code == 400 and "Bad step parameter" in (e.detail or "")
+                if is_deleted or is_theory_step:
                     skipped_steps.append(sid)
                     break
                 raise
@@ -389,7 +392,7 @@ async def sync_submissions(session: AsyncSession, token: str):
             await session.commit()
 
     if skipped_steps:
-        logger.warning("  skipped %d steps (404): %s", len(skipped_steps), skipped_steps[:10])
+        logger.warning("  skipped %d steps (404/теория): %s", len(skipped_steps), skipped_steps[:10])
     logger.info("  raw_submission: +%d rows (incremental)", total)
 
     # Author submissions pass
