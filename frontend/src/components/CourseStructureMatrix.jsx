@@ -3,11 +3,106 @@ import { createPortal } from 'react-dom';
 import { STEPIK_URLS } from '../constants.jsx';
 
 export const STEP_METRICS = {
-  views: { label: 'Просмотры', type: 'heat', value: (s) => s.viewed_by },
-  submitted: { label: 'Отправлено', type: 'heat', value: (s) => s.total },
-  correct: { label: 'Успешных', type: 'heat', value: (s) => s.correct },
-  grade: { label: 'Оценка', type: 'grade', value: (s) => s.correct_ratio },
-  block: { label: 'Тип блока', type: 'block', value: (s) => s.block },
+  views: {
+    label: 'Просмотры',
+    type: 'heat',
+    value: (s) => s.viewed_by,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="w-3.5 h-3.5"
+      >
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+        <circle cx="12" cy="12" r="3" />
+      </svg>
+    ),
+  },
+  submitted: {
+    label: 'Отправлено',
+    type: 'heat',
+    value: (s) => s.total,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="w-3.5 h-3.5"
+      >
+        <path d="M22 2L11 13" />
+        <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+      </svg>
+    ),
+  },
+  correct: {
+    label: 'Успешных',
+    type: 'heat',
+    value: (s) => (s.total ? s.correct / s.total : null),
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="w-3.5 h-3.5"
+      >
+        <polyline points="20 6 9 17 4 12" />
+      </svg>
+    ),
+  },
+  grade: {
+    label: 'Оценка',
+    type: 'grade',
+    value: (s) => s.grade,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="w-3.5 h-3.5"
+      >
+        <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+      </svg>
+    ),
+  },
+  block: {
+    label: 'Тип блока',
+    type: 'block',
+    value: (s) => s.block,
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="w-3.5 h-3.5"
+      >
+        <rect x="3" y="3" width="7" height="7" />
+        <rect x="14" y="3" width="7" height="7" />
+        <rect x="14" y="14" width="7" height="7" />
+        <rect x="3" y="14" width="7" height="7" />
+      </svg>
+    ),
+  },
 };
 
 const BLOCK_COLORS = {
@@ -24,7 +119,23 @@ const BLOCK_LABELS = {
   choice: 'Выбор',
 };
 
+const BLOCK_LETTERS = {
+  text: 'Т',
+  code: 'К',
+  'external-grader': 'В',
+  choice: 'Вб',
+};
+
 const EMPTY_CELL = '#111a2b';
+
+function fmtCompact(value) {
+  const v = Number(value) || 0;
+  if (v >= 1000) {
+    const k = (v / 1000).toFixed(1).replace(/\.0$/, '');
+    return `${k}k`;
+  }
+  return String(v);
+}
 
 function ratingColor(rating) {
   const r = Math.max(1, Math.min(5, rating));
@@ -54,9 +165,9 @@ function stepColor(step, metric, maxValue) {
     return BLOCK_COLORS[step.block] || '#64748b';
   }
   if (metric === 'grade') {
-    const ratio = step.correct_ratio;
-    if (ratio == null) return EMPTY_CELL;
-    return ratingColor(1 + Math.max(0, Math.min(1, ratio)) * 4);
+    const grade = step.grade;
+    if (grade == null) return EMPTY_CELL;
+    return ratingColor(grade);
   }
   const value = m.value(step);
   if (!value || !maxValue) return EMPTY_CELL;
@@ -67,6 +178,19 @@ function stepColor(step, metric, maxValue) {
 
 function fmtNum(value) {
   return value == null ? '—' : Number(value).toLocaleString('ru-RU');
+}
+
+function metricCellText(step, metric) {
+  if (metric === 'block') {
+    return BLOCK_LETTERS[step.block] || (step.block ? step.block[0].toUpperCase() : '—');
+  }
+  if (metric === 'grade') {
+    return step.grade != null ? step.grade.toFixed(2) : '—';
+  }
+  if (metric === 'correct') {
+    return step.total ? `${Math.round((step.correct / step.total) * 100)}%` : '—';
+  }
+  return fmtCompact(STEP_METRICS[metric].value(step));
 }
 
 export default function CourseStructureMatrix({ modules = [], metric = 'views', loading = false }) {
@@ -116,55 +240,16 @@ export default function CourseStructureMatrix({ modules = [], metric = 'views', 
     });
   };
 
-  const legend = (() => {
-    if (metric === 'block') {
-      const used = new Set();
-      modules.forEach((mod) =>
-        (mod.lessons || []).forEach((l) => (l.steps || []).forEach((s) => s.block && used.add(s.block))),
-      );
-      return [...used].map((b) => ({ color: BLOCK_COLORS[b] || '#64748b', label: BLOCK_LABELS[b] || b }));
-    }
-    if (metric === 'grade') {
-      return [
-        { color: ratingColor(1), label: '0%' },
-        { color: ratingColor(3), label: '50%' },
-        { color: ratingColor(5), label: '100%' },
-      ];
-    }
-    return [
-      { color: 'rgba(56, 189, 248, 0.25)', label: 'мало' },
-      { color: 'rgba(56, 189, 248, 0.95)', label: 'много' },
-    ];
-  })();
-
   return (
     <figure
       role="img"
       aria-label="Тепловая карта структуры курса"
-      className="glass-panel p-4 flex flex-col min-h-0 overflow-hidden"
+      className="glass-panel p-4 flex flex-col flex-1 min-h-0 overflow-hidden"
     >
-      <div className="flex items-center justify-between mb-3 shrink-0">
-        <h3 className="text-white font-medium">{m.label}</h3>
-        <div className="flex items-center gap-4">
-          {legend.map((item) => (
-            <div key={item.label} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: item.color }}></div>
-              <span className="text-xs text-gray-400">{item.label}</span>
-            </div>
-          ))}
-          {metric === 'block' && (
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: EMPTY_CELL }}></div>
-              <span className="text-xs text-gray-500">нет данных</span>
-            </div>
-          )}
-        </div>
-      </div>
-
       <div className="flex-1 min-h-0 overflow-auto">
         <div
           className="grid gap-px"
-          style={{ gridTemplateColumns: `minmax(150px, 0.9fr) repeat(${maxSteps}, minmax(30px, 1fr))` }}
+          style={{ gridTemplateColumns: `minmax(225px, 1.35fr) repeat(${maxSteps}, minmax(30px, 1fr))` }}
         >
           {rows.map((row, ri) => {
             if (row.kind === 'module') {
@@ -182,7 +267,7 @@ export default function CourseStructureMatrix({ modules = [], metric = 'views', 
             return (
               <div key={`r-${ri}`} className="contents">
                 <div
-                  className="flex items-center justify-end pr-2 text-right text-xs text-gray-300 truncate"
+                  className="flex items-center justify-start pl-2 text-left text-xs text-gray-300 truncate"
                   title={`Модуль ${mod.position}. ${mod.title} — ${lesson.title}`}
                 >
                   <span className="font-mono text-gray-500 mr-1">{mod.position}.{lesson.lesson_number}</span>
@@ -205,7 +290,7 @@ export default function CourseStructureMatrix({ modules = [], metric = 'views', 
                       onMouseMove={(e) => setTooltip((t) => (t ? { ...t, x: e.clientX, y: e.clientY } : t))}
                       onMouseLeave={() => setTooltip(null)}
                     >
-                      {step.step_number}
+                      {metricCellText(step, metric)}
                     </a>
                   );
                 })}
@@ -235,16 +320,22 @@ export default function CourseStructureMatrix({ modules = [], metric = 'views', 
             <div className="text-cyber-blue text-xs mb-1">
               Шаг {tooltip.step.step_number} · {BLOCK_LABELS[tooltip.step.block] || tooltip.step.block || '—'}
             </div>
-            <div className="text-gray-300 text-xs">
-              <div>Просмотры: {fmtNum(tooltip.step.viewed_by)}</div>
-              <div>Решений: {fmtNum(tooltip.step.total)} · Успешных: {fmtNum(tooltip.step.correct)}</div>
-              <div>
-                Оценка:{' '}
-                {tooltip.step.correct_ratio != null
-                  ? `${(tooltip.step.correct_ratio * 100).toFixed(1)}%`
-                  : '—'}
+              <div className="text-gray-300 text-xs">
+                <div>Просмотры: {fmtNum(tooltip.step.viewed_by)}</div>
+                <div>Решений: {fmtNum(tooltip.step.total)} · Успешных: {fmtNum(tooltip.step.correct)}</div>
+                <div>
+                  Успешность:{' '}
+                  {tooltip.step.total
+                    ? `${Math.round((tooltip.step.correct / tooltip.step.total) * 100)}%`
+                    : '—'}
+                </div>
+                <div>
+                  Оценка:{' '}
+                  {tooltip.step.grade != null
+                    ? `${tooltip.step.grade.toFixed(2)} · ${fmtNum(tooltip.step.grade_votes)} гол.`
+                    : '—'}
+                </div>
               </div>
-            </div>
           </div>,
           document.body,
         )}

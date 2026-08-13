@@ -71,8 +71,7 @@ function FunnelTooltip({ active, payload }) {
   );
 }
 
-export default function CourseFunnel({ courses = [] }) {
-  const [courseId, setCourseId] = useState(courses[0]?.id || null);
+export default function CourseFunnel({ courses = [], courseId }) {
   const [funnel, setFunnel] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -124,23 +123,6 @@ export default function CourseFunnel({ courses = [] }) {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 gap-3">
-      <div className="flex items-center gap-4 shrink-0 flex-wrap">
-        <label className="flex items-center gap-2 text-sm text-gray-300">
-          <span className="text-gray-500">Курс</span>
-          <select
-            value={selectedCourse.id}
-            onChange={(e) => setCourseId(e.target.value)}
-            className="bg-space-gray border border-gray-700 rounded px-2 py-1 text-sm text-white"
-          >
-            {courses.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
       {loadError && (
         <div className="flex items-center justify-between px-4 py-3 rounded-lg bg-crimson-alert/10 border border-crimson-alert/30">
           <span className="text-crimson-alert text-sm">{loadError}</span>
@@ -160,7 +142,6 @@ export default function CourseFunnel({ courses = [] }) {
           className="glass-panel p-4 flex flex-col min-h-0 flex-1"
         >
           <figcaption className="sr-only">Воронка прохождения курса {selectedCourse.title}</figcaption>
-          <h3 className="text-white font-medium mb-2 shrink-0">Воронка прохождения</h3>
           <div className="flex-1 min-h-0">
             {rows.length === 0 ? (
               <div className="flex-1 h-full flex items-center justify-center text-gray-500 text-sm">
@@ -199,7 +180,6 @@ export default function CourseFunnel({ courses = [] }) {
         </figure>
 
         <div className="glass-panel p-4 lg:w-[400px] shrink-0 overflow-auto min-h-0">
-          <h3 className="text-white font-medium mb-2 shrink-0">Этапы</h3>
           <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-gray-500">

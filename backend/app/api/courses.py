@@ -115,6 +115,30 @@ def _parse_raw(raw) -> dict:
     return {}
 
 
+def _step_grade(raw) -> tuple:
+    """Средняя оценка шага пользователями из `_raw_json.num_grades`.
+
+    `num_grades` = [g1, g2, g3, g4, g5] — распределение оценок 1..5
+    (пять смайликов на странице шага). Среднее = Σ(cnt[i]·(i+1)) / Σ(cnt).
+    Возвращает (grade, votes); без голосов — (None, 0).
+    """
+    ng = raw.get("num_grades") if isinstance(raw, dict) else None
+    if not isinstance(ng, list):
+        return None, 0
+    votes_total = 0
+    votes_count = 0
+    for i, cnt in enumerate(ng):
+        try:
+            c = int(cnt)
+        except (TypeError, ValueError):
+            continue
+        votes_total += c * (i + 1)
+        votes_count += c
+    if not votes_count:
+        return None, 0
+    return round(votes_total / votes_count, 2), votes_count
+
+
 def _to_int(value):
     try:
         return int(value) if value is not None else None
@@ -138,8 +162,9 @@ async def get_course_structure(
     """Структура одного курса: модули → уроки → шаги со статистикой.
 
     Читается из raw-слоя (raw_section/raw_unit/raw_lesson/raw_step) + таблицы
-    submissions. Метрики шага: viewed_by/passed_by/correct_ratio из
-    `raw_step._raw_json` (агрегаты Stepik API), total/correct/students из
+    submissions. Метрики шага: viewed_by/passed_by/correct_ratio/grade из
+    `raw_step._raw_json` (агрегаты Stepik API; grade — средняя оценка шага
+    пользователями из num_grades, пять смайликов), total/correct/students из
     submissions (is_author=False).
     """
     try:
@@ -220,11 +245,14 @@ async def get_course_structure(
                 continue
             raw = _parse_raw(r[1])
             block = raw.get("block") if isinstance(raw.get("block"), dict) else None
+            grade, grade_votes = _step_grade(raw)
             step_meta[int(r[0])] = {
                 "block": block.get("name") if isinstance(block, dict) else None,
                 "viewed_by": raw.get("viewed_by"),
                 "passed_by": raw.get("passed_by"),
                 "correct_ratio": raw.get("correct_ratio"),
+                "grade": grade,
+                "grade_votes": grade_votes,
             }
 
     stats: dict[int, dict] = {}
@@ -268,6 +296,8 @@ async def get_course_structure(
                         "viewed_by": _to_int(meta.get("viewed_by")),
                         "passed_by": _to_int(meta.get("passed_by")),
                         "correct_ratio": _to_float(meta.get("correct_ratio")),
+                        "grade": meta.get("grade"),
+                        "grade_votes": meta.get("grade_votes", 0),
                         "total": st.get("total", 0),
                         "correct": st.get("correct", 0),
                         "students": st.get("students", 0),

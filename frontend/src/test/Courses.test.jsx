@@ -452,7 +452,7 @@ describe('Courses', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/courses/1/structure'));
     expect(screen.getByText('Модуль 1. Введение')).toBeInTheDocument();
     expect(screen.getByText('Линейная регрессия')).toBeInTheDocument();
-    expect(screen.getAllByText('Оценка').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByLabelText('Оценка')).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('switches heatmap metric via toggle', async () => {
@@ -493,8 +493,55 @@ describe('Courses', () => {
     );
     fireEvent.click(screen.getByText('Шаги'));
     await waitFor(() => expect(api.get).toHaveBeenCalled());
-    fireEvent.click(screen.getByText('Тип блока'));
-    expect(screen.getByText('Код')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Тип блока'));
+    expect(screen.getByLabelText('Тип блока')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Оценка')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('refetches structure when switching course on the Шаги tab', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        course: { id: '1', stepik_course_id: 100, title: 'C1' },
+        modules: [
+          {
+            position: 1,
+            title: 'Введение',
+            lessons: [
+              {
+                lesson_id: 10,
+                lesson_number: 1,
+                title: 'Урок',
+                steps: [
+                  {
+                    step_id: 500,
+                    lesson_id: 10,
+                    step_number: 1,
+                    block: 'text',
+                    viewed_by: 10,
+                    total: 5,
+                    correct: 4,
+                    correct_ratio: 0.8,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const twoCourses = [
+      defaultCourse,
+      { ...defaultCourse, id: '2', title: 'C2', stepik_course_id: 200 },
+    ];
+    render(
+      <TestRouter syncValue={makeSyncValue(twoCourses)}>
+        <Courses />
+      </TestRouter>,
+    );
+    fireEvent.click(screen.getByText('Шаги'));
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/courses/1/structure'));
+    fireEvent.change(screen.getByLabelText('Курс'), { target: { value: '2' } });
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/courses/2/structure'));
   });
 
   it('shows empty state on Шаги tab when no courses', () => {
@@ -547,5 +594,51 @@ describe('Courses', () => {
     );
     fireEvent.click(screen.getByText('Воронка'));
     expect(screen.getByText('Нет курсов')).toBeInTheDocument();
+  });
+
+  it('Regression: structure and funnel load after courses arrive asynchronously', async () => {
+    api.get.mockResolvedValue({
+      data: {
+        course: { id: '1', stepik_course_id: 100, title: 'C1' },
+        modules: [
+          {
+            position: 1,
+            title: 'Введение',
+            lessons: [
+              {
+                lesson_id: 10,
+                lesson_number: 1,
+                title: 'Урок',
+                steps: [
+                  {
+                    step_id: 500,
+                    lesson_id: 10,
+                    step_number: 1,
+                    block: 'text',
+                    viewed_by: 10,
+                    total: 5,
+                    correct: 4,
+                    correct_ratio: 0.8,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const { rerender } = render(
+      <TestRouter syncValue={makeSyncValue()}>
+        <Courses />
+      </TestRouter>,
+    );
+    fireEvent.click(screen.getByText('Шаги'));
+    rerender(
+      <TestRouter syncValue={makeSyncValue([defaultCourse])}>
+        <Courses />
+      </TestRouter>,
+    );
+    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/courses/1/structure'));
+    expect(screen.getByText('Модуль 1. Введение')).toBeInTheDocument();
   });
 });

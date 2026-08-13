@@ -33,14 +33,14 @@ describe('CourseFunnel', () => {
 
   it('fetches funnel for the first course', async () => {
     api.get.mockResolvedValue(funnelResponse);
-    render(<CourseFunnel courses={courses} />);
+    render(<CourseFunnel courses={courses} courseId="1" />);
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/courses/1/funnel'));
-    expect(await screen.findByText('Воронка прохождения')).toBeInTheDocument();
+    expect(await screen.findByText('Записались')).toBeInTheDocument();
   });
 
   it('renders stage labels and values', async () => {
     api.get.mockResolvedValue(funnelResponse);
-    render(<CourseFunnel courses={courses} />);
+    render(<CourseFunnel courses={courses} courseId="1" />);
     expect(await screen.findByText('Записались')).toBeInTheDocument();
     expect(screen.getByText('Модуль 1. Введение')).toBeInTheDocument();
     expect(screen.getByText('Модуль 2. Основы')).toBeInTheDocument();
@@ -50,7 +50,7 @@ describe('CourseFunnel', () => {
 
   it('renders conversion and dropoff columns', async () => {
     api.get.mockResolvedValue(funnelResponse);
-    render(<CourseFunnel courses={courses} />);
+    render(<CourseFunnel courses={courses} courseId="1" />);
     expect(await screen.findByText('Записались')).toBeInTheDocument();
     expect(screen.getAllByText('% от записи').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('60%').length).toBeGreaterThanOrEqual(1);
@@ -59,18 +59,27 @@ describe('CourseFunnel', () => {
 
   it('refetches on course change', async () => {
     api.get.mockResolvedValue(funnelResponse);
-    render(<CourseFunnel courses={courses} />);
+    const { rerender } = render(<CourseFunnel courses={courses} courseId="1" />);
     await screen.findByText('Записались');
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: '2' } });
+    rerender(<CourseFunnel courses={courses} courseId="2" />);
     await waitFor(() => expect(api.get).toHaveBeenCalledWith('/courses/2/funnel'));
   });
 
   it('shows error banner with retry', async () => {
     api.get.mockRejectedValue(new Error('fail'));
-    render(<CourseFunnel courses={courses} />);
+    render(<CourseFunnel courses={courses} courseId="1" />);
     expect(await screen.findByText('Не удалось загрузить воронку курса')).toBeInTheDocument();
     api.get.mockResolvedValue(funnelResponse);
     fireEvent.click(screen.getByText('Повторить'));
     await waitFor(() => expect(screen.getByText('Записались')).toBeInTheDocument());
+  });
+
+  it('does not render its own course selector or headings (moved to parent)', async () => {
+    api.get.mockResolvedValue(funnelResponse);
+    render(<CourseFunnel courses={courses} courseId="1" />);
+    await screen.findByText('Записались');
+    expect(screen.queryByText('Курс')).not.toBeInTheDocument();
+    expect(screen.queryByText('Воронка прохождения')).not.toBeInTheDocument();
+    expect(screen.queryByText('Этапы')).not.toBeInTheDocument();
   });
 });

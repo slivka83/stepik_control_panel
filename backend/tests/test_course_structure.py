@@ -100,7 +100,7 @@ async def _seed_structure(db_session, stepik_course_id=208966):
 
 
 async def _seed_step_meta(db_session, step_meta):
-    """step_meta: step_id → {viewed_by, passed_by, correct_ratio, block}."""
+    """step_meta: step_id → {viewed_by, passed_by, correct_ratio, block, num_grades}."""
     for sid, meta in step_meta.items():
         raw = {"block": {"name": meta.get("block", "text")}}
         if meta.get("viewed_by") is not None:
@@ -109,6 +109,8 @@ async def _seed_step_meta(db_session, step_meta):
             raw["passed_by"] = meta["passed_by"]
         if meta.get("correct_ratio") is not None:
             raw["correct_ratio"] = meta["correct_ratio"]
+        if meta.get("num_grades") is not None:
+            raw["num_grades"] = meta["num_grades"]
         await db_session.execute(
             text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (:sid, '10', :raw)"),
             {"sid": str(sid), "raw": json.dumps(raw)},
@@ -255,6 +257,27 @@ class TestCourseStructureAssembly:
         step_500 = resp.json()["modules"][0]["lessons"][0]["steps"][0]
         assert step_500["total"] == 0
 
+    async def test_step_grade_from_num_grades(self, db_session):
+        user = _make_user()
+        course = _make_course(user.id, 208966)
+        db_session.add_all([user, course])
+        await db_session.commit()
+        await _seed_structure(db_session, 208966)
+        await _seed_step_meta(
+            db_session,
+            {500: {"num_grades": [0, 0, 0, 2, 12]}, 501: {"num_grades": [0, 0, 0, 0, 0]}},
+        )
+        await db_session.commit()
+
+        resp = await _call(db_session, user, str(course.id))
+        lesson_a = resp.json()["modules"][0]["lessons"][0]
+        step_500 = lesson_a["steps"][0]
+        assert step_500["grade"] == 4.86
+        assert step_500["grade_votes"] == 14
+        step_501 = lesson_a["steps"][1]
+        assert step_501["grade"] is None
+        assert step_501["grade_votes"] == 0
+
     async def test_text_raw_json_string(self, db_session):
         """Regression: SQLite-фикстура хранит _raw_json как TEXT-строку."""
         user = _make_user()
@@ -266,7 +289,7 @@ class TestCourseStructureAssembly:
             text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES ('500', '10', :raw)"),
             {
                 "raw": '{"block": {"name": "video"}, "viewed_by": 10, '
-                '"passed_by": 5, "correct_ratio": 0.5}'
+                '"passed_by": 5, "correct_ratio": 0.5, "num_grades": [1, 0, 0, 0, 3]}'
             },
         )
         await db_session.commit()
@@ -277,6 +300,8 @@ class TestCourseStructureAssembly:
         assert step["viewed_by"] == 10
         assert step["passed_by"] == 5
         assert abs(step["correct_ratio"] - 0.5) < 1e-9
+        assert step["grade"] == 4.0
+        assert step["grade_votes"] == 4
 
     async def test_lesson_without_steps(self, db_session):
         user = _make_user()
@@ -302,3 +327,52 @@ class TestCourseStructureAssembly:
         lesson = resp.json()["modules"][0]["lessons"][0]
         assert lesson["title"] == "Empty"
         assert lesson["steps"] == []
+
+
+class TestStepGrade:
+    """Юнит-тесты _step_grade — средняя оценка шага из num_grades."""
+
+    def _grade(self, raw):
+        from app.api.courses import _step_grade
+
+        return _step_grade(raw)
+
+    def test_weighted_average(self):
+        grade, votes = self._grade({"num_grades": [0, 0, 0, 2, 12]})
+        assert grade == 4.86
+        assert votes == 14
+
+    def test_single_vote(self):
+        grade, votes = self._grade({"num_grades": [0, 0, 1, 0, 0]})
+        assert grade == 3.0
+        assert votes == 1
+
+    def test_all_zero_no_votes(self):
+        grade, votes = self._grade({"num_grades": [0, 0, 0, 0, 0]})
+        assert grade is None
+        assert votes == 0
+
+    def test_missing_field(self):
+        grade, votes = self._grade({})
+        assert grade is None
+        assert votes == 0
+
+    def test_non_list_value(self):
+        grade, votes = self._grade({"num_grades": "not-a-list"})
+        assert grade is None
+        assert votes == 0
+
+    def test_non_numeric_counts_skipped(self):
+        grade, votes = self._grade({"num_grades": ["x", 0, 0, 0, 1]})
+        assert grade == 5.0
+        assert votes == 1
+
+    def test_shorter_list(self):
+        grade, votes = self._grade({"num_grades": [0, 1]})
+        assert grade == 2.0
+        assert votes == 1
+
+    def test_lowest_grade(self):
+        grade, votes = self._grade({"num_grades": [3, 0, 0, 0, 0]})
+        assert grade == 1.0
+        assert votes == 3

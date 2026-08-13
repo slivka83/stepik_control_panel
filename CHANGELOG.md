@@ -6,13 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Features (Курсы — метрики матрицы «Шаги»)
+- Метрика **«Успешно»** теперь показывает **процент успешности** `correct/total` (не количество решений); градиент — по проценту. Метрика **«Оценка»** — **средняя оценка шага пользователями** (`grade` из `raw_step._raw_json.num_grades`, распределение 5 смайликов на странице шага), `grade.toFixed(2)`, градиент 1..5 напрямую
+- Структура шага в `GET /api/courses/{course_id}/structure` дополнена полями `grade`/`grade_votes` (бэкенд-хелпер `_step_grade`); `correct_ratio` сохранён
+- Тултип матрицы: добавлены строки «Успешность: %» и «Оценка: 4.86 · 14 гол.»
+- Шапка вкладок: иконки-переключатели метрик (уменьшены `w-3.5 h-3.5`) и селектор курса вынесены на уровень вкладок (общие для «Шаги»/«Воронка»); внутренние селекторы/заголовки («Воронка прохождения», «Этапы», легенда) убраны
+- Тесты: юнит-тесты `_step_grade`, фронт `CourseStructureMatrix` (grade/%/dash/tooltip), `Courses` (refetch при смене курса), `CourseFunnel` (без селектора/заголовков)
+
 ### Features (Курсы — вкладки «Курсы»/«Шаги», тепловая карта структуры)
 - Страница «Курсы» разделена на вкладки **«Курсы»** (прежняя таблица + empty-state «Подключить Stepik») и **«Шаги»** — тепловая карта структуры **одного** курса (не зависит от глобального фильтра, свой селектор курса). KPI-плашки общие над вкладками
 - **Матрица**: строки = уроки (заголовки-полосы модулей), столбцы = № шага в уроке, ячейка = шаг; CSS-grid, без recharts. Переключатель метрики: **Просмотры / Отправлено / Успешных / Оценка / Тип блока**
-- Цвета: Просмотры/Отправлено/Успешных — последовательная шкала `rgba(56,189,248, α)`, Оценка — красно-жёлто-зелёный градиент (из `correct_ratio` → rating 1..5), Тип блока — категориальная палитра (`text`/`code`/`external-grader`/`choice` из `_raw_json.block.name`); нет данных — тёмная клетка
+- Цвета: Просмотры/Отправлено — последовательная шкала `rgba(56,189,248, α)` (по счётчику), Успешных — та же шкала по **проценту** `correct/total`, Оценка — красно-жёлто-зелёный градиент (средняя оценка шага пользователями `grade` 1..5 напрямую), Тип блока — категориальная палитра (`text`/`code`/`external-grader`/`choice` из `_raw_json.block.name`); нет данных — тёмная клетка. Значение ячейки: Просмотры/Отправлено — счётчик, Успешных — `%`, Оценка — `grade.toFixed(2)` (5 смайликов), Тип блока — буква
 - Ховер-тултип (portal): модуль — урок, шаг, все метрики; клик — deep link `stepik.org/lesson/{lesson_id}/step/{n}` (`target="_blank"`)
-- Новый **`GET /api/courses/{course_id}/structure`** (в `app/api/courses.py`) — владение курсом (404 иначе), сборка из raw-слоя: `raw_section` → модули, `raw_unit` → уроки, `raw_lesson` (`title`, `steps[]` → `step_number` через `_parse_step_positions` из `common.py`, работает и с TEXT, и с jsonb); сквозной `lesson_number` по курсу; метрики шага: `viewed_by`/`passed_by`/`correct_ratio` из `raw_step._raw_json` (`_parse_raw` для dict-jsonb и TEXT-строки), `total`/`correct`/`students` из `submissions` (ORM-запрос — `text()`-биндинг UUID в SQLite не совпадает: hex без дефисов), `is_author=False`
-- Тесты: `tests/test_course_structure.py` (10), фронт `frontend/src/test/CourseStructureMatrix.test.jsx` + вкладки в `Courses.test.jsx`
+- Новый **`GET /api/courses/{course_id}/structure`** (в `app/api/courses.py`) — владение курсом (404 иначе), сборка из raw-слоя: `raw_section` → модули, `raw_unit` → уроки, `raw_lesson` (`title`, `steps[]` → `step_number` через `_parse_step_positions` из `common.py`, работает и с TEXT, и с jsonb); сквозной `lesson_number` по курсу; метрики шага: `viewed_by`/`passed_by`/`correct_ratio`/`grade`/`grade_votes` из `raw_step._raw_json` (`_parse_raw` для dict-jsonb и TEXT-строки; `grade` — средняя оценка шага из `num_grades` = `[g1..g5]`), `total`/`correct`/`students` из `submissions` (ORM-запрос — `text()`-биндинг UUID в SQLite не совпадает: hex без дефисов), `is_author=False`
+- Тесты: `tests/test_course_structure.py` (19, включая юнит-тесты `_step_grade`), фронт `frontend/src/test/CourseStructureMatrix.test.jsx` + вкладки в `Courses.test.jsx`
 
 ### Features (Финансы — вкладка «По дням» и колонка «Комиссия»)
 - Новая вкладка **«По дням»** (между «По годам» и «По курсам»): агрегация `recent_payments` по календарному дню за последние **30 дней включительно с нулевыми днями** (все 30 строк), новые сверху. Считается на лету в `/api/financials` (`_build_daily_stats`, `DAYS_BACK=30`) из полей `time`/`amount`/`payment_amount`/`status`; формула как в `filter_financials` (`refunded` → `refunds += abs(amount)`, `turnover -= payment_amount`). Фильтр по курсам работает автоматически. Даты рендерятся как `dd.mm.yyyy` без timezone-сдвигов

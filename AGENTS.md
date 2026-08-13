@@ -116,7 +116,7 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 - `_replace_raw_table()` (TRUNCATE + INSERT) для full_reload
 - `_upsert_raw_table()` (INSERT ON CONFLICT) для incremental
 - `_sync_id_sequence()` — после INSERT с явными id подтягивает serial-последовательность (PG; SQLite — no-op). Иначе следующий upsert-insert получит nextval из «прошлой жизни» и упадёт на pkey (регрессия `raw_comment_pkey`)
-- `sync_submissions()` скипает шаги с HTTP 404 (удалённые на Stepik) — не убивает весь sync
+- `sync_submissions()` скипает шаги с HTTP 404 (удалённые на Stepik) и HTTP 400 «Bad step parameter» (теоретические text-шаги без решений) — не убивает весь sync
 - Все параметры для TEXT-колонок raw-слоя биндятся как `str()` (asyncpg строгая типизация: int в text-колонку → DataError)
 - Работает с маппингом полей из `meta_field_mapping` (API → raw columns)
 
@@ -316,7 +316,8 @@ Y-ось графиков:
 - **«Шаги»** — тепловая карта структуры **одного** курса (не зависит от глобального фильтра):
   - Свой селектор курса + переключатель метрики: **Просмотры / Отправлено / Успешных / Оценка / Тип блока** (`STEP_METRICS` в `CourseStructureMatrix.jsx`)
   - Матрица: **строки = уроки** (заголовки-полосы модулей), **столбцы = № шага в уроке** (максимум шагов среди уроков курса), ячейка = шаг; CSS-grid, без recharts
-  - Цвета: Просмотры/Отправлено/Успешных — последовательная шкала `rgba(56,189,248, α)`, Оценка — красно-жёлто-зелёный градиент (из `correct_ratio` → rating 1..5), Тип блока — категориальная палитра (`text`/`code`/`external-grader`/`choice` из `_raw_json.block.name`); нет данных — тёмная клетка
+  - Цвета: Просмотры/Отправлено — последовательная шкала `rgba(56,189,248, α)` (по счётчику), Успешных — та же шкала по **проценту** `correct/total`, Оценка — красно-жёлто-зелёный градиент (средняя оценка шага пользователями `grade` 1..5 напрямую), Тип блока — категориальная палитра (`text`/`code`/`external-grader`/`choice` из `_raw_json.block.name`); нет данных — тёмная клетка
+  - Значение ячейки: Просмотры/Отправлено — счётчик (`fmtCompact`), Успешных — `%` от `correct/total` (не счётчик), Оценка — `grade.toFixed(2)` (5 смайликов на странице шага), Тип блока — буква
   - Ховер-тултип (portal): модуль — урок, шаг, все метрики; клик — deep link `stepik.org/lesson/{lesson_id}/step/{n}` (`target="_blank"`)
 - **«Воронка»** — воронка прохождения **одного** курса (свой селектор курса, не зависит от глобального фильтра), `frontend/src/components/CourseFunnel.jsx`:
   - Этапы: **«Записались»** (строки `student_enrollments`) → **«Модуль N. {title}»** по порядку `raw_section.position` → **«Получили сертификат»** (`certificate_issued`)
@@ -327,7 +328,7 @@ Y-ось графиков:
 - Источник: **`GET /api/courses/{course_id}/structure`** (в `app/api/courses.py`) — владение курсом (404 иначе), сборка из raw-слоя:
   - `raw_section` (`course = stepik_course_id`, `ORDER BY position`) → модули; `raw_unit` → уроки модуля (`position`); `raw_lesson` (`title`, `steps[]` → `step_number` через `_parse_step_positions` из `common.py` — работает и с TEXT, и с jsonb)
   - Сквозной `lesson_number` по курсу (смещение = сумма уроков предыдущих модулей)
-  - Метрики шага: `viewed_by`/`passed_by`/`correct_ratio` из `raw_step._raw_json` (агрегаты Stepik API, `_parse_raw` обрабатывает dict-jsonb и TEXT-строку), `total`/`correct`/`students` из `submissions` (**ORM-запрос** — `text()`-биндинг UUID в SQLite не совпадает: там hex без дефисов, а `str(uuid)` с дефисами), `is_author=False`
+  - Метрики шага: `viewed_by`/`passed_by`/`correct_ratio`/`grade`/`grade_votes` из `raw_step._raw_json` (агрегаты Stepik API, `_parse_raw` обрабатывает dict-jsonb и TEXT-строку; `grade` — средняя оценка шага пользователями из `num_grades` = `[g1..g5]`, распределение 5 смайликов, `_step_grade` — `Σ(cnt[i]·(i+1))/Σ(cnt)`, без голосов → `None/0`), `total`/`correct`/`students` из `submissions` (**ORM-запрос** — `text()`-биндинг UUID в SQLite не совпадает: там hex без дефисов, а `str(uuid)` с дефисами), `is_author=False`
   - Источник воронки: **`GET /api/courses/{course_id}/funnel`** (там же) — та же проверка владения, step→module карта, `SELECT DISTINCT stepik_step_id, user_id FROM submissions` (ORM), ответ `{course, stages: [{key, module_number?, label, value}]}`
   - Тесты: `tests/test_course_structure.py`, `tests/test_course_funnel.py`, фронт `frontend/src/test/CourseStructureMatrix.test.jsx` + `CourseFunnel.test.jsx` + вкладки в `Courses.test.jsx`
 
@@ -505,12 +506,12 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-454 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
+464 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
 | Файл | Тестов | Что тестирует |
 |---|---|---|
 | `tests/test_stepik_api.py` | 20 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` |
 | `tests/test_stepik_api_comprehensive.py` | 14 | `get_finance_token`, 5xx retries, constants |
-| `tests/test_raw_sync.py` | 15 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions` (+404-шаги, конфликтные upsert'ы, str-bind для TEXT-колонок), `sync_financials`, `sync_community`, регрессии `became_published_at` и stale sequence |
+| `tests/test_raw_sync.py` | 16 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions` (+404-шаги, 400-теоретические-шаги, конфликтные upsert'ы, str-bind для TEXT-колонок), `sync_financials`, `sync_community`, регрессии `became_published_at` и stale sequence |
 | `tests/test_raw_sync_edge_cases.py` | 12 | `_paginated_fetch`, пустые/ошибочные данные transform и raw_sync |
 | `tests/test_transform.py` | 18 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита) |
 | `tests/test_sync_integration.py` | 18 | `sync_all`, cohort status, интеграция raw_sync → transform, stepwise-коммиты raw_sync внутри sync-этапов |
@@ -524,7 +525,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 | `tests/test_comments.py` | 12 | `/api/dashboard/comments`: months/years/by_course группировки, totals, Лайки/Дизлайки из `vote_delta`, distinct-студенты (OAuth-клиенты отбрасываются), атрибуция через step→course map, инвариант «фильтр = все курсы» == «без фильтра»; `/comments/list`: фильтры `unanswered` (is_staff_replied + teacher + deleted) и `disliked` (vote_delta<0), имена из raw_user, пути шагов, HTML-стрип, фильтр курсов + инвариант, сортировка/пагинация/NULLS LAST, 400 на неверные параметры, пустые данные |
 | `tests/test_certificates.py` | 5 | `/api/dashboard/certificates/stats`: months/years/by_course группировки, distinction/regular, distinct-студенты, фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
 | `tests/test_reviews.py` | 5 | `/api/dashboard/reviews/stats`: months/years/by_course группировки, avg_score (score без числа не входит), distinct-студенты (OAuth-клиенты отбрасываются), фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
-| `tests/test_course_structure.py` | 10 | `/api/courses/{id}/structure`: владение курсом (404 чужих/битых ID), порядок модулей/уроков/шагов по position, сквозной `lesson_number`, `lesson_id`/`step_number` у шагов, метрики из `raw_step._raw_json` (dict-jsonb и TEXT-строка), `total`/`correct`/`students` из submissions (ORM, `is_author=False`), пустые уроки |
+| `tests/test_course_structure.py` | 19 | `/api/courses/{id}/structure`: владение курсом (404 чужих/битых ID), порядок модулей/уроков/шагов по position, сквозной `lesson_number`, `lesson_id`/`step_number` у шагов, метрики из `raw_step._raw_json` (dict-jsonb и TEXT-строка), `total`/`correct`/`students` из submissions (ORM, `is_author=False`), пустые уроки; юнит-тесты `_step_grade` (средняя оценка шага из `num_grades`: взвешенное среднее, один голос, без голосов, отсутствие поля, не-список, не-числовые счётчики, короткий список, минимальная оценка) |
 | `tests/test_course_funnel.py` | 11 | `/api/courses/{id}/funnel`: владение курсом (404 чужих/битых ID), пустая структура → «Записались» + «Сертификат», cumulative distinct по модулям (монотонность), порядок по position, сертификаты отдельным этапом, исключение авторских submissions, не-атрибутируемые шаги пропускаются, модуль без шагов остаётся в воронке |
 | Остальные | 180 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 

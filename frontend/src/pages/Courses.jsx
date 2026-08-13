@@ -173,12 +173,17 @@ export default function Courses() {
   const { data, error, refresh } = useSync();
   const courses = data.courses || [];
   const [activeTab, setActiveTab] = useState('courses');
+  const [courseId, setCourseId] = useState(courses[0]?.id || null);
+  const [metric, setMetric] = useState('grade');
 
   const publishedCount = courses.filter((c) => c.status?.toLowerCase() === 'published').length;
   const totalStudents = courses.reduce((s, c) => s + (c.enrollment_count || 0), 0);
   const ratings = courses.map((c) => c.average_rating).filter((r) => r > 0);
   const averageRating = ratings.length > 0 ? ratings.reduce((s, r) => s + r, 0) / ratings.length : 0;
   const totalIncome = courses.reduce((s, c) => s + (c.income || 0), 0);
+
+  const selectedCourseId = courses.find((c) => c.id === courseId)?.id ?? courses[0]?.id ?? null;
+  const withCourseSelect = activeTab === 'steps' || activeTab === 'funnel';
 
   return (
     <div className="flex flex-col flex-1 gap-4 min-h-0">
@@ -199,40 +204,81 @@ export default function Courses() {
         />
       </div>
 
-      <Tabs items={TABS} active={activeTab} onChange={setActiveTab} />
+      <div className="flex flex-col flex-1 min-h-0">
+        <div className="flex items-center justify-between gap-3 shrink-0 flex-wrap">
+          <Tabs items={TABS} active={activeTab} onChange={setActiveTab} />
 
-      {activeTab === 'courses' &&
-        (courses.length === 0 ? (
-          <div className="glass-panel p-8 text-center">
-            <div className="text-3xl mb-3">◆</div>
-            <h3 className="text-white text-lg mb-2">Нет курсов</h3>
-            <p className="text-gray-400 text-sm">Подключите аккаунт Stepik для импорта курсов</p>
-            <a
-              href="/api/auth/login"
-              className="inline-block mt-4 px-6 py-2 bg-cyber-blue/20 text-cyber-blue rounded-lg border border-cyber-blue/30 hover:bg-cyber-blue/30 transition-colors text-sm font-medium"
-            >
-              Подключить Stepik
-            </a>
-          </div>
-        ) : (
-          <DataTable
-            columns={COURSE_COLUMNS}
-            rows={courses}
-            initialSort={{ key: 'published_at', dir: 'desc' }}
-            rowKey={(c) => c.id}
-            panelClassName="glass-panel p-4 flex-1 flex flex-col min-h-0 overflow-hidden"
-          />
-        ))}
+          {withCourseSelect && selectedCourseId && (
+            <div className="flex items-center gap-3">
+              {activeTab === 'steps' && (
+                <div className="flex items-center gap-1" role="group" aria-label="Метрика">
+                  {Object.entries(STEP_METRICS).map(([key, m]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setMetric(key)}
+                      title={m.label}
+                      aria-label={m.label}
+                      aria-pressed={metric === key}
+                      className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-colors ${
+                        metric === key
+                          ? 'bg-cyber-blue/20 text-cyber-blue border-cyber-blue/40'
+                          : 'text-gray-400 border-gray-700 hover:text-gray-300 hover:bg-cyber-blue/10'
+                      }`}
+                    >
+                      {m.icon}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <select
+                value={selectedCourseId}
+                onChange={(e) => setCourseId(e.target.value)}
+                aria-label="Курс"
+                className="bg-space-gray border border-gray-700 rounded px-2 py-1 text-sm text-white max-w-[260px] truncate"
+              >
+                {courses.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
 
-      {activeTab === 'steps' && <CourseStepsTab courses={courses} />}
-      {activeTab === 'funnel' && <CourseFunnel courses={courses} />}
+        {activeTab === 'courses' &&
+          (courses.length === 0 ? (
+            <div className="glass-panel p-8 text-center">
+              <div className="text-3xl mb-3">◆</div>
+              <h3 className="text-white text-lg mb-2">Нет курсов</h3>
+              <p className="text-gray-400 text-sm">Подключите аккаунт Stepik для импорта курсов</p>
+              <a
+                href="/api/auth/login"
+                className="inline-block mt-4 px-6 py-2 bg-cyber-blue/20 text-cyber-blue rounded-lg border border-cyber-blue/30 hover:bg-cyber-blue/30 transition-colors text-sm font-medium"
+              >
+                Подключить Stepik
+              </a>
+            </div>
+          ) : (
+            <DataTable
+              columns={COURSE_COLUMNS}
+              rows={courses}
+              initialSort={{ key: 'published_at', dir: 'desc' }}
+              rowKey={(c) => c.id}
+            />
+          ))}
+
+        {activeTab === 'steps' && (
+          <CourseStepsTab courses={courses} courseId={selectedCourseId} metric={metric} />
+        )}
+        {activeTab === 'funnel' && <CourseFunnel courses={courses} courseId={selectedCourseId} />}
+      </div>
     </div>
   );
 }
 
-function CourseStepsTab({ courses }) {
-  const [courseId, setCourseId] = useState(courses[0]?.id || null);
-  const [metric, setMetric] = useState('grade');
+function CourseStepsTab({ courses, courseId, metric }) {
   const [structure, setStructure] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -279,44 +325,10 @@ function CourseStepsTab({ courses }) {
     );
   }
 
-  const selectedCourse = courses.find((c) => c.id === courseId) || courses[0];
   const modules = structure?.modules || [];
 
   return (
     <div className="flex flex-col flex-1 min-h-0 gap-3">
-      <div className="flex items-center gap-4 shrink-0 flex-wrap">
-        <label className="flex items-center gap-2 text-sm text-gray-300">
-          <span className="text-gray-500">Курс</span>
-          <select
-            value={selectedCourse.id}
-            onChange={(e) => setCourseId(e.target.value)}
-            className="bg-space-gray border border-gray-700 rounded px-2 py-1 text-sm text-white"
-          >
-            {courses.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <div className="flex items-center gap-2">
-          {Object.entries(STEP_METRICS).map(([key, m]) => (
-            <button
-              key={key}
-              onClick={() => setMetric(key)}
-              className={`px-3 py-1 text-xs font-medium rounded-lg border transition-colors ${
-                metric === key
-                  ? 'bg-cyber-blue/20 text-cyber-blue border-cyber-blue/40'
-                  : 'bg-transparent text-gray-400 border-gray-700 hover:text-gray-300'
-              }`}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
       {loadError && (
         <div className="flex items-center justify-between px-4 py-3 rounded-lg bg-crimson-alert/10 border border-crimson-alert/30">
           <span className="text-crimson-alert text-sm">{loadError}</span>
@@ -329,7 +341,7 @@ function CourseStepsTab({ courses }) {
         </div>
       )}
 
-      <div className="flex-1 min-h-0" style={loading ? { opacity: 0.6 } : undefined}>
+      <div className="flex flex-col flex-1 min-h-0" style={loading ? { opacity: 0.6 } : undefined}>
         <CourseStructureMatrix modules={modules} metric={metric} loading={loading} />
       </div>
     </div>
