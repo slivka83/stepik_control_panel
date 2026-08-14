@@ -110,7 +110,7 @@ curl -X POST \
 - При 429: извлечь `Retry-After`, `await asyncio.sleep(retry_after)`, вернуть фронтенду `202 Accepted`
 - Не прерывать сессию пользователя
 
-## База данных (7 таблиц)
+## База данных (прикладные таблицы)
 
 | Таблица | Назначение |
 |---|---|
@@ -120,7 +120,13 @@ curl -X POST \
 | `submissions` | Отправки решений по шагам (correct/wrong), `is_author` |
 | `financial_snapshots` | Снапшоты финансовой сводки + community (отзывы, рейтинг, комментарии по месяцам) |
 | `student_marts` | Витрина студентов: одна строка на студента (имя, статус, курсы, сертификаты, решения, опубликованные решения, комментарии, активность). Пересобирается в конце синка |
-| `raw_sync_state` | Состояние инкрементальной загрузки (`endpoint_name`, `key`, `value`) — step_id → last_page для submissions, last_time_course_X для comments |
+| `mart_modules` | Витрина модулей (секций): одна строка на модуль курса; модули без юнитов/шагов сохраняются (структура/воронка) |
+| `mart_lessons` | Витрина уроков: одна строка на юнит; сквозная нумерация уроков по курсу; уроки без шагов сохраняются |
+| `mart_steps` | Витрина шагов: путь (модуль.урок-шаг) + метрики (`viewed_by`/`passed_by`/`correct_ratio`/`grade`/`block`); `course_id` NULL у шагов без атрибуции (не участвуют в структуре/воронке, но питают KPI и hardest-steps) |
+| `mart_comments` | Витрина комментариев: одна строка на атрибутированный комментарий (`comment_id`, `is_solution`, `likes`/`dislikes` из `vote_delta`, `is_unanswered`, путь шага денормализован); не-атрибутируемые пропускаются |
+| `mart_certificates` | Витрина сертификатов: одна строка на сертификат (`certificate_id`, `type` = distinction/regular, `year`/`month`) |
+| `mart_reviews` | Витрина отзывов: одна строка на отзыв (`review_id`, `score`, `year`/`month`) |
+| `raw_sync_state` | Состояние инкрементальной загрузки (`endpoint_name`, `key`, `value`) — step_id → last_page для submissions, course_{id} → last_page для author pass, last_time_course_X для comments, sync-статус |
 
 PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токены шифруются через `cryptography.fernet`, ключ `ENCRYPTION_KEY` из `.env`.
 
@@ -557,18 +563,18 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 | `tests/test_transform.py` | 18 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита) |
 | `tests/test_sync_integration.py` | 18 | `sync_all`, cohort status, интеграция raw_sync → transform, stepwise-коммиты raw_sync внутри sync-этапов |
 | `tests/test_sync_comprehensive.py` | 21 | `sync_all`, `sync_community_stats`, `sync_financials` |
-| `tests/test_sync_edge_cases.py` | 24 | Разрешение конфликтов, отсутствие данных, ошибки API, регрессии `_last_sync_error` (падение → error виден в статусе, успех → очищен) |
+| `tests/test_sync_edge_cases.py` | 26 | Разрешение конфликтов, отсутствие данных, ошибки API, регрессии `_last_sync_error` (падение → error виден в статусе, успех → очищен), **персистенция статуса синка** (`TestSyncStatePersistence`: in_progress/error/после рестарта сервера) |
 | `tests/test_data_contract.py` | 5 | Глобальные контракты снапшота/API/фронта (price, per_course, поля страниц, recent_payments/utms) |
 | `tests/test_schema_contract.py` | 10 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот), **live-PG свежесть данных** (трансформы на реальных данных производят строки и догоняют raw — регрессия «0 submissions upserted») |
 | `tests/test_architecture.py` | 19 | Архитектурные гарантии: один alembic head, нет dead-артефактов (step_sync_state, orphan-скрипты), единый источник констант, дефолты конфига = docker-compose, сплит dashboard-пакета, rebuild_marts.py (все трансформы, без API) |
-| `tests/test_steps.py` | 35 | hardest-steps: `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id), `wilson_success_pct` (объём попыток: 1/5 → 3.6%, 200/1000 → 17.6%), `weighted_success_pct` (мусор с малым числом попыток не всплывает в топ), `module_number`/`lesson_number` (сквозная нумерация уроков по курсу), `module_title`/`lesson_title` |
+| `tests/test_steps.py` | 35 | hardest-steps (читает `mart_steps`): `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id), `wilson_success_pct` (объём попыток: 1/5 → 3.6%, 200/1000 → 17.6%), `weighted_success_pct` (мусор с малым числом попыток не всплывает в топ), `module_number`/`lesson_number` (сквозная нумерация уроков по курсу), `module_title`/`lesson_title` |
 | `tests/test_course_filter.py` | 20 | Фильтр по курсам: `parse_course_ids` (None/`[]`), безопасность (чужие UUID отбрасываются), SQL-эндпоинты (submissions/active-students/cohorts/alerts/hardest-steps/students), пересчёт снапшота (financials/revenue/kpi/published-solutions/community), `published` в submissions (в т.ч. по курсам, инвариант «фильтр = все курсы» == «без фильтра»), пустой `?course_ids=` = пустой выбор |
-| `tests/test_comments.py` | 12 | `/api/dashboard/comments`: months/years/by_course группировки, totals, Лайки/Дизлайки из `vote_delta`, distinct-студенты (OAuth-клиенты отбрасываются), атрибуция через step→course map, инвариант «фильтр = все курсы» == «без фильтра»; `/comments/list`: фильтры `unanswered` (is_staff_replied + teacher + deleted) и `disliked` (vote_delta<0), имена из raw_user, пути шагов, HTML-стрип, фильтр курсов + инвариант, сортировка/пагинация/NULLS LAST, 400 на неверные параметры, пустые данные |
-| `tests/test_certificates.py` | 5 | `/api/dashboard/certificates/stats`: months/years/by_course группировки, distinction/regular, distinct-студенты, фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
-| `tests/test_reviews.py` | 5 | `/api/dashboard/reviews/stats`: months/years/by_course группировки, avg_score (score без числа не входит), distinct-студенты (OAuth-клиенты отбрасываются), фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
+| `tests/test_comments.py` | 12 | `/api/dashboard/comments` (читает `mart_comments`): months/years/by_course группировки, totals, Лайки/Дизлайки из `vote_delta`, distinct-студенты (OAuth-клиенты отбрасываются), атрибуция через mart_steps, инвариант «фильтр = все курсы» == «без фильтра»; `/comments/list`: фильтры `unanswered` (is_staff_replied + teacher + deleted) и `disliked` (vote_delta<0), имена из raw_user, пути шагов, HTML-стрип, фильтр курсов + инвариант, сортировка/пагинация/NULLS LAST, 400 на неверные параметры, пустые данные |
+| `tests/test_certificates.py` | 5 | `/api/dashboard/certificates/stats` (читает `mart_certificates`): months/years/by_course группировки, distinction/regular, distinct-студенты, фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
+| `tests/test_reviews.py` | 5 | `/api/dashboard/reviews/stats` (читает `mart_reviews`): months/years/by_course группировки, avg_score (score без числа не входит), distinct-студенты (OAuth-клиенты отбрасываются), фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
 | `tests/test_course_structure.py` | 19 | `/api/courses/{id}/structure`: владение курсом (404 чужих/битых ID), порядок модулей/уроков/шагов по position, сквозной `lesson_number`, `lesson_id`/`step_number` у шагов, метрики из `raw_step._raw_json` (dict-jsonb и TEXT-строка), `total`/`correct`/`students` из submissions (ORM, `is_author=False`), пустые уроки; юнит-тесты `_step_grade` (средняя оценка шага из `num_grades`: взвешенное среднее, один голос, без голосов, отсутствие поля, не-список, не-числовые счётчики, короткий список, минимальная оценка) |
 | `tests/test_course_funnel.py` | 18 | `/api/courses/{id}/funnel`: владение курсом (404 чужих/битых ID), пустая структура → «Записались» + «Сертификат», cumulative distinct по модулям (монотонность), порядок по position, сертификаты отдельным этапом, исключение авторских submissions, не-атрибутируемые шаги пропускаются, модуль без шагов остаётся в воронке; `view=lessons` — cumulative по урокам, сквозная нумерация `lesson_number`, урок без шагов остаётся, fallback невалидного `view` на modules |
-| Остальные | 180 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
+| Остальные | 182 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).
 

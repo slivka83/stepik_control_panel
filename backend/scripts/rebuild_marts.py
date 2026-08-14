@@ -2,7 +2,8 @@
 Rebuild all marts (витрины) from the raw layer without Stepik API calls.
 
 Runs only the transform layer in the same order as sync_all:
-    courses → enrollments → submissions → financials → community → students
+    courses → enrollments → submissions → financials → community →
+    steps → comments → certificates → reviews → students
 
 Usage:
     python scripts/rebuild_marts.py
