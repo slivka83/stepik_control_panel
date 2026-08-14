@@ -4,6 +4,32 @@
 
 Stepik Control Panel — CRM/BI-панель для авторов курсов на Stepik. Приложение **только для чтения**: все данные берутся из Stepik API, прямая модификация данных на платформе исключена.
 
+## Архитектура: два слоя данных (КРИТИЧЕСКИЙ ПРИОРИТЕТ)
+
+В проекте **строго два слоя данных**. Это архитектурный инвариант, нарушение = баг.
+
+```
+Stepik API ──► СЛОЙ СЫРЫХ ДАННЫХ ──► СЛОЙ ВИТРИН ──► API ──► Фронтенд
+               (24 таблицы raw_*)      (витрины)     (чтение ТОЛЬКО витрин)
+```
+
+1. **Слой сырых данных** — таблицы `raw_*` (raw_course, raw_comment, raw_certificate, raw_course_review, raw_step, raw_lesson, raw_unit, raw_section, raw_user, ...). Получаются из Stepik API через `raw_sync.py`/`sync_raw.py` и пишутся как есть (JSON в `_raw_json`).
+2. **Слой витрин** — производные таблицы, которые пересобираются из raw-слоя **трансформами** (`transform.py`) в конце синка:
+   - `courses`, `student_enrollments`, `submissions` — «низкие» витрины (детальные строки),
+   - `financial_snapshots` — JSON-снапшот финансов + community,
+   - `student_marts` — витрина студентов,
+   - `mart_modules`, `mart_lessons`, `mart_steps`, `mart_comments`, `mart_certificates`, `mart_reviews` — «высокие» витрины структуры/комментариев/сертификатов/отзывов: атрибуция шага к курсу/модулю/уроку, сквозная нумерация уроков, метрики шага (`viewed_by`/`passed_by`/`correct_ratio`/`grade`), лайки/дизлайки комментариев и пути шагов пресчитаны на этапе трансформа (миграция `017`, модели в `app/models/mart.py`).
+
+**Жёсткие правила:**
+- **API-слой читает ТОЛЬКО витрины.** Ни один эндпоинт в `app/api/` не должен делать `SELECT` из `raw_*` таблиц. Это защищено тестами (`test_architecture.py`, `test_schema_contract.py`).
+- **В витрины данные попадают только из raw-слоя** — через трансформы. Никаких промежуточных кэшей в памяти.
+- **Никакой прямой модификации данных на платформе** (см. Zero-Write Policy).
+- Шаг→курс/модуль/урок и пути шагов (`build_step_path_maps`) — это **трансформ-логика** (в `transform.py`), а не API-логика: пути и атрибуция пресчитываются в `mart_steps`/`mart_lessons`/`mart_modules`/`mart_comments`, API их только читает.
+- Группировки по месяцам/годам/курсам на API допустимы **только по витринам** (SQL GROUP BY), не по raw.
+- `mart_steps` хранит и шаги без атрибуции к курсу (`course_id` NULL, только из `raw_step`): они питают среднюю оценку шагов (KPI) и пути в hardest-steps.
+
+Если видишь в `app/api/` обращение к `raw_*` — это баг: данные должны прийти из витрины, а недостающая витрина — быть построена трансформом из raw.
+
 ## Zero-Write Policy (КРИТИЧЕСКИЙ ПРИОРИТЕТ)
 
 - **Только HTTP GET** к Stepik API. POST, PUT, PATCH, DELETE категорически запрещены.
@@ -107,10 +133,12 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 ### Raw-слой (`app/services/raw_sync.py`)
 - `sync_courses_structure()` — курсы + sections/units/lessons/steps
 - `sync_course_grades_and_certs()` — оценки + сертификаты
-- `sync_submissions()` — отправки + попытки (инкрементально)
+- `sync_submissions()` — отправки + попытки (инкрементально: по шагам, по курсам author pass, попытки — только delta)
 - **`/submissions?step=` НЕ возвращает поле `step` в объектах** — шаг известен только из контекста запроса; `sync_submissions()` пишет его в колонку `raw_submission.step` (миграция 015, loader-injected, без маппинга), `transform_submissions()` как fallback определяет шаг через `raw_attempt.step` по `submission.attempt`
+- **Author pass** (`/submissions?course=X`, авторские решения) — инкрементальный по страницам через `raw_sync_state` (ключ `course_{id}` → last_page), как step-pass; курсы с HTTP 404 скипаются; страница-маркер и данные коммитятся per-course. Попытки качаются только по новым ID (`attempt_id` уже есть в `raw_attempt` → не перекачиваются; попытки неизменяемы)
 - `sync_financials()` — финансы (course-benefit-by-months + course-benefits)
-- `sync_community()` — рейтинги + комментарии
+- `sync_community()` — рейтинги (сводки `course-review-summaries`) + **сами отзывы** (`course-reviews`, full_reload по курсам, упавший курс скипается) + комментарии
+- **Сводки и отзывы коммитятся явно** (`session.commit()` после каждого `_replace_raw_table`) — раньше персистенция зависела от новых комментариев (commit только в comments-цикле); при +0 комментариев запись откатывалась — регрессия «плашка Отзывы 22 vs страница 20»
 - `sync_users()` — анкеты (`/users?ids[]=`, батчи по 100) в raw_user; ID из `student_enrollments.student_id` + `submissions.user_id` + raw_course_grade/raw_certificate/raw_course_review (`USER_ID_SOURCES`); не-цифровые ID фильтруются (raw_comment.user хранит имя OAuth-клиента, не user id)
 - Использует `_request()` из `stepik_api.py`, пишет в `raw_*` таблицы
 - `_replace_raw_table()` (TRUNCATE + INSERT) для full_reload
@@ -129,6 +157,10 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
   - `recent_payments[i]`: id, course, amount, payment_amount, status, time, buyer, student (имя из raw_user по buyer), promo_code, currency, channel («А-ссылка»/«Stepik»/«По счету» из is_z_link_used/is_invoice_payment), is_gift, utm_source, utm_source_label, raw (полный объект API)
   - Возвраты в агрегациях (courses/promos/utms) хранятся положительными (`abs(amount)`)
 - `transform_community()` — raw_course_review_summary + raw_comment → financial_snapshots community data
+- `transform_steps()` — raw_section + raw_unit + raw_lesson + raw_step → `mart_modules`/`mart_lessons`/`mart_steps` (полная пересборка: DELETE + INSERT). Атрибуция шага к курсу/модулю/уроку, сквозная нумерация уроков (`lesson_number` = сумма юнитов предыдущих модулей + позиция юнита, `module_number` = индекс секции по position), метрики шага (`viewed_by`/`passed_by`/`correct_ratio`/`block`/`grade`/`grade_votes` из `raw_step._raw_json`). Шаги из `raw_lesson.steps` без юнита/секции пишутся с `course_id` NULL (только `lesson_id`/`step_number`). **Если шаг уже атрибутирован из `raw_lesson.steps`, колонка `raw_step.lesson` не перезаписывает его** (структура — источник истины)
+- `transform_comments()` — raw_comment → `mart_comments` (атрибуция через mart_steps; `comment_id` из `_raw_json.id`, `is_solution` = thread содержит 'solution', `likes`/`dislikes` из `vote_delta`, `is_unanswered`, путь шага денормализован). Не-атрибутируемые шаги пропускаются
+- `transform_certificates()` — raw_certificate → `mart_certificates` (только курсы из `courses`; `year`/`month` из `issue_date`, `type`)
+- `transform_reviews()` — raw_course_review → `mart_reviews` (только курсы из `courses`; `year`/`month` из `create_date`, `score`)
 - `transform_students()` — student_enrollments + submissions + raw_comment + raw_user → student_marts (полная пересборка в конце синка)
 - Использует сырой SQL (`text()`), UUID-параметры конвертируются в `str()` для SQLite-совместимости
 - Для SQLite-совместимости JSON-обращения используют `json_extract(_raw_json, '$.field')` вместо PG `->>`
@@ -143,6 +175,7 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 
 - Поля: `in_progress`, `progress`, `step`, `last_sync`, `last_error`, `cooldown_remaining_seconds`
 - `last_error` — текст ошибки последнего упавшего sync (`sync._last_sync_error`), `null` при успехе; сбрасывается при старте нового sync
+- **Статус синка персистится** в `raw_sync_state` (`endpoint_name='sync'`, ключи `in_progress`/`progress`/`step`/`last_error`/`last_completed_at`), чтобы переживать перезапуск сервера (`uvicorn --reload`). Загрузка — лениво через `sync.ensure_state_loaded()` (первый запрос `/status` или `/sync`). Если процесс умер во время синка (`in_progress=true` в БД) — после рестарта `last_error` = «Синхронизация прервана перезапуском сервера». Запись best-effort (try/except, не роняет sync)
 - `last_sync` — `financial_snapshots.updated_at`; колонка в PG — `timestamp without time zone`, значение UTC (naive) — **при сериализации обязательно `+00:00`** (иначе фронтенд трактует строку как локальное время — регрессия «дата в тултипе не в локальном TZ»)
 - Фронтенд-кнопка синка: синяя «вода» прогресса во время sync, розовая заливка на всю высоту при `last_error`, тултип — дата последней синхронизации (idle) / ошибка / прогресс
 
@@ -188,14 +221,20 @@ sync_all:
   4. sync_community_stats (95→100%)
      - raw_sync.sync_community
      - transform.transform_community
+     - transform.transform_steps (витрины структуры — нужны трансформам ниже)
+     - transform.transform_comments
+     - transform.transform_certificates
+     - transform.transform_reviews
      - transform.transform_students (витрина студентов — все входные данные свежие)
 ```
 
 ### Инкрементальная загрузка submissions
 
-- Таблица `raw_sync_state`: `(endpoint_name='submissions', key='step_{id}')` → `value` = последняя загруженная страница
+- Таблица `raw_sync_state`: `(endpoint_name='submissions', key='step_{id}')` → `value` = последняя загруженная страница; **`key='course_{id}'`** — то же для авторских решений (author pass)
 - При первом sync: загрузка с страницы 1 до `has_next=false`
 - При повторном sync: загрузка с `last_page` (перезаписывается), продолжение до `has_next=false`
+- **Попытки качаются только по delta**: `attempt_id`, уже присутствующие в `raw_attempt`, не перекачиваются (попытки неизменяемы). «Грязные» id из `raw_submission._raw_json.attempt` минус `raw_attempt.attempt_id`
+- **Внимание:** author pass и попытки коммитятся отдельно (`session.commit()` per-course и после attempts) — без этого данные не персистятся (сессия откатывается при закрытии; регрессия: попытки с `_loaded_at` начала августа при синке августа)
 - **Важно:** `DELETE FROM courses` каскадно удаляет submissions (`ON DELETE CASCADE` в FK)
 - Поэтому courses **не удаляются**, а обновляются IN PLACE по `stepik_course_id`
 - Если курс удалён на Stepik — удаляется через `session.delete()` (каскад удалит его submissions)
@@ -316,20 +355,22 @@ Y-ось графиков:
 - **«Шаги»** — тепловая карта структуры **одного** курса (не зависит от глобального фильтра):
   - Свой селектор курса + переключатель метрики: **Просмотры / Отправлено / Успешных / Оценка / Тип блока** (`STEP_METRICS` в `CourseStructureMatrix.jsx`)
   - Матрица: **строки = уроки** (заголовки-полосы модулей), **столбцы = № шага в уроке** (максимум шагов среди уроков курса), ячейка = шаг; CSS-grid, без recharts
-  - Цвета: Просмотры/Отправлено — последовательная шкала `rgba(56,189,248, α)` (по счётчику), Успешных — та же шкала по **проценту** `correct/total`, Оценка — красно-жёлто-зелёный градиент (средняя оценка шага пользователями `grade` 1..5 напрямую), Тип блока — категориальная палитра (`text`/`code`/`external-grader`/`choice` из `_raw_json.block.name`); нет данных — тёмная клетка
+  - Цвета: Просмотры/Отправлено — последовательная шкала `rgba(56,189,248, α)` (по счётчику), Успешных — красно-жёлто-зелёный градиент по **проценту** `correct/total` (0% = красный, 100% = зелёный), Оценка — красно-жёлто-зелёный градиент (средняя оценка шага пользователями `grade` 1..5 напрямую), Тип блока — категориальная палитра (`text`/`code`/`external-grader`/`choice` из `_raw_json.block.name`); нет данных — тёмная клетка
   - Значение ячейки: Просмотры/Отправлено — счётчик (`fmtCompact`), Успешных — `%` от `correct/total` (не счётчик), Оценка — `grade.toFixed(2)` (5 смайликов на странице шага), Тип блока — буква
   - Ховер-тултип (portal): модуль — урок, шаг, все метрики; клик — deep link `stepik.org/lesson/{lesson_id}/step/{n}` (`target="_blank"`)
 - **«Воронка»** — воронка прохождения **одного** курса (свой селектор курса, не зависит от глобального фильтра), `frontend/src/components/CourseFunnel.jsx`:
-  - Этапы: **«Записались»** (строки `student_enrollments`) → **«Модуль N. {title}»** по порядку `raw_section.position` → **«Получили сертификат»** (`certificate_issued`)
-  - Значение модуля — **distinct-студенты с ≥1 решением в этом модуле или позже** (cumulative suffix-union из `submissions` через step→module карту: `raw_section` → `raw_unit` → `raw_lesson.steps`), поэтому воронка монотонно убывает; «Модуль 1» фактически = «начали курс»
+  - Слева от селектора — переключатель вида **Модули / Уроки** (`FUNNEL_VIEWS` в `Courses.jsx`, две иконки-сегмента как метрики «Шагов»); `view` передаётся в `GET /api/courses/{course_id}/funnel?view=modules|lessons` (рефетч при смене)
+  - Вид «Модули»: этапы **«Записались»** (строки `student_enrollments`) → **«Модуль N. {title}»** по порядку `raw_section.position` → **«Получили сертификат»** (`certificate_issued`)
+  - Вид «Уроки»: этапы **«Урок N. {title}»** со **сквозной нумерацией** (`lesson_offset + raw_unit.position`, как `lesson_number` в структуре), уроки из `raw_lesson` без шагов остаются в воронке (как пустые модули)
+  - Значение этапа — **distinct-студенты с ≥1 решением в этом модуле/уроке или позже** (cumulative suffix-union из `submissions` через step→module/lesson карту: `raw_section` → `raw_unit` → `raw_lesson.steps`), поэтому воронка монотонно убывает; первый этап фактически = «начали курс»
   - Шаги submissions, не атрибутированные в структуру, пропускаются (как не-атрибутируемые комментарии); авторские решения исключены (`is_author=False`)
-  - Визуал: recharts `FunnelChart` (градиент cyber-blue → dim-blue, финальный этап neon-green) + таблица «Этап | Студентов | % от записи | Отсев»; конверсия/отсев считаются на фронте из `value`
+  - Визуал: recharts `FunnelChart` (градиент cyber-blue → dim-blue, финальный этап neon-green) + таблица «Этап | Студентов | % от записи | Отсев»; конверсия/отсев считаются на фронте из `value`. Сегменты — **прямоугольники** (кастомный `shape={FunnelRectangle}` на `<Funnel>`, рисует `<rect>` из геометрии трапеции; `activeShape` тот же), не скошенные трапеции; цвета/обводка/лейблы/тултип не меняются
   - Тесты: `tests/test_course_funnel.py`, фронт `frontend/src/test/CourseFunnel.test.jsx` + вкладки в `Courses.test.jsx`
 - Источник: **`GET /api/courses/{course_id}/structure`** (в `app/api/courses.py`) — владение курсом (404 иначе), сборка из raw-слоя:
   - `raw_section` (`course = stepik_course_id`, `ORDER BY position`) → модули; `raw_unit` → уроки модуля (`position`); `raw_lesson` (`title`, `steps[]` → `step_number` через `_parse_step_positions` из `common.py` — работает и с TEXT, и с jsonb)
   - Сквозной `lesson_number` по курсу (смещение = сумма уроков предыдущих модулей)
   - Метрики шага: `viewed_by`/`passed_by`/`correct_ratio`/`grade`/`grade_votes` из `raw_step._raw_json` (агрегаты Stepik API, `_parse_raw` обрабатывает dict-jsonb и TEXT-строку; `grade` — средняя оценка шага пользователями из `num_grades` = `[g1..g5]`, распределение 5 смайликов, `_step_grade` — `Σ(cnt[i]·(i+1))/Σ(cnt)`, без голосов → `None/0`), `total`/`correct`/`students` из `submissions` (**ORM-запрос** — `text()`-биндинг UUID в SQLite не совпадает: там hex без дефисов, а `str(uuid)` с дефисами), `is_author=False`
-  - Источник воронки: **`GET /api/courses/{course_id}/funnel`** (там же) — та же проверка владения, step→module карта, `SELECT DISTINCT stepik_step_id, user_id FROM submissions` (ORM), ответ `{course, stages: [{key, module_number?, label, value}]}`
+  - Источник воронки: **`GET /api/courses/{course_id}/funnel?view=modules|lessons`** (там же) — та же проверка владения, step→module/lesson карта (`raw_unit.position` для сквозной нумерации уроков, `raw_lesson.title` для лейблов), `SELECT DISTINCT stepik_step_id, user_id FROM submissions` (ORM), ответ `{course, stages: [{key, module_number?|lesson_number?, label, value}]}`; невалидный `view` → `modules`
   - Тесты: `tests/test_course_structure.py`, `tests/test_course_funnel.py`, фронт `frontend/src/test/CourseStructureMatrix.test.jsx` + `CourseFunnel.test.jsx` + вкладки в `Courses.test.jsx`
 
 ## Страница «Решения» (4 вкладки)
@@ -434,7 +475,7 @@ python scripts/sync_raw.py submissions  # конкретный
 ```
 python scripts/rebuild_marts.py
 ```
-Порядок как в `sync_all`: courses → enrollments → submissions → financials → community → students. Abort, если `raw_course` пуст.
+Порядок как в `sync_all`: courses → enrollments → submissions → financials → community → steps → comments → certificates → reviews → students. Abort, если `raw_course` пуст.
 
 Особенности:
 - `full_reload` с `?ids[]=` — батчи по 100 ID, без ID пробует bare endpoint
@@ -506,12 +547,12 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-464 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
+478 тестов, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
 | Файл | Тестов | Что тестирует |
 |---|---|---|
 | `tests/test_stepik_api.py` | 20 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` |
 | `tests/test_stepik_api_comprehensive.py` | 14 | `get_finance_token`, 5xx retries, constants |
-| `tests/test_raw_sync.py` | 16 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions` (+404-шаги, 400-теоретические-шаги, конфликтные upsert'ы, str-bind для TEXT-колонок), `sync_financials`, `sync_community`, регрессии `became_published_at` и stale sequence |
+| `tests/test_raw_sync.py` | 21 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions` (+404-шаги, 400-теоретические-шаги, конфликтные upsert'ы, str-bind для TEXT-колонок), `sync_financials`, `sync_community` (**сами отзывы course-reviews в raw_course_review**, скип упавшего курса, **персистенция при +0 комментариев**), регрессии `became_published_at`, stale sequence, **инкремент author pass (продолжение с сохранённой страницы) и delta попыток** |
 | `tests/test_raw_sync_edge_cases.py` | 12 | `_paginated_fetch`, пустые/ошибочные данные transform и raw_sync |
 | `tests/test_transform.py` | 18 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита) |
 | `tests/test_sync_integration.py` | 18 | `sync_all`, cohort status, интеграция raw_sync → transform, stepwise-коммиты raw_sync внутри sync-этапов |
@@ -526,7 +567,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 | `tests/test_certificates.py` | 5 | `/api/dashboard/certificates/stats`: months/years/by_course группировки, distinction/regular, distinct-студенты, фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
 | `tests/test_reviews.py` | 5 | `/api/dashboard/reviews/stats`: months/years/by_course группировки, avg_score (score без числа не входит), distinct-студенты (OAuth-клиенты отбрасываются), фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
 | `tests/test_course_structure.py` | 19 | `/api/courses/{id}/structure`: владение курсом (404 чужих/битых ID), порядок модулей/уроков/шагов по position, сквозной `lesson_number`, `lesson_id`/`step_number` у шагов, метрики из `raw_step._raw_json` (dict-jsonb и TEXT-строка), `total`/`correct`/`students` из submissions (ORM, `is_author=False`), пустые уроки; юнит-тесты `_step_grade` (средняя оценка шага из `num_grades`: взвешенное среднее, один голос, без голосов, отсутствие поля, не-список, не-числовые счётчики, короткий список, минимальная оценка) |
-| `tests/test_course_funnel.py` | 11 | `/api/courses/{id}/funnel`: владение курсом (404 чужих/битых ID), пустая структура → «Записались» + «Сертификат», cumulative distinct по модулям (монотонность), порядок по position, сертификаты отдельным этапом, исключение авторских submissions, не-атрибутируемые шаги пропускаются, модуль без шагов остаётся в воронке |
+| `tests/test_course_funnel.py` | 18 | `/api/courses/{id}/funnel`: владение курсом (404 чужих/битых ID), пустая структура → «Записались» + «Сертификат», cumulative distinct по модулям (монотонность), порядок по position, сертификаты отдельным этапом, исключение авторских submissions, не-атрибутируемые шаги пропускаются, модуль без шагов остаётся в воронке; `view=lessons` — cumulative по урокам, сквозная нумерация `lesson_number`, урок без шагов остаётся, fallback невалидного `view` на modules |
 | Остальные | 180 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).

@@ -137,6 +137,27 @@ function fmtCompact(value) {
   return String(v);
 }
 
+function successColor(ratio) {
+  const r = Math.max(0, Math.min(1, ratio));
+  const stops = [
+    [0.0, 255, 0, 0],
+    [0.25, 255, 120, 0],
+    [0.5, 255, 210, 0],
+    [0.75, 160, 230, 0],
+    [1.0, 0, 255, 0],
+  ];
+  let i = 0;
+  while (i < stops.length - 1 && stops[i + 1][0] < r) i++;
+  if (i >= stops.length - 1) {
+    const [, cr, cg, cb] = stops[stops.length - 1];
+    return `rgb(${cr}, ${cg}, ${cb})`;
+  }
+  const [r0, r1, g1, b1] = stops[i];
+  const [r1v, r2, g2, b2] = stops[i + 1];
+  const t = (r - r0) / (r1v - r0);
+  return `rgb(${Math.round(r1 + (r2 - r1) * t)}, ${Math.round(g1 + (g2 - g1) * t)}, ${Math.round(b1 + (b2 - b1) * t)})`;
+}
+
 function ratingColor(rating) {
   const r = Math.max(1, Math.min(5, rating));
   const stops = [
@@ -169,11 +190,15 @@ function stepColor(step, metric, maxValue) {
     if (grade == null) return EMPTY_CELL;
     return ratingColor(grade);
   }
+  if (metric === 'correct') {
+    const ratio = m.value(step);
+    if (ratio == null) return EMPTY_CELL;
+    return successColor(ratio);
+  }
   const value = m.value(step);
   if (!value || !maxValue) return EMPTY_CELL;
   const t = Math.max(0, Math.min(1, value / maxValue));
-  const alpha = 0.25 + 0.7 * t;
-  return `rgba(56, 189, 248, ${alpha.toFixed(3)})`;
+  return `rgba(56, 189, 248, ${(0.25 + 0.7 * t).toFixed(3)})`;
 }
 
 function fmtNum(value) {
@@ -267,10 +292,10 @@ export default function CourseStructureMatrix({ modules = [], metric = 'views', 
             return (
               <div key={`r-${ri}`} className="contents">
                 <div
-                  className="flex items-center justify-start pl-2 text-left text-xs text-gray-300 truncate"
+                  className="flex items-center justify-start pl-2 text-left text-xs text-gray-300"
                   title={`Модуль ${mod.position}. ${mod.title} — ${lesson.title}`}
                 >
-                  <span className="font-mono text-gray-500 mr-1">{mod.position}.{lesson.lesson_number}</span>
+                  <span className="font-mono text-gray-500 w-10 shrink-0 text-left">{mod.position}.{lesson.lesson_number}</span>
                   <span className="truncate">{lesson.title}</span>
                 </div>
                 {Array.from({ length: maxSteps }, (_, ci) => {

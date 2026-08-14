@@ -1,44 +1,24 @@
 """Certificates analytics: monthly/yearly/per-course aggregates + totals.
 
-Reads raw_certificate (course_id on the row, no step→course map needed).
-issue_date/type are parsed from _raw_json (the SQLite fixture has no such
-columns; live PG stores the raw layer as TEXT/jsonb too). «С отличием» =
+Reads the mart_certificates view (rebuilt by transform_certificates from
+raw_certificate): course, user_id, year/month and type ('distinction') are
+denormalized at transform time — the API never touches raw_*. «С отличием» =
 type == 'distinction', «Обычные» = остальные. The split mirrors the
 certificates chart on the Activities page (dark = total, light = regular,
 overlap = distinction).
 """
-
-import json
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
-from app.api.dashboard.common import format_month_label, get_courses_for_user, json_field
+from app.api.dashboard.common import format_month_label, get_courses_for_user
 from app.api.dashboard.course_filter import parse_course_ids
 from app.database import get_db
 from app.models import User
 
 router = APIRouter()
-
-
-def _int_or_none(val):
-    if val is None:
-        return None
-    try:
-        return int(val)
-    except (TypeError, ValueError):
-        return None
-
-
-def _month_tuple(time_raw) -> tuple[int, int] | None:
-    try:
-        dt = datetime.fromisoformat(str(time_raw).replace("Z", "+00:00"))
-    except (ValueError, TypeError):
-        return None
-    return dt.year, dt.month
 
 
 def _empty() -> dict:
@@ -63,9 +43,12 @@ async def get_certificates_stats(
 
     stepik_ids = sorted(selected_stepik)
     placeholders = ", ".join(f":cid{i}" for i in range(len(stepik_ids)))
-    params = {f"cid{i}": str(cid) for i, cid in enumerate(stepik_ids)}
+    params = {f"cid{i}": cid for i, cid in enumerate(stepik_ids)}
     rows = await db.execute(
-        text(f"SELECT user_id, course_id, _raw_json FROM raw_certificate WHERE course_id IN ({placeholders})"),
+        text(
+            "SELECT stepik_course_id, user_id, year, month, type "
+            f"FROM mart_certificates WHERE stepik_course_id IN ({placeholders})"
+        ),
         params,
     )
 
@@ -76,25 +59,11 @@ async def get_certificates_stats(
     course_students: dict[int, set] = {}
     all_students: set[int] = set()
 
-    for user_id_raw, course_id_raw, raw_json in rows:
-        data = raw_json if isinstance(raw_json, dict) else _parse_json(raw_json)
-        if not data:
+    for cid, user_id, year, month, ctype in rows:
+        if year is None or month is None:
             continue
-        ym = _month_tuple(json_field(data, "issue_date"))
-        if not ym:
-            continue
-
-        user_id = _int_or_none(user_id_raw)
-        if user_id is None:
-            user_id = _int_or_none(json_field(data, "user"))
-
-        cid = _int_or_none(course_id_raw)
-        if cid is None:
-            cid = _int_or_none(json_field(data, "course"))
-        if cid is None or cid not in selected_stepik:
-            continue
-
-        is_distinction = json_field(data, "type") == "distinction"
+        ym = (year, month)
+        is_distinction = ctype == "distinction"
 
         bucket = month_buckets.setdefault(ym, {"total": 0, "distinction": 0})
         bucket["total"] += 1
@@ -103,7 +72,7 @@ async def get_certificates_stats(
 
         if user_id is not None:
             month_students.setdefault(ym, set()).add(user_id)
-            year_students.setdefault(ym[0], set()).add(user_id)
+            year_students.setdefault(year, set()).add(user_id)
             course_students.setdefault(cid, set()).add(user_id)
             all_students.add(user_id)
 
@@ -173,15 +142,3 @@ async def get_certificates_stats(
     }
 
     return {"months": months, "years": years, "by_course": by_course, "totals": totals}
-
-
-def _parse_json(raw) -> dict | None:
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, (str, bytes, bytearray)):
-        try:
-            parsed = json.loads(raw)
-            return parsed if isinstance(parsed, dict) else None
-        except (json.JSONDecodeError, TypeError):
-            return None
-    return None

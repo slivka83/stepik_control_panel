@@ -18,6 +18,13 @@ function mixHex(a, b, t) {
 const fmtNum = (v) => Number(v || 0).toLocaleString('ru-RU');
 const fmtPct = (v) => `${v.toLocaleString('ru-RU', { maximumFractionDigits: 1 })}%`;
 
+function FunnelRectangle(props) {
+  const { x, y, upperWidth, height, fill, stroke } = props;
+  const w = Math.max(upperWidth, 4);
+  const rx = x + upperWidth / 2 - w / 2;
+  return <rect x={rx} y={y} width={w} height={height} fill={fill} stroke={stroke} strokeWidth={2} />;
+}
+
 function buildRows(stages) {
   const list = stages || [];
   const first = list[0]?.value || 0;
@@ -71,7 +78,7 @@ function FunnelTooltip({ active, payload }) {
   );
 }
 
-export default function CourseFunnel({ courses = [], courseId }) {
+export default function CourseFunnel({ courses = [], courseId, view = 'modules' }) {
   const [funnel, setFunnel] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -87,7 +94,7 @@ export default function CourseFunnel({ courses = [], courseId }) {
     setLoading(true);
     setLoadError(null);
     api
-      .get(`/courses/${courseId}/funnel`)
+      .get(`/courses/${courseId}/funnel`, { params: { view } })
       .then((res) => {
         if (!cancelled) setFunnel(res.data);
       })
@@ -100,7 +107,7 @@ export default function CourseFunnel({ courses = [], courseId }) {
     return () => {
       cancelled = true;
     };
-  }, [courseId, retryTick]);
+  }, [courseId, retryTick, view]);
 
   if (courses.length === 0) {
     return (
@@ -155,6 +162,8 @@ export default function CourseFunnel({ courses = [], courseId }) {
                     dataKey="value"
                     data={rows}
                     nameKey="label"
+                    shape={FunnelRectangle}
+                    activeShape={FunnelRectangle}
                     isAnimationActive={false}
                     label={{
                       dataKey: 'value',
@@ -166,7 +175,7 @@ export default function CourseFunnel({ courses = [], courseId }) {
                   >
                     {rows.map((row, i) => (
                       <Cell
-                        key={`${row.key}-${row.module_number ?? i}`}
+                        key={`${row.key}-${row.lesson_number ?? row.module_number ?? i}`}
                         fill={row.color}
                         stroke="#0b0f19"
                         strokeWidth={2}
@@ -191,7 +200,7 @@ export default function CourseFunnel({ courses = [], courseId }) {
             </thead>
             <tbody>
               {rows.map((row, i) => (
-                <tr key={`${row.key}-${row.module_number ?? i}`} className="border-t border-gray-800">
+                <tr key={`${row.key}-${row.lesson_number ?? row.module_number ?? i}`} className="border-t border-gray-800">
                   <td className="py-1.5 pr-2 truncate max-w-[180px]" title={row.label}>
                     <span
                       className="inline-block w-2 h-2 rounded-sm mr-2 align-middle"

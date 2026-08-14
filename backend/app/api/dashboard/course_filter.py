@@ -259,70 +259,46 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
 
 
 async def published_solutions_stats(
-    db: AsyncSession, step_course: dict[int, int], selected_stepik_ids: set[int]
+    db: AsyncSession, selected_stepik_ids: set[int]
 ) -> tuple[dict[tuple[int, int], int], dict[int, int], dict[int, int]]:
     """Count of published solutions (comments in solution threads) grouped by
     month `(year, month)`, by year, and by stepik course id.
 
-    Mirrors filter_community's solution counting: a comment counts as a
-    published solution when `_raw_json.thread` contains "solution"; it is
-    attributed to a course via the step→course map. Returns
+    Reads the mart_comments view: `is_solution` is precomputed by
+    transform_comments from `_raw_json.thread` containing "solution"; course
+    attribution and month/year are denormalized in the view. Returns
     `(monthly, yearly, per_course)`.
     """
     monthly: dict[tuple[int, int], int] = {}
     yearly: dict[int, int] = {}
     per_course: dict[int, int] = {}
-    rows = await db.execute(text("SELECT _raw_json FROM raw_comment"))
-    for (raw_json,) in rows:
-        cm = _parse_json(raw_json)
-        if not cm:
+    if not selected_stepik_ids:
+        return monthly, yearly, per_course
+    ids = sorted(selected_stepik_ids)
+    placeholders = ", ".join(f":cid{i}" for i in range(len(ids)))
+    params = {f"cid{i}": cid for i, cid in enumerate(ids)}
+    rows = await db.execute(
+        text(
+            "SELECT stepik_course_id, year, month FROM mart_comments "
+            f"WHERE is_solution = TRUE AND stepik_course_id IN ({placeholders})"
+        ),
+        params,
+    )
+    for cid, year, month in rows:
+        if year is None or month is None:
             continue
-        time_raw = cm.get("time")
-        target = _int_or_none(cm.get("target"))
-        if not time_raw or target is None:
-            continue
-        cid = step_course.get(target)
-        if cid is None or cid not in selected_stepik_ids:
-            continue
-        thread = cm.get("thread", "")
-        if not thread or "solution" not in thread:
-            continue
-        ym = _month_tuple(time_raw)
-        if not ym:
-            continue
-        monthly[ym] = monthly.get(ym, 0) + 1
-        yearly[ym[0]] = yearly.get(ym[0], 0) + 1
+        monthly[(year, month)] = monthly.get((year, month), 0) + 1
+        yearly[year] = yearly.get(year, 0) + 1
         per_course[cid] = per_course.get(cid, 0) + 1
     return monthly, yearly, per_course
-
-
-async def build_step_course_map(db: AsyncSession) -> dict[int, int]:
-    r = await db.execute(
-        text(
-            """
-            SELECT DISTINCT s.step_id, sec.course
-            FROM raw_step s
-            JOIN raw_unit u ON u.lesson_id = s.lesson
-            JOIN raw_section sec ON sec.section_id = u.section_id
-            WHERE s.step_id IS NOT NULL AND sec.course IS NOT NULL
-        """
-        )
-    )
-    result = {}
-    for step_id, course in r:
-        sid = _int_or_none(step_id)
-        cid = _int_or_none(course)
-        if sid is not None and cid is not None:
-            result[sid] = cid
-    return result
 
 
 async def filter_community(db: AsyncSession, data: dict, selected_stepik_ids: set[int]) -> dict:
     """Recompute community stats for the selected courses.
 
     Totals/rating come from the per-course section of the snapshot; the
-    monthly comment/solution series are rebuilt from raw_comment via the
-    step→course map (the snapshot only stores the global series).
+    monthly comment/solution series are rebuilt from mart_comments (course and
+    year/month are denormalized in the view — no step→course map needed).
     """
     community = data.get("community", {}) or {}
     per_course = community.get("per_course", {}) or {}
@@ -339,34 +315,30 @@ async def filter_community(db: AsyncSession, data: dict, selected_stepik_ids: se
             ratings.append(float(avg))
     average_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
 
-    step_course = await build_step_course_map(db)
     comments_monthly = {}
     solutions_monthly = {}
     total_comments = 0
     total_solutions = 0
-    rows = await db.execute(text("SELECT _raw_json FROM raw_comment"))
-    for (raw_json,) in rows:
-        cm = _parse_json(raw_json)
-        if not cm:
-            continue
-        time_raw = cm.get("time")
-        target = _int_or_none(cm.get("target"))
-        if not time_raw or target is None:
-            continue
-        cid = step_course.get(target)
-        if cid is None or cid not in selected_stepik_ids:
-            continue
-        ym = _month_tuple(time_raw)
-        if not ym:
-            continue
-        key = f"{ym[0]}-{ym[1]:02d}"
-        thread = cm.get("thread", "")
-        is_solution = "solution" in thread if thread else False
-        total_comments += 1
-        comments_monthly[key] = comments_monthly.get(key, 0) + 1
-        if is_solution:
-            total_solutions += 1
-            solutions_monthly[key] = solutions_monthly.get(key, 0) + 1
+    if selected_stepik_ids:
+        ids = sorted(selected_stepik_ids)
+        placeholders = ", ".join(f":cid{i}" for i in range(len(ids)))
+        params = {f"cid{i}": cid for i, cid in enumerate(ids)}
+        rows = await db.execute(
+            text(
+                "SELECT year, month, is_solution FROM mart_comments "
+                f"WHERE stepik_course_id IN ({placeholders})"
+            ),
+            params,
+        )
+        for year, month, is_solution in rows:
+            if year is None or month is None:
+                continue
+            key = f"{year}-{month:02d}"
+            total_comments += 1
+            comments_monthly[key] = comments_monthly.get(key, 0) + 1
+            if is_solution:
+                total_solutions += 1
+                solutions_monthly[key] = solutions_monthly.get(key, 0) + 1
 
     return {
         "average_rating": average_rating,
@@ -380,28 +352,28 @@ async def filter_community(db: AsyncSession, data: dict, selected_stepik_ids: se
 
 
 async def filter_steps_average_grade(db: AsyncSession, selected_stepik_ids: set[int]) -> float:
-    """Average step grade (votes-weighted) over steps of selected courses."""
-    step_course = await build_step_course_map(db)
-    if not step_course:
+    """Average step grade (votes-weighted) over steps of selected courses.
+
+    Reads mart_steps (grade/grade_votes precomputed by transform_steps from
+    raw_step._raw_json.num_grades).
+    """
+    if not selected_stepik_ids:
         return 0.0
-    rows = await db.execute(text("SELECT step_id, _raw_json FROM raw_step"))
+    ids = sorted(selected_stepik_ids)
+    placeholders = ", ".join(f":cid{i}" for i in range(len(ids)))
+    params = {f"cid{i}": cid for i, cid in enumerate(ids)}
+    rows = await db.execute(
+        text(
+            "SELECT grade, grade_votes FROM mart_steps "
+            f"WHERE stepik_course_id IN ({placeholders})"
+        ),
+        params,
+    )
     votes_total = 0
     votes_count = 0
-    for step_id, raw_json in rows:
-        sid = _int_or_none(step_id)
-        if sid is None or step_course.get(sid) not in selected_stepik_ids:
+    for grade, votes in rows:
+        if grade is None or not votes:
             continue
-        rc = _parse_json(raw_json)
-        if not rc:
-            continue
-        ng = rc.get("num_grades")
-        if not isinstance(ng, list):
-            continue
-        for i, cnt in enumerate(ng):
-            try:
-                c = int(cnt)
-            except (TypeError, ValueError):
-                continue
-            votes_total += c * (i + 1)
-            votes_count += c
+        votes_total += grade * votes
+        votes_count += votes
     return round(votes_total / votes_count, 2) if votes_count else 0.0

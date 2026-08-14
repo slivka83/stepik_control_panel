@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Architecture (Двухслойная архитектура: витрины mart_* — API не читает raw_*)
+- **Новые витрины** `mart_modules`/`mart_lessons`/`mart_steps`/`mart_comments`/`mart_certificates`/`mart_reviews` (миграция `017`, модели `app/models/mart.py`): атрибуция шага к курсу/модулю/уроку, сквозная нумерация уроков, метрики шага (`viewed_by`/`passed_by`/`correct_ratio`/`grade` из `raw_step._raw_json`), лайки/дизлайки и `is_unanswered` комментариев, пути шагов пресчитаны **трансформами** (`transform_steps`/`transform_comments`/`transform_certificates`/`transform_reviews`)
+- **API-слой переведён на витрины**: `build_step_path_maps` (пути шагов), hardest-steps, комментарии (агрегаты + списки неотвеченных/дизлайков), сертификаты, отзывы, `published_solutions_stats`, `filter_community`, средняя оценка шагов (KPI), структура и воронка курса читают только `mart_*` — ни одного `SELECT` из `raw_*` в `app/api/`
+- `mart_steps` хранит и шаги без атрибуции (`course_id` NULL) — питают KPI средней оценки и пути hardest-steps
+- Синк и `rebuild_marts.py`: новые трансформы в конце (после community, перед студентами); `_parse_step_positions` переехал в `transform.py`
+- Тесты: API-тесты сидят raw-слой и пересобирают витрины хелпером `build_marts` из `tests/conftest.py`; вся ветка 478/478
+
+### Fix (Синхронизация — авторские решения и попытки теперь докачиваются инкрементально)
+- **Author pass** (`/submissions?course=X`) — раньше при каждом синке перекачивался целиком с page=1 (+7000 строк). Теперь запоминает последнюю страницу каждого курса (`raw_sync_state`, ключ `course_{id}`) и догружает только новые, как step-pass. Курсы с HTTP 404 скипаются
+- **Попытки** — раньше при каждом синке перекачивались все (36401 попытки, ~364 запроса). Теперь качаются только по новым ID (попытки неизменяемы). Экономия ~8 минут на синке (26 → ~17 мин)
+- **Фикс скрытого бага:** author pass и попытки не коммитились (данные с `_loaded_at` откатывались при закрытии сессии — в БД лежали только старые записи начала августа). Теперь коммитятся отдельно (per-course и после attempts)
+- Регрессионные тесты в `tests/test_raw_sync.py`: `test_author_pass_incremental_continues_from_last_page`, `test_attempts_incremental_fetches_only_new_ids`
+
+### Fix (Синхронизация — причина падения больше не теряется)
+- **Причина падения последней синхронизации теперь сохраняется в БД** (`raw_sync_state`, ключ `endpoint_name='sync'`) и переживает перезапуск сервера (`uvicorn --reload`). Раньше `last_error` жил только в памяти и после рестарта статус молчал — невозможно было понять, почему упал синк
+- Если процесс умер во время синхронизации (например, из-за авто-перезагрузки при правке файлов) — после рестарта статус показывает «Синхронизация прервана перезапуском сервера»
+- Загрузка статуса — лениво через `sync.ensure_state_loaded()` (первый запрос `/status` или `/sync`); запись best-effort (не роняет сам синк). Регрессионные тесты `TestSyncStatePersistence` в `tests/test_sync_edge_cases.py`
+
+### Features (Воронка — прямоугольные сегменты)
+- Сегменты воронки теперь — **прямоугольники** без скошенных боков: кастомный `shape={FunnelRectangle}` (`<rect>` из геометрии трапеции) на recharts `<Funnel>`, `activeShape` тот же. Цвета (градиент cyber→dim, финальный neon-green), обводка `#0b0f19`, лейблы значений и тултип не изменились. Тест `CourseFunnel.test.jsx` проверяет, что сегменты рендерятся как `<rect>`
+
+### Features (Воронка — вид «Модули»/«Уроки»)
+- На вкладке **«Воронка»** слева от селектора курса добавлен переключатель вида **Модули / Уроки** (две иконки-сегмента, активная `text-cyber-blue`, неактивная белая с неоном при наведении — как метрики «Шагов»). `GET /api/courses/{course_id}/funnel` принимает `?view=modules|lessons` (по умолчанию `modules`)
+- `view=lessons`: воронка строится по **урокам** — этапы «Урок N» со сквозной нумерацией как в структуре (`lesson_offset + unit_pos`, `raw_unit.position`), значение — distinct-студенты с ≥1 решением в этом уроке или позже (cumulative suffix, монотонно убывает). Уроки без шагов остаются в воронке (как пустые модули), не-атрибутируемые шаги и авторские решения исключены
+- Тесты: `tests/test_course_funnel.py` — `TestCourseFunnelLessonsView` (7 тестов: cumulative/distinct, монотонность, исключение авторов, не-атрибутируемые шаги, пустая структура, урок без шагов со сквозной нумерацией, fallback невалидного `view` на modules), фронт `CourseFunnel.test.jsx` (view=lessons, refetch при смене view) и `Courses.test.jsx` (переключение вида)
+
 ### Features (Курсы — метрики матрицы «Шаги»)
 - Метрика **«Успешно»** теперь показывает **процент успешности** `correct/total` (не количество решений); градиент — по проценту. Метрика **«Оценка»** — **средняя оценка шага пользователями** (`grade` из `raw_step._raw_json.num_grades`, распределение 5 смайликов на странице шага), `grade.toFixed(2)`, градиент 1..5 напрямую
 - Структура шага в `GET /api/courses/{course_id}/structure` дополнена полями `grade`/`grade_votes` (бэкенд-хелпер `_step_grade`); `correct_ratio` сохранён

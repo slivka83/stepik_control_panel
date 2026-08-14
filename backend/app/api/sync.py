@@ -19,6 +19,7 @@ async def sync_status(
     user: User = Depends(get_user),
     db: AsyncSession = Depends(get_db),
 ):
+    await sync_mod.ensure_state_loaded()
     result = await db.execute(select(FinancialSnapshot).limit(1))
     snap = result.scalar_one_or_none()
     last_sync = None
@@ -50,6 +51,7 @@ async def trigger_sync(
     force: bool = False,
     user: User = Depends(get_user),
 ):
+    await sync_mod.ensure_state_loaded()
     if sync_mod._sync_in_progress:
         return {"status": "already_in_progress"}
     if not force and not sync_mod.can_sync():

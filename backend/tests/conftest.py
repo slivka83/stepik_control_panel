@@ -238,3 +238,17 @@ async def override_get_db(db_session):
         yield db_session
 
     return _override
+
+
+async def build_marts(session):
+    """Пересобрать витрины структуры/комментариев/сертификатов/отзывов из raw-слоя.
+
+    Хелпер для тестов API: после сидирования raw-данных витрины должны быть
+    построены трансформами, т.к. API читает только mart_* таблицы.
+    """
+    from app.services import transform
+
+    await transform.transform_steps(session)
+    await transform.transform_comments(session)
+    await transform.transform_certificates(session)
+    await transform.transform_reviews(session)

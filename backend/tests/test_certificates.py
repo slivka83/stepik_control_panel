@@ -18,6 +18,7 @@ from app.database import get_db
 from app.main import app
 from app.models import Course, User
 from app.services.crypto import encrypt_token
+from tests.conftest import build_marts
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -61,6 +62,7 @@ async def _seed(db, user, with_certs=True):
                 {"cid": cid, "uid": uid, "course": course, "j": json.dumps(payload)},
             )
     await db.flush()
+    await build_marts(db)
     return c1, c2
 
 

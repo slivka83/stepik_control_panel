@@ -15,11 +15,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from app.api.auth import get_user
-from app.api.dashboard.steps import _parse_step_positions
 from app.database import get_db
 from app.main import app
 from app.models import Course, Submission, User
 from app.services.crypto import encrypt_token
+from app.services.transform import _parse_step_positions
+from tests.conftest import build_marts
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -240,6 +241,8 @@ async def test_hardest_steps_returns_lesson_and_step_number(db_session):
     )
     await db_session.commit()
 
+    await build_marts(db_session)
+
     data = await _get_steps(db_session, user, min_submissions=1)
 
     by_id = {s["stepik_step_id"]: s for s in data["steps"]}
@@ -275,6 +278,8 @@ async def test_hardest_steps_position_from_lesson_steps_order(db_session):
         """)
     )
     await db_session.commit()
+
+    await build_marts(db_session)
 
     data = await _get_steps(db_session, user, min_submissions=1)
 
@@ -572,6 +577,8 @@ async def test_hardest_steps_module_and_lesson_numbers(db_session):
         """)
     )
     await db_session.commit()
+
+    await build_marts(db_session)
 
     data = await _get_steps(db_session, user, min_submissions=1)
 

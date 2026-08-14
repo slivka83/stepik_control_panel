@@ -110,6 +110,30 @@ describe('CourseStructureMatrix', () => {
     expect(STEP_METRICS.correct.value({ total: 0, correct: 0 })).toBeNull();
   });
 
+  it('renders correct cells green at 100% and red at 0%', () => {
+    const m = [
+      {
+        position: 1,
+        title: 'Модуль',
+        lessons: [
+          {
+            lesson_id: 10,
+            lesson_number: 1,
+            title: 'Урок',
+            steps: [
+              { step_id: 500, lesson_id: 10, step_number: 1, block: 'text', total: 10, correct: 10 },
+              { step_id: 501, lesson_id: 10, step_number: 2, block: 'text', total: 10, correct: 0 },
+            ],
+          },
+        ],
+      },
+    ];
+    const { container } = render(<CourseStructureMatrix modules={m} metric="correct" />);
+    const links = container.querySelectorAll('a');
+    expect(links[0].style.backgroundColor).toBe('rgb(0, 255, 0)');
+    expect(links[1].style.backgroundColor).toBe('rgb(255, 0, 0)');
+  });
+
   it('STEP_METRICS grade value is the average user grade', () => {
     expect(STEP_METRICS.grade.value({ grade: 4.86 })).toBe(4.86);
   });

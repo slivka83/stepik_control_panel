@@ -8,12 +8,10 @@ from app.api.auth import get_user
 from app.api.dashboard.common import (
     format_month_label,
     get_courses_for_user,
-    json_field,
     weighted_success_pct,
     wilson_success_pct,
 )
 from app.api.dashboard.course_filter import (
-    build_step_course_map,
     filter_community,
     filter_financials,
     parse_course_ids,
@@ -57,9 +55,8 @@ async def get_submissions(
         return {"months": [], "by_course": [], "years": []}
 
     selected_stepik_ids = {c.stepik_course_id for c in courses}
-    step_course = await build_step_course_map(db)
     published_monthly, published_yearly, published_per_course = await published_solutions_stats(
-        db, step_course, selected_stepik_ids
+        db, selected_stepik_ids
     )
 
     month_result = await db.execute(
@@ -330,33 +327,31 @@ async def get_certificates(
 ):
     """Certificates issued per month: dark = total, light = regular (no distinction).
 
-    «С отличием» = overlap (dark − light) in the chart. The raw layer is TEXT,
-    so issue_date/type are parsed from _raw_json (same approach as kpi._count_raw_month).
+    «С отличием» = overlap (dark − light) in the chart. Reads mart_certificates
+    (year/month/type denormalized by transform_certificates).
     """
     parsed = parse_course_ids(course_ids)
-    stmt = "SELECT _raw_json FROM raw_certificate"
-    params: dict[str, str] = {}
+    stmt = "SELECT year, month, type FROM mart_certificates"
+    params: dict = {}
     if parsed is not None:
         courses, _ = await get_courses_for_user(db, user, parsed)
         stepik_ids = sorted(c.stepik_course_id for c in courses)
         if not stepik_ids:
             return {"months": []}
         placeholders = ", ".join(f":cid{i}" for i in range(len(stepik_ids)))
-        stmt += f" WHERE course_id IN ({placeholders})"
-        params = {f"cid{i}": str(cid) for i, cid in enumerate(stepik_ids)}
+        stmt += f" WHERE stepik_course_id IN ({placeholders})"
+        params = {f"cid{i}": cid for i, cid in enumerate(stepik_ids)}
 
     rows = (await db.execute(text(stmt), params)).all()
     monthly: dict[str, int] = {}
     distinction_monthly: dict[str, int] = {}
-    for row in rows:
-        data = row[0]
-        issue = json_field(data, "issue_date")
-        if not issue:
+    for year, month, ctype in rows:
+        if year is None or month is None:
             continue
-        ym = str(issue)[:7]
-        monthly[ym] = monthly.get(ym, 0) + 1
-        if json_field(data, "type") == "distinction":
-            distinction_monthly[ym] = distinction_monthly.get(ym, 0) + 1
+        key = f"{year}-{month:02d}"
+        monthly[key] = monthly.get(key, 0) + 1
+        if ctype == "distinction":
+            distinction_monthly[key] = distinction_monthly.get(key, 0) + 1
 
     months_res = []
     for key in sorted(monthly):

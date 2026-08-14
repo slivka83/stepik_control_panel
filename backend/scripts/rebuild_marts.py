@@ -44,6 +44,10 @@ async def main() -> int:
         ("submissions", transform.transform_submissions, {}, "submissions"),
         ("financials", transform.transform_financials, {}, "financial_snapshots"),
         ("community", transform.transform_community, {}, "financial_snapshots"),
+        ("steps", transform.transform_steps, {}, "mart_steps"),
+        ("comments", transform.transform_comments, {}, "mart_comments"),
+        ("certificates", transform.transform_certificates, {}, "mart_certificates"),
+        ("reviews", transform.transform_reviews, {}, "mart_reviews"),
         ("students", transform.transform_students, {}, "student_marts"),
     ]
 

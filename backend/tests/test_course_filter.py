@@ -23,6 +23,7 @@ from app.database import get_db
 from app.main import app
 from app.models import Course, FinancialSnapshot, StudentEnrollment, StudentMart, Submission, User
 from app.services.crypto import encrypt_token
+from tests.conftest import build_marts
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -137,7 +138,7 @@ async def _seed_scenario(session):
         ("c2", "500", "solution", "Решение"),
         ("c3", "501", "", "Комментарий java"),
     ]
-    for cid_, target, thread, body in comments:
+    for i, (cid_, target, thread, body) in enumerate(comments, start=1):
         await session.execute(
             text(
                 'INSERT INTO raw_comment (comment_id, "user", target, "time", thread, _raw_json) '
@@ -148,7 +149,7 @@ async def _seed_scenario(session):
                 "t": target,
                 "tm": t1,
                 "th": thread,
-                "j": json.dumps({"target": int(target), "time": t1, "thread": thread, "text": body}),
+                "j": json.dumps({"id": i, "target": int(target), "time": t1, "thread": thread, "text": body}),
             },
         )
     await session.execute(
@@ -274,6 +275,7 @@ async def _seed_scenario(session):
         },
     }
     session.add(FinancialSnapshot(id=uuid.uuid4(), data=snapshot_data, updated_at=now.replace(tzinfo=None)))
+    await build_marts(session)
     await session.commit()
     return user, u1, u2, u3
 
@@ -598,6 +600,7 @@ class TestFilterCharts:
                 },
             )
         await db_session.commit()
+        await build_marts(db_session)
         _override(user, db_session)
         try:
             label = f"{MONTH_NAMES[old_month]} {old_year}"

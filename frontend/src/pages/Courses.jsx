@@ -16,6 +16,50 @@ const TABS = [
   { key: 'funnel', label: 'Воронка' },
 ];
 
+const FUNNEL_VIEWS = {
+  modules: {
+    label: 'Модули',
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="w-3.5 h-3.5"
+      >
+        <polygon points="12 2 2 7 12 12 22 7 12 2" />
+        <polyline points="2 17 12 22 22 17" />
+        <polyline points="2 12 12 17 22 12" />
+      </svg>
+    ),
+  },
+  lessons: {
+    label: 'Уроки',
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="w-3.5 h-3.5"
+      >
+        <line x1="8" y1="6" x2="21" y2="6" />
+        <line x1="8" y1="12" x2="21" y2="12" />
+        <line x1="8" y1="18" x2="21" y2="18" />
+        <line x1="3" y1="6" x2="3.01" y2="6" />
+        <line x1="3" y1="12" x2="3.01" y2="12" />
+        <line x1="3" y1="18" x2="3.01" y2="18" />
+      </svg>
+    ),
+  },
+};
+
 function getRatingColor(rating) {
   const r = Math.max(1, Math.min(5, rating));
   const stops = [
@@ -175,6 +219,7 @@ export default function Courses() {
   const [activeTab, setActiveTab] = useState('courses');
   const [courseId, setCourseId] = useState(courses[0]?.id || null);
   const [metric, setMetric] = useState('grade');
+  const [funnelView, setFunnelView] = useState('modules');
 
   const publishedCount = courses.filter((c) => c.status?.toLowerCase() === 'published').length;
   const totalStudents = courses.reduce((s, c) => s + (c.enrollment_count || 0), 0);
@@ -220,13 +265,34 @@ export default function Courses() {
                       title={m.label}
                       aria-label={m.label}
                       aria-pressed={metric === key}
-                      className={`w-8 h-8 flex items-center justify-center rounded-lg border transition-colors ${
+                      className={`p-1 rounded transition-colors ${
                         metric === key
-                          ? 'bg-cyber-blue/20 text-cyber-blue border-cyber-blue/40'
-                          : 'text-gray-400 border-gray-700 hover:text-gray-300 hover:bg-cyber-blue/10'
+                          ? 'text-cyber-blue'
+                          : 'text-white hover:text-cyber-blue hover:drop-shadow-[0_0_4px_rgba(56,189,248,0.8)]'
                       }`}
                     >
                       {m.icon}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {activeTab === 'funnel' && (
+                <div className="flex items-center gap-1" role="group" aria-label="Вид воронки">
+                  {Object.entries(FUNNEL_VIEWS).map(([key, v]) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setFunnelView(key)}
+                      title={v.label}
+                      aria-label={v.label}
+                      aria-pressed={funnelView === key}
+                      className={`p-1 rounded transition-colors ${
+                        funnelView === key
+                          ? 'text-cyber-blue'
+                          : 'text-white hover:text-cyber-blue hover:drop-shadow-[0_0_4px_rgba(56,189,248,0.8)]'
+                      }`}
+                    >
+                      {v.icon}
                     </button>
                   ))}
                 </div>
@@ -235,7 +301,7 @@ export default function Courses() {
                 value={selectedCourseId}
                 onChange={(e) => setCourseId(e.target.value)}
                 aria-label="Курс"
-                className="bg-space-gray border border-gray-700 rounded px-2 py-1 text-sm text-white max-w-[260px] truncate"
+                className="bg-space-gray border border-gray-700 rounded px-2 py-1 text-sm text-white w-96 max-w-[480px] truncate"
               >
                 {courses.map((c) => (
                   <option key={c.id} value={c.id}>
@@ -272,7 +338,9 @@ export default function Courses() {
         {activeTab === 'steps' && (
           <CourseStepsTab courses={courses} courseId={selectedCourseId} metric={metric} />
         )}
-        {activeTab === 'funnel' && <CourseFunnel courses={courses} courseId={selectedCourseId} />}
+        {activeTab === 'funnel' && (
+          <CourseFunnel courses={courses} courseId={selectedCourseId} view={funnelView} />
+        )}
       </div>
     </div>
   );

@@ -10,6 +10,7 @@ from app.database import get_db
 from app.main import app
 from app.models import Course, FinancialSnapshot, StudentEnrollment, StudentMart, User
 from app.services.crypto import encrypt_token
+from tests.conftest import build_marts
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -237,6 +238,7 @@ class TestDashboardKPIMonthSplit:
             {"j5": json.dumps({"num_grades": [1, 1, 1, 1, 1]})},
         )
         await db_session.commit()
+        await build_marts(db_session)
 
         async def override_db():
             yield db_session
@@ -756,6 +758,15 @@ class TestDashboardCertificates:
         разбивкой «С отличием» (type=distinction) и «Обычные»: dark = всего,
         light = обычные (overlap = «С отличием»)."""
         user = await _seed_db(db_session)
+        course = Course(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            stepik_course_id=100,
+            title="Python",
+            status="Published",
+        )
+        db_session.add(course)
+        await db_session.flush()
         certs = [
             ("d1", "100", "2026-06-15T10:00:00Z", "distinction"),
             ("d2", "100", "2026-06-20T10:00:00Z", "distinction"),
@@ -764,13 +775,14 @@ class TestDashboardCertificates:
             ("u1", "100", "2026-07-02T10:00:00Z", None),
             ("n1", "100", None, "regular"),
         ]
-        for cid, course, issue, ctype in certs:
+        for cid, course_id, issue, ctype in certs:
             raw = {"issue_date": issue, "type": ctype}
             await db_session.execute(
                 text("INSERT INTO raw_certificate (certificate_id, course_id, _raw_json) VALUES (:cid, :course, :j)"),
-                {"cid": cid, "course": course, "j": json.dumps(raw)},
+                {"cid": cid, "course": course_id, "j": json.dumps(raw)},
             )
         await db_session.commit()
+        await build_marts(db_session)
 
         months = await self._call(db_session, user)
         assert months == [

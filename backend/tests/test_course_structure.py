@@ -15,6 +15,7 @@ from app.database import get_db
 from app.main import app
 from app.models import Course, Submission, User
 from app.services.crypto import encrypt_token
+from tests.conftest import build_marts
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -64,6 +65,7 @@ def _override_api(db_session, user):
 
 
 async def _call(db_session, user, course_id):
+    await build_marts(db_session)
     _override_api(db_session, user)
     try:
         return client.get(f"/api/courses/{course_id}/structure")
@@ -333,7 +335,7 @@ class TestStepGrade:
     """Юнит-тесты _step_grade — средняя оценка шага из num_grades."""
 
     def _grade(self, raw):
-        from app.api.courses import _step_grade
+        from app.services.transform import _step_grade
 
         return _step_grade(raw)
 

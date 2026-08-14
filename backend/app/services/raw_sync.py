@@ -323,7 +323,7 @@ async def sync_course_grades_and_certs(session: AsyncSession, token: str, course
 
 
 async def sync_submissions(session: AsyncSession, token: str):
-    """Sync submissions and attempts (incremental per step)."""
+    """Sync submissions and attempts (incremental: per-step, per-course, attempts delta)."""
     logger.info("=== Raw: submissions & attempts ===")
 
     mapping_subs = await _get_fields_mapping(session, "submissions")
@@ -395,26 +395,56 @@ async def sync_submissions(session: AsyncSession, token: str):
         logger.warning("  skipped %d steps (404/теория): %s", len(skipped_steps), skipped_steps[:10])
     logger.info("  raw_submission: +%d rows (incremental)", total)
 
-    # Author submissions pass
+    # Author submissions pass (incremental per course, ?course=X)
+    r = await session.execute(
+        text("SELECT key, value FROM raw_sync_state WHERE endpoint_name = 'submissions' AND key LIKE 'course_%'"),
+    )
+    course_page_state = {int(row[0].split("_", 1)[1]): int(row[1]) for row in r}
     r = await session.execute(text("SELECT course_id FROM raw_course"))
     course_ids = [int(row[0]) for row in r if row[0] is not None]
     author_total = 0
+    skipped_courses = []
     for cid in course_ids:
-        page = 1
+        last_page = course_page_state.get(cid, 0)
+        page = last_page + 1 if last_page > 0 else 1
+        course_new = 0
         while page <= 50:
-            data = await _request("GET", "/submissions", token, {"course": cid, "page": page, "page_size": 500})
+            try:
+                data = await _request("GET", "/submissions", token, {"course": cid, "page": page, "page_size": 500})
+            except StepikAPIError as e:
+                # Курс удалён на Stepik — не убиваем весь sync (как 404-шаги)
+                if e.status_code == 404:
+                    skipped_courses.append(cid)
+                    break
+                raise
             objects = data.get("submissions", [])
             if not objects:
                 break
             await _upsert_raw_table(session, "raw_submission", objects, mapping_subs)
+            course_new += len(objects)
             author_total += len(objects)
+
+            await session.execute(
+                text(
+                    "INSERT INTO raw_sync_state (endpoint_name, key, value) "
+                    "VALUES ('submissions', :k, :v) "
+                    "ON CONFLICT (endpoint_name, key) DO UPDATE SET value = :v2"
+                ),
+                {"k": f"course_{cid}", "v": str(page), "v2": str(page)},
+            )
+
             if not data.get("meta", {}).get("has_next"):
                 break
             page += 1
-        logger.info("    course %d: author subs so far: %d", cid, author_total)
-    logger.info("  raw_submission: +%d rows (author pass)", author_total)
+        if course_new > 0:
+            start_page = last_page + 1 if last_page > 0 else 1
+            logger.info("    course %d: +%d author subs (page %d+)", cid, course_new, start_page)
+            await session.commit()
+    if skipped_courses:
+        logger.warning("  skipped %d courses (404): %s", len(skipped_courses), skipped_courses[:10])
+    logger.info("  raw_submission: +%d rows (author pass, incremental)", author_total)
 
-    # Sync attempts for user_id mapping — extract attempt IDs in Python
+    # Sync attempts for user_id mapping — только новые (попытки неизменяемы)
     r = await session.execute(text("SELECT _raw_json FROM raw_submission"))
     attempt_ids = set()
     for (raw_json,) in r:
@@ -423,16 +453,29 @@ async def sync_submissions(session: AsyncSession, token: str):
         if aid is not None:
             attempt_ids.add(int(aid))
     attempt_ids = sorted(attempt_ids)
+    if attempt_ids:
+        r = await session.execute(text("SELECT attempt_id FROM raw_attempt WHERE attempt_id IS NOT NULL"))
+        existing_ids = {int(row[0]) for row in r}
+        new_ids = [aid for aid in attempt_ids if aid not in existing_ids]
+    else:
+        new_ids = []
+    logger.info(
+        "  attempts: %d referenced, %d already loaded, %d to fetch",
+        len(attempt_ids),
+        len(attempt_ids) - len(new_ids),
+        len(new_ids),
+    )
     total_attempts = 0
-    for i in range(0, len(attempt_ids), 100):
-        batch = attempt_ids[i : i + 100]
+    for i in range(0, len(new_ids), 100):
+        batch = new_ids[i : i + 100]
         try:
             attempts = await _paginated_fetch("/attempts", token, "attempts", {"ids[]": batch})
             await _upsert_raw_table(session, "raw_attempt", attempts, mapping_attempts)
             total_attempts += len(attempts)
         except Exception as e:
             logger.warning("  attempts batch error: %s", e)
-    logger.info("  raw_attempt: %d rows", total_attempts)
+    await session.commit()
+    logger.info("  raw_attempt: +%d rows (incremental)", total_attempts)
 
 
 async def sync_financials(session: AsyncSession):
@@ -500,6 +543,24 @@ async def sync_community(session: AsyncSession, token: str):
         mapping = await _get_fields_mapping(session, "course_review_summaries")
         await _replace_raw_table(session, "raw_course_review_summary", review_summaries, mapping)
         logger.info("  raw_course_review_summary: %d rows", len(review_summaries))
+    await session.commit()
+
+    # Individual reviews — full reload per course (kept fresh with the app sync).
+    # Previously only the summaries were refreshed here and the actual reviews
+    # were left to scripts/sync_raw.py, so new courses' reviews went stale.
+    mapping_reviews = await _get_fields_mapping(session, "course_reviews")
+    all_reviews = []
+    for cid in course_ids:
+        try:
+            reviews = await _paginated_fetch("/course-reviews", token, "course-reviews", {"course": cid})
+        except StepikAPIError as e:
+            logger.warning("  course-reviews course %d: %s — skip", cid, e)
+            continue
+        all_reviews.extend(reviews)
+        logger.info("    course %d: %d reviews", cid, len(reviews))
+    await _replace_raw_table(session, "raw_course_review", all_reviews, mapping_reviews)
+    logger.info("  raw_course_review: %d rows total", len(all_reviews))
+    await session.commit()
 
     # Comments — incremental by time per course
     r = await session.execute(

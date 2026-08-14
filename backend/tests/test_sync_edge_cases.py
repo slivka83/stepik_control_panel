@@ -277,3 +277,43 @@ class TestSyncProgressReset:
             await sync_all(force=True)
 
         assert sync_mod._last_sync_error is None
+
+
+class TestSyncStatePersistence:
+    @pytest.mark.asyncio
+    async def test_persisted_error_survives_restart(self, db_session):
+        """Regression: причина падения последнего синка сохраняется между перезапусками сервера.
+
+        Раньше `_last_sync_error` жил только в памяти — после uvicorn --reload
+        (перезапуск при правке файлов) причина пропадала и статус не показывал ошибку.
+        """
+        import app.services.sync as sync_mod
+
+        await sync_mod._persist_sync_state(False, 0, "", "boom", 0)
+        sync_mod._last_sync_error = None
+        sync_mod._sync_in_progress = True
+        sync_mod._state_loaded = False
+
+        await sync_mod.ensure_state_loaded()
+
+        assert sync_mod._last_sync_error == "boom"
+        assert sync_mod._sync_in_progress is False
+
+    @pytest.mark.asyncio
+    async def test_interrupted_sync_reported_on_restart(self, db_session):
+        """Regression: синк, прерванный перезапуском сервера, виден как ошибка, а не «пусто».
+
+        Процесс умер во время синхронизации (in_progress был True) — после рестарта
+        статус должен сообщать о прерванной синхронизации, а не молчать.
+        """
+        import app.services.sync as sync_mod
+
+        await sync_mod._persist_sync_state(True, 50, "решения", "", 0)
+        sync_mod._last_sync_error = None
+        sync_mod._sync_in_progress = False
+        sync_mod._state_loaded = False
+
+        await sync_mod.ensure_state_loaded()
+
+        assert sync_mod._last_sync_error == "Синхронизация прервана перезапуском сервера"
+        assert sync_mod._sync_in_progress is False

@@ -2,6 +2,14 @@ from app.models.base import Base
 from app.models.course import Course
 from app.models.enrollment import StudentEnrollment
 from app.models.financial import FinancialSnapshot
+from app.models.mart import (
+    MartCertificate,
+    MartComment,
+    MartLesson,
+    MartModule,
+    MartReview,
+    MartStep,
+)
 from app.models.meta_endpoint import MetaEndpoint
 from app.models.meta_field_mapping import MetaFieldMapping
 from app.models.student_mart import StudentMart
@@ -17,5 +25,11 @@ __all__ = [
     "FinancialSnapshot",
     "MetaEndpoint",
     "MetaFieldMapping",
+    "MartModule",
+    "MartLesson",
+    "MartStep",
+    "MartComment",
+    "MartCertificate",
+    "MartReview",
     "Base",
 ]

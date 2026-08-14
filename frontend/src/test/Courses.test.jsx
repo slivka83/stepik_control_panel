@@ -580,10 +580,48 @@ describe('Courses', () => {
       </TestRouter>,
     );
     fireEvent.click(screen.getByText('Воронка'));
-    await waitFor(() => expect(api.get).toHaveBeenCalledWith('/courses/1/funnel'));
+    await waitFor(() =>
+      expect(api.get).toHaveBeenCalledWith('/courses/1/funnel', { params: { view: 'modules' } }),
+    );
     expect(await screen.findByText('Записались')).toBeInTheDocument();
     expect(screen.getByText('Модуль 1. Введение')).toBeInTheDocument();
     expect(screen.getByText('Получили сертификат')).toBeInTheDocument();
+  });
+
+  it('switches funnel view to lessons', async () => {
+    api.get
+      .mockResolvedValueOnce({
+        data: {
+          course: { id: '1', stepik_course_id: 100, title: 'C1' },
+          stages: [
+            { key: 'enrolled', label: 'Записались', value: 100 },
+            { key: 'module', module_number: 1, label: 'Модуль 1. Введение', value: 60 },
+            { key: 'certificate', label: 'Получили сертификат', value: 10 },
+          ],
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          course: { id: '1', stepik_course_id: 100, title: 'C1' },
+          stages: [
+            { key: 'enrolled', label: 'Записались', value: 100 },
+            { key: 'lesson', lesson_number: 1, label: 'Урок 1. Введение', value: 60 },
+            { key: 'certificate', label: 'Получили сертификат', value: 10 },
+          ],
+        },
+      });
+    render(
+      <TestRouter syncValue={makeSyncValue([defaultCourse])}>
+        <Courses />
+      </TestRouter>,
+    );
+    fireEvent.click(screen.getByText('Воронка'));
+    await screen.findByText('Модуль 1. Введение');
+    fireEvent.click(screen.getByLabelText('Уроки'));
+    await waitFor(() =>
+      expect(api.get).toHaveBeenLastCalledWith('/courses/1/funnel', { params: { view: 'lessons' } }),
+    );
+    expect(await screen.findByText('Урок 1. Введение')).toBeInTheDocument();
   });
 
   it('shows empty state on Воронка tab when no courses', () => {

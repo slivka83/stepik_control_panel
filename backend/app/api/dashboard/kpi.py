@@ -7,7 +7,7 @@ from sqlalchemy import extract, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
-from app.api.dashboard.common import get_courses_for_user, json_field
+from app.api.dashboard.common import get_courses_for_user
 from app.api.dashboard.course_filter import (
     filter_community,
     filter_financials,
@@ -20,37 +20,40 @@ from app.models import FinancialSnapshot, StudentEnrollment, Submission, User
 router = APIRouter()
 
 
-async def _count_raw_month(db, table, field, prefix, course_field=None, course_ids=None) -> int:
-    """Count raw rows whose `field` value starts with `prefix`.
+async def _count_mart_month(db, table, year, month, course_ids=None) -> int:
+    """Count mart view rows in the given month.
 
-    With course_field/course_ids restricts to the given stepik course ids
-    (the raw layer is TEXT, so ids are compared as strings).
+    table: 'mart_certificates' or 'mart_reviews' (year/month denormalized by
+    the transform). With course_ids (stepik course ids) restricts to those.
     """
-    if course_field and course_ids is not None:
+    if course_ids is not None:
         ids = sorted(course_ids)
         placeholders = ", ".join(f":cid{i}" for i in range(len(ids)))
-        params = {f"cid{i}": str(cid) for i, cid in enumerate(ids)}
-        rows = await db.execute(text(f"SELECT _raw_json FROM {table} WHERE {course_field} IN ({placeholders})"), params)
+        params = {f"cid{i}": cid for i, cid in enumerate(ids)}
+        rows = await db.execute(
+            text(
+                f"SELECT id FROM {table} WHERE year = :year AND month = :month "
+                f"AND stepik_course_id IN ({placeholders})"
+            ),
+            {**params, "year": year, "month": month},
+        )
     else:
-        rows = await db.execute(text(f"SELECT _raw_json FROM {table}"))
-    return sum(1 for row in rows.all() if str(json_field(row[0], field) or "").startswith(prefix))
+        rows = await db.execute(
+            text(f"SELECT id FROM {table} WHERE year = :year AND month = :month"),
+            {"year": year, "month": month},
+        )
+    return len(rows.all())
 
 
 async def _steps_average_grade(db) -> float:
-    rows = await db.execute(text("SELECT _raw_json FROM raw_step"))
+    rows = await db.execute(text("SELECT grade, grade_votes FROM mart_steps"))
     votes_total = 0
     votes_count = 0
-    for row in rows.all():
-        ng = json_field(row[0], "num_grades")
-        if not isinstance(ng, list):
+    for grade, votes in rows.all():
+        if grade is None or not votes:
             continue
-        for i, cnt in enumerate(ng):
-            try:
-                c = int(cnt)
-            except (TypeError, ValueError):
-                continue
-            votes_total += c * (i + 1)
-            votes_count += c
+        votes_total += grade * votes
+        votes_count += votes
     return round(votes_total / votes_count, 2) if votes_count else 0
 
 
@@ -219,26 +222,24 @@ async def get_kpi(
     cur_solutions = solutions_monthly.get(cur_comments_key, 0)
     prev_solutions = solutions_monthly.get(prev_comments_key, 0)
 
-    cur_prefix = f"{cur_year}-{cur_month:02d}"
-    prev_prefix = f"{prev_year}-{prev_month:02d}"
     if is_filtered:
-        cur_certificates = await _count_raw_month(
-            db, "raw_certificate", "issue_date", cur_prefix, "course_id", selected_stepik_ids
+        cur_certificates = await _count_mart_month(
+            db, "mart_certificates", cur_year, cur_month, selected_stepik_ids
         )
-        prev_certificates = await _count_raw_month(
-            db, "raw_certificate", "issue_date", prev_prefix, "course_id", selected_stepik_ids
+        prev_certificates = await _count_mart_month(
+            db, "mart_certificates", prev_year, prev_month, selected_stepik_ids
         )
-        cur_reviews = await _count_raw_month(
-            db, "raw_course_review", "create_date", cur_prefix, "course", selected_stepik_ids
+        cur_reviews = await _count_mart_month(
+            db, "mart_reviews", cur_year, cur_month, selected_stepik_ids
         )
-        prev_reviews = await _count_raw_month(
-            db, "raw_course_review", "create_date", prev_prefix, "course", selected_stepik_ids
+        prev_reviews = await _count_mart_month(
+            db, "mart_reviews", prev_year, prev_month, selected_stepik_ids
         )
     else:
-        cur_certificates = await _count_raw_month(db, "raw_certificate", "issue_date", cur_prefix)
-        prev_certificates = await _count_raw_month(db, "raw_certificate", "issue_date", prev_prefix)
-        cur_reviews = await _count_raw_month(db, "raw_course_review", "create_date", cur_prefix)
-        prev_reviews = await _count_raw_month(db, "raw_course_review", "create_date", prev_prefix)
+        cur_certificates = await _count_mart_month(db, "mart_certificates", cur_year, cur_month)
+        prev_certificates = await _count_mart_month(db, "mart_certificates", prev_year, prev_month)
+        cur_reviews = await _count_mart_month(db, "mart_reviews", cur_year, cur_month)
+        prev_reviews = await _count_mart_month(db, "mart_reviews", prev_year, prev_month)
 
     if is_filtered:
         steps_average_grade = await filter_steps_average_grade(db, selected_stepik_ids)

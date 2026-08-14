@@ -333,6 +333,155 @@ class TestSyncSubmissions:
             "ON CONFLICT не сработал: дубликат submission_id 1000 не задедуплен"
         )
 
+    @pytest.mark.asyncio
+    async def test_author_pass_incremental_continues_from_last_page(self, db_session):
+        """Regression: author pass должен догружать новые авторские решения с сохранённой
+        страницы, а не перекачивать всё заново с page=1.
+
+        Раньше `?course=X` качался с первой страницы при каждом синке (+7000 строк).
+        """
+        from app.services.raw_sync import sync_submissions
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('submissions', 'id', 'submission_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_step (step_id, lesson, _raw_json)
+            VALUES (500, 10, '{}')
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course (course_id, title, _raw_json)
+            VALUES (42, 'c', '{}')
+        """)
+        )
+        await db_session.commit()
+
+        requested_course_pages = []
+
+        def make_side_effect(author_pages):
+            def request_side_effect(method, path, token, params=None):
+                if "submissions" in path and "course" in str(params):
+                    page = params.get("page", 1)
+                    requested_course_pages.append(page)
+                    objs = author_pages[page]
+                    has_next = page < len(author_pages)
+                    return {"submissions": objs, "meta": {"has_next": has_next}}
+                if "submissions" in path and "step" in str(params):
+                    return {"submissions": [], "meta": {"has_next": False}}
+                if "attempts" in path:
+                    return {"attempts": [], "meta": {"has_next": False}}
+                return {}
+
+            return request_side_effect
+
+        # Первый синк: полная загрузка — страницы 1 и 2
+        pages = {
+            1: [{"id": 1, "status": "correct", "attempt": 10}],
+            2: [{"id": 2, "status": "wrong", "attempt": 11}],
+        }
+        with patch("app.services.raw_sync._request", side_effect=make_side_effect(pages)):
+            await sync_submissions(db_session, "fake_token")
+
+        assert await _count_rows(db_session, "raw_submission") == 2
+        r = await db_session.execute(
+            text("SELECT value FROM raw_sync_state WHERE endpoint_name='submissions' AND key='course_42'")
+        )
+        assert r.scalar() == "2", "author pass должен запомнить последнюю страницу 2"
+
+        # Второй синк: на странице 3 появилась новая авторская запись.
+        # Должен стартовать с page=3, а НЕ перекачивать page=1..2 заново.
+        requested_course_pages.clear()
+        pages = {
+            3: [{"id": 3, "status": "correct", "attempt": 12}],
+        }
+        with patch("app.services.raw_sync._request", side_effect=make_side_effect(pages)):
+            await sync_submissions(db_session, "fake_token")
+
+        assert requested_course_pages == [3], f"ожидался запрос только page=3, получено {requested_course_pages}"
+        assert await _count_rows(db_session, "raw_submission") == 3
+        r = await db_session.execute(
+            text("SELECT value FROM raw_sync_state WHERE endpoint_name='submissions' AND key='course_42'")
+        )
+        assert r.scalar() == "3"
+
+    @pytest.mark.asyncio
+    async def test_attempts_incremental_fetches_only_new_ids(self, db_session):
+        """Regression: попытки должны докачиваться только по новым ID, а не
+        перекачиваться целиком при каждом синке (было 36401 попыток каждый раз).
+
+        Попытки неизменяемы — повторная перекачка старых бессмысленна.
+        """
+        from app.services.raw_sync import sync_submissions
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('submissions', 'id', 'submission_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('attempts', 'id', 'attempt_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_step (step_id, lesson, _raw_json)
+            VALUES (500, 10, '{}')
+        """)
+        )
+        await db_session.commit()
+
+        requested_attempt_ids = []
+
+        def request_side_effect(method, path, token, params=None):
+            if "submissions" in path and "step" in str(params):
+                return {"submissions": [], "meta": {"has_next": False}}
+            if "submissions" in path and "course" in str(params):
+                return {"submissions": [], "meta": {"has_next": False}}
+            if "attempts" in path:
+                batch = params.get("ids[]", [])
+                requested_attempt_ids.extend(batch)
+                return {"attempts": [{"id": aid, "user": 12345, "step": 500} for aid in batch], "meta": {"has_next": False}}
+            return {}
+
+        with patch("app.services.raw_sync._request", side_effect=request_side_effect):
+            # Первый синк: подсабмичим решение с attempt=10
+            await db_session.execute(
+                text("INSERT INTO raw_submission (submission_id, _raw_json) VALUES (:sid, :rj)"),
+                {"sid": "1000", "rj": '{"id":1000,"attempt":10}'},
+            )
+            await sync_submissions(db_session, "fake_token")
+
+        assert await _count_rows(db_session, "raw_attempt") == 1
+        assert sorted(requested_attempt_ids) == [10], f"первый синк должен запросить attempt 10, получил {requested_attempt_ids}"
+
+        # Второй синк: новая субмиссия с attempt=11 — должны запросить ТОЛЬКО 11
+        requested_attempt_ids.clear()
+        with patch("app.services.raw_sync._request", side_effect=request_side_effect):
+            await db_session.execute(
+                text("INSERT INTO raw_submission (submission_id, _raw_json) VALUES (:sid, :rj)"),
+                {"sid": "1001", "rj": '{"id":1001,"attempt":11}'},
+            )
+            await sync_submissions(db_session, "fake_token")
+
+        assert sorted(requested_attempt_ids) == [11], (
+            f"второй синк должен запросить только новый attempt 11, получил {requested_attempt_ids}"
+        )
+        assert await _count_rows(db_session, "raw_attempt") == 2
+
 
 # ─── sync_financials ───────────────────────────────────────────────────
 
@@ -477,6 +626,152 @@ class TestSyncCommunity:
         assert await _count_rows(db_session, "raw_course_review_summary") == 2
         assert await _count_rows(db_session, "raw_comment") == 1, (
             "comments живого курса не записаны — sync прервался на упавшем курсе"
+        )
+
+    @pytest.mark.asyncio
+    async def test_writes_individual_course_reviews(self, db_session):
+        """sync_community качает сами отзывы (course-reviews) в raw_course_review.
+
+        Раньше качались только сводки (course-review-summaries), а сами отзывы
+        догружал только скрипт sync_raw.py — из-за этого плашка «Отзывы»
+        на дашборде (сводка) расходилась со страницей «Отзывы» (raw_course_review).
+        """
+        from app.services.raw_sync import sync_community
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course (course_id, review_summary_json, _raw_json) VALUES
+                (101, '[42]', '{"id": 101, "review_summary": 42}'),
+                (102, '[43]', '{"id": 102, "review_summary": 43}')
+        """)
+        )
+        await db_session.commit()
+
+        fake_reviews = [
+            {"id": 42, "average": 4.5, "count": 100},
+            {"id": 43, "average": 5.0, "count": 50},
+        ]
+        fake_course_reviews = [
+            {"id": 9001, "course": 101, "user": 1001, "score": 5, "create_date": "2026-07-10T10:00:00Z"},
+            {"id": 9002, "course": 101, "user": 1002, "score": 4, "create_date": "2026-07-11T10:00:00Z"},
+        ]
+
+        def request_side_effect(method, path, token, params=None):
+            if "course-review-summaries" in path:
+                return {"course-review-summaries": fake_reviews, "meta": {"has_next": False}}
+            if "course-reviews" in path:
+                if params.get("course") == 101:
+                    return {"course-reviews": fake_course_reviews, "meta": {"has_next": False}}
+                return {"course-reviews": [], "meta": {"has_next": False}}
+            if "comments" in path:
+                return {"comments": [], "meta": {"has_next": False}}
+            return {}
+
+        with patch("app.services.raw_sync._request", side_effect=request_side_effect):
+            await sync_community(db_session, "fake_token")
+
+        assert await _count_rows(db_session, "raw_course_review_summary") == 2
+        assert await _count_rows(db_session, "raw_course_review") == 2, (
+            "сами отзывы не записаны в raw_course_review"
+        )
+
+    @pytest.mark.asyncio
+    async def test_skips_failing_reviews_course_without_aborting(self, db_session):
+        """Regression: сбой /course-reviews по одному курсу не убивал sync_community.
+
+        Отзывы качаются по курсам; упавший курс (404 и т.п.) не должен
+        обрывать summaries/comments и отзывы остальных курсов.
+        """
+        from app.services.raw_sync import sync_community
+        from app.services.stepik_api import StepikAPIError
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course (course_id, review_summary_json, _raw_json) VALUES
+                (101, '[42]', '{"id": 101, "review_summary": 42}'),
+                (102, '[43]', '{"id": 102, "review_summary": 43}')
+        """)
+        )
+        await db_session.commit()
+
+        fake_reviews = [
+            {"id": 42, "average": 4.5, "count": 100},
+            {"id": 43, "average": 5.0, "count": 50},
+        ]
+        fake_course_reviews = [{"id": 9001, "course": 102, "user": 1001, "score": 5}]
+        fake_comments = [{"id": 1, "user": 1001, "target": 101, "time": "2026-07-15T10:00:00Z", "thread": ""}]
+
+        def request_side_effect(method, path, token, params=None):
+            if "course-review-summaries" in path:
+                return {"course-review-summaries": fake_reviews, "meta": {"has_next": False}}
+            if "course-reviews" in path:
+                if params.get("course") == 101:
+                    raise StepikAPIError(404, "Not Found")
+                return {"course-reviews": fake_course_reviews, "meta": {"has_next": False}}
+            if "comments" in path:
+                if params.get("course") == 101:
+                    return {"comments": [], "meta": {"has_next": False}}
+                return {"comments": fake_comments, "meta": {"has_next": False}}
+            return {}
+
+        with patch("app.services.raw_sync._request", side_effect=request_side_effect):
+            await sync_community(db_session, "fake_token")
+
+        assert await _count_rows(db_session, "raw_course_review_summary") == 2
+        assert await _count_rows(db_session, "raw_course_review") == 1, (
+            "отзывы живого курса не записаны — sync прервался на упавшем курсе"
+        )
+        assert await _count_rows(db_session, "raw_comment") == 1
+
+    @pytest.mark.asyncio
+    async def test_reviews_persist_without_new_comments(self, db_session):
+        """Regression: отзывы и сводки должны сохраняться, даже если новых комментариев нет.
+
+        sync_community коммитился только внутри comments-цикла (per-course, при
+        наличии новых комментариев). При +0 комментариев запись сводок и отзывов
+        откатывалась при закрытии сессии — плашка «Отзывы» на дашборде (сводка)
+        расходилась со страницей (raw_course_review). Теперь сводки и отзывы
+        коммитятся явно.
+        """
+        from app.services.raw_sync import sync_community
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course (course_id, review_summary_json, _raw_json) VALUES
+                (101, '[42]', '{"id": 101, "review_summary": 42}')
+        """)
+        )
+        await db_session.commit()
+
+        fake_reviews = [{"id": 42, "average": 4.5, "count": 100}]
+        fake_course_reviews = [
+            {"id": 9001, "course": 101, "user": 1001, "score": 5, "create_date": "2026-07-10T10:00:00Z"},
+        ]
+
+        def request_side_effect(method, path, token, params=None):
+            if "course-review-summaries" in path:
+                return {"course-review-summaries": fake_reviews, "meta": {"has_next": False}}
+            if "course-reviews" in path:
+                return {"course-reviews": fake_course_reviews, "meta": {"has_next": False}}
+            if "comments" in path:
+                return {"comments": [], "meta": {"has_next": False}}
+            return {}
+
+        with patch("app.services.raw_sync._request", side_effect=request_side_effect):
+            await sync_community(db_session, "fake_token")
+
+        # Симулируем завершение сессии без коммита со стороны вызывающего:
+        # если sync_community сам не коммитил — запись откатится.
+        await db_session.rollback()
+
+        assert await _count_rows(db_session, "raw_course_review") == 1, (
+            "отзывы не персистятся при отсутствии новых комментариев"
+        )
+        assert await _count_rows(db_session, "raw_course_review_summary") == 1, (
+            "сводки не персистятся при отсутствии новых комментариев"
         )
 
 

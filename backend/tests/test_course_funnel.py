@@ -16,6 +16,7 @@ from app.database import get_db
 from app.main import app
 from app.models import Course, StudentEnrollment, Submission, User
 from app.services.crypto import encrypt_token
+from tests.conftest import build_marts
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -73,10 +74,14 @@ def _override_api(db_session, user):
     app.dependency_overrides[get_user] = override_user
 
 
-async def _call(db_session, user, course_id):
+async def _call(db_session, user, course_id, view=None):
+    await build_marts(db_session)
     _override_api(db_session, user)
     try:
-        return client.get(f"/api/courses/{course_id}/funnel")
+        url = f"/api/courses/{course_id}/funnel"
+        if view:
+            url += f"?view={view}"
+        return client.get(url)
     finally:
         app.dependency_overrides.clear()
 
@@ -319,3 +324,155 @@ class TestCourseFunnelStages:
             "Модуль 3. Empty",
         ]
         assert [s["value"] for s in stages if s["key"] == "module"] == [1, 0, 0]
+
+
+class TestCourseFunnelLessonsView:
+    """view=lessons: воронка по урокам (distinct-студенты с решением в уроке или позже)."""
+
+    async def test_lessons_view_cumulative_distinct(self, db_session):
+        user = _make_user()
+        course = _make_course(user.id, 208966)
+        db_session.add_all(
+            [
+                user,
+                course,
+                _make_enrollment(course.id, 1),
+                _make_enrollment(course.id, 2),
+                _make_enrollment(course.id, 3),
+            ]
+        )
+        await db_session.commit()
+        await _seed_structure(db_session, 208966)
+        db_session.add_all(
+            [
+                _make_submission(course.id, 1, 500, "correct", user_id=1),
+                _make_submission(course.id, 2, 501, "correct", user_id=2),
+                _make_submission(course.id, 3, 502, "correct", user_id=2),
+                _make_submission(course.id, 4, 503, "wrong", user_id=3),
+            ]
+        )
+        await db_session.commit()
+
+        resp = await _call(db_session, user, str(course.id), view="lessons")
+        stages = resp.json()["stages"]
+        assert [s["key"] for s in stages] == ["enrolled", "lesson", "lesson", "certificate"]
+        assert [s["lesson_number"] for s in stages if s["key"] == "lesson"] == [1, 2]
+        assert [s["label"] for s in stages] == ["Записались", "Урок 1. L1", "Урок 2. L2", "Получили сертификат"]
+        assert [s["value"] for s in stages] == [3, 3, 2, 0]
+
+    async def test_lessons_view_monotonic_decreasing(self, db_session):
+        user = _make_user()
+        course = _make_course(user.id, 208966)
+        db_session.add_all([user, course, _make_enrollment(course.id, 1), _make_enrollment(course.id, 2)])
+        await db_session.commit()
+        await _seed_structure(db_session, 208966)
+        db_session.add_all(
+            [
+                _make_submission(course.id, 1, 500, "correct", user_id=1),
+                _make_submission(course.id, 2, 502, "correct", user_id=2),
+            ]
+        )
+        await db_session.commit()
+
+        resp = await _call(db_session, user, str(course.id), view="lessons")
+        values = [s["value"] for s in resp.json()["stages"]]
+        assert values == sorted(values, reverse=True)
+        assert values == [2, 2, 1, 0]
+
+    async def test_lessons_view_author_excluded(self, db_session):
+        user = _make_user()
+        course = _make_course(user.id, 208966)
+        db_session.add_all([user, course, _make_enrollment(course.id, 1)])
+        await db_session.commit()
+        await _seed_structure(db_session, 208966)
+        db_session.add_all(
+            [
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=99,
+                    stepik_step_id=500,
+                    course_id=course.id,
+                    status="correct",
+                    submission_time=datetime(2026, 1, 1, tzinfo=UTC),
+                    is_author=True,
+                ),
+                _make_submission(course.id, 98, 502, "correct", user_id=5),
+            ]
+        )
+        await db_session.commit()
+
+        resp = await _call(db_session, user, str(course.id), view="lessons")
+        stages = resp.json()["stages"]
+        assert [s["value"] for s in stages] == [1, 1, 1, 0]
+
+    async def test_lessons_view_unattributable_steps_are_skipped(self, db_session):
+        user = _make_user()
+        course = _make_course(user.id, 208966)
+        db_session.add_all([user, course, _make_enrollment(course.id, 1)])
+        await db_session.commit()
+        await _seed_structure(db_session, 208966)
+        db_session.add_all([_make_submission(course.id, 1, 999, "correct", user_id=1)])
+        await db_session.commit()
+
+        resp = await _call(db_session, user, str(course.id), view="lessons")
+        stages = resp.json()["stages"]
+        assert [s["value"] for s in stages] == [1, 0, 0, 0]
+
+    async def test_lessons_view_empty_structure(self, db_session):
+        user = _make_user()
+        course = _make_course(user.id, 999)
+        db_session.add_all([user, course, _make_enrollment(course.id, 1)])
+        await db_session.commit()
+
+        resp = await _call(db_session, user, str(course.id), view="lessons")
+        data = resp.json()
+        assert [s["key"] for s in data["stages"]] == ["enrolled", "certificate"]
+        assert data["stages"][0]["value"] == 1
+
+    async def test_lessons_view_lesson_without_steps_is_kept(self, db_session):
+        """Regression: урок без шагов остаётся в воронке (как пустой модуль), нумерация сквозная."""
+        user = _make_user()
+        course = _make_course(user.id, 208966)
+        db_session.add_all([user, course, _make_enrollment(course.id, 1)])
+        await db_session.commit()
+        await _seed_structure(db_session, 208966)
+        await db_session.execute(
+            text(
+                "INSERT INTO raw_unit (unit_id, lesson_id, section_id, position) VALUES "
+                "('u3', '12', '1', '2')"
+            )
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_lesson (lesson_id, title, steps) VALUES ('12', 'Lempty', :s)"),
+            {"s": json.dumps([])},
+        )
+        db_session.add_all([_make_submission(course.id, 1, 500, "correct", user_id=1)])
+        await db_session.commit()
+
+        resp = await _call(db_session, user, str(course.id), view="lessons")
+        stages = resp.json()["stages"]
+        assert [s["key"] for s in stages] == ["enrolled", "lesson", "lesson", "lesson", "certificate"]
+        assert [s["lesson_number"] for s in stages if s["key"] == "lesson"] == [1, 2, 3]
+        assert [s["label"] for s in stages if s["key"] == "lesson"] == [
+            "Урок 1. L1",
+            "Урок 2. Lempty",
+            "Урок 3. L2",
+        ]
+        assert [s["value"] for s in stages] == [1, 1, 0, 0, 0]
+
+    async def test_invalid_view_falls_back_to_modules(self, db_session):
+        user = _make_user()
+        course = _make_course(user.id, 208966)
+        db_session.add_all([user, course, _make_enrollment(course.id, 1)])
+        await db_session.commit()
+        await _seed_structure(db_session, 208966)
+        db_session.add_all([_make_submission(course.id, 1, 500, "correct", user_id=1)])
+        await db_session.commit()
+
+        resp = await _call(db_session, user, str(course.id), view="bogus")
+        stages = resp.json()["stages"]
+        assert [s["key"] for s in stages] == ["enrolled", "module", "module", "certificate"]
+        assert [s["label"] for s in stages if s["key"] == "module"] == [
+            "Модуль 1. Module A",
+            "Модуль 2. Module B",
+        ]

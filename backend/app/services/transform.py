@@ -1,6 +1,8 @@
 import contextlib
+import html
 import json
 import logging
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -32,6 +34,96 @@ def _ensure_json(val):
 def _serialize_data(val, session):
     """Serialize to JSON string. PG asyncpg expects string for jsonb codec."""
     return json.dumps(val, ensure_ascii=False)
+
+
+def _parse_step_positions(raw) -> dict[int, int]:
+    """step_id → позиция в уроке (1-based).
+
+    raw_lesson.steps в реальной PG — jsonb (list); в SQLite-фикстуре — TEXT
+    (JSON-строка). Оба варианта обязаны работать.
+    """
+    try:
+        arr = json.loads(raw) if isinstance(raw, str) else raw
+    except (TypeError, ValueError):
+        return {}
+    positions: dict[int, int] = {}
+    if isinstance(arr, list):
+        for i, sid in enumerate(arr):
+            try:
+                positions[int(sid)] = i + 1
+            except (TypeError, ValueError):
+                continue
+    return positions
+
+
+def _parse_raw(raw) -> dict:
+    """Разобрать `_raw_json`: dict (PG jsonb) или JSON-строка (SQLite TEXT)."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, (str, bytes, bytearray)):
+        try:
+            parsed = json.loads(raw)
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, TypeError):
+            return {}
+    return {}
+
+
+def _step_grade(raw) -> tuple:
+    """Средняя оценка шага пользователями из `_raw_json.num_grades`.
+
+    `num_grades` = [g1, g2, g3, g4, g5] — распределение оценок 1..5
+    (пять смайликов на странице шага). Среднее = Σ(cnt[i]·(i+1)) / Σ(cnt).
+    Возвращает (grade, votes); без голосов — (None, 0).
+    """
+    ng = raw.get("num_grades") if isinstance(raw, dict) else None
+    if not isinstance(ng, list):
+        return None, 0
+    votes_total = 0
+    votes_count = 0
+    for i, cnt in enumerate(ng):
+        try:
+            c = int(cnt)
+        except (TypeError, ValueError):
+            continue
+        votes_total += c * (i + 1)
+        votes_count += c
+    if not votes_count:
+        return None, 0
+    return round(votes_total / votes_count, 2), votes_count
+
+
+def _to_int(value):
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_float(value):
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _month_tuple(time_raw) -> tuple[int, int] | None:
+    dt = parse_dt(time_raw)
+    if dt is None:
+        return None
+    return dt.year, dt.month
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(raw) -> str:
+    """Текст без HTML-разметки (Stepik хранит текст комментария как HTML)."""
+    if not raw:
+        return ""
+    plain = _TAG_RE.sub(" ", str(raw))
+    plain = html.unescape(plain)
+    return re.sub(r"\s+", " ", plain).strip()
 
 
 logger = logging.getLogger(__name__)
@@ -902,3 +994,409 @@ async def transform_students(session: AsyncSession):
         )
 
     logger.info("  student_marts: %d rows", len(rows))
+
+
+async def _insert_rows(session: AsyncSession, table: str, rows: list[dict]):
+    if not rows:
+        return
+    col_names = list(rows[0].keys())
+    placeholders = ", ".join(f":{c}" for c in col_names)
+    cols_str = ", ".join(f'"{c}"' for c in col_names)
+    await session.execute(
+        text(f"INSERT INTO {table} ({cols_str}) VALUES ({placeholders})"),
+        rows,
+    )
+
+
+async def transform_steps(session: AsyncSession):
+    """Build mart_modules/mart_lessons/mart_steps from the raw structure.
+
+    Step→course attribution and module/lesson numbering are the single source
+    for structure/funnel/hardest-steps/comment paths. mart_steps keeps steps
+    without course attribution (course_id NULL) — they feed the average step
+    grade (kpi) and hardest-steps paths.
+    """
+    logger.info("=== Mart steps ===")
+
+    r = await session.execute(text("SELECT id, stepik_course_id FROM courses"))
+    course_map = {int(row[1]): str(row[0]) for row in r}
+
+    sections: dict[str, dict] = {}
+    r = await session.execute(text("SELECT section_id, course, position, title FROM raw_section"))
+    for section_id, course, position, title in r:
+        if section_id is None:
+            continue
+        sections[str(section_id)] = {
+            "course": _to_int(course),
+            "position": _to_int(position),
+            "title": title,
+        }
+
+    units_by_section: dict[str, list[tuple[int, int]]] = {}
+    r = await session.execute(text("SELECT lesson_id, section_id, position FROM raw_unit"))
+    for lesson_id, section_id, position in r:
+        if lesson_id is None or section_id is None:
+            continue
+        units_by_section.setdefault(str(section_id), []).append(
+            (_to_int(position) or 0, _to_int(lesson_id))
+        )
+
+    lesson_info: dict[int, dict] = {}
+    r = await session.execute(text("SELECT lesson_id, steps, title FROM raw_lesson"))
+    for lesson_id, steps, title in r:
+        lid = _to_int(lesson_id)
+        if lid is None:
+            continue
+        lesson_info[lid] = {"title": title, "step_positions": _parse_step_positions(steps)}
+
+    step_meta: dict[int, dict] = {}
+    raw_step_lesson: dict[int, int] = {}
+    r = await session.execute(text("SELECT step_id, lesson, _raw_json FROM raw_step"))
+    for step_id, lesson, raw_json in r:
+        sid = _to_int(step_id)
+        if sid is None:
+            continue
+        lid = _to_int(lesson)
+        if lid is not None:
+            raw_step_lesson[sid] = lid
+        raw = _parse_raw(raw_json)
+        block = raw.get("block") if isinstance(raw.get("block"), dict) else None
+        grade, grade_votes = _step_grade(raw)
+        step_meta[sid] = {
+            "block": block.get("name") if isinstance(block, dict) else None,
+            "viewed_by": _to_int(raw.get("viewed_by")),
+            "passed_by": _to_int(raw.get("passed_by")),
+            "correct_ratio": _to_float(raw.get("correct_ratio")),
+            "grade": grade,
+            "grade_votes": grade_votes,
+        }
+
+    # Сквозная нумерация по курсу: module_number = индекс секции (по position),
+    # lesson_number = сумма юнитов предыдущих модулей + позиция юнита.
+    course_sections: dict[int, list[str]] = {}
+    for section_id, info in sections.items():
+        if info["course"] is not None:
+            course_sections.setdefault(info["course"], []).append(section_id)
+
+    module_info: dict[str, dict] = {}
+    lesson_attr: dict[int, dict] = {}
+    for course_int, sec_ids in course_sections.items():
+        sec_ids.sort(key=lambda s: sections[s]["position"] if sections[s]["position"] is not None else 0)
+        offset = 0
+        for module_number, section_id in enumerate(sec_ids, start=1):
+            info = sections[section_id]
+            module_info[section_id] = {
+                "module_number": module_number,
+                "module_title": info["title"],
+                "course": course_int,
+            }
+            units = sorted(units_by_section.get(section_id, []))
+            for unit_pos, lesson_id in units:
+                lesson_attr[lesson_id] = {
+                    "course": course_int,
+                    "module_number": module_number,
+                    "lesson_number": offset + unit_pos,
+                    "module_title": info["title"],
+                }
+            offset += len(units)
+
+    module_rows = []
+    lesson_rows = []
+    for course_int, sec_ids in course_sections.items():
+        course_uuid = course_map.get(course_int)
+        if course_uuid is None:
+            continue
+        for section_id in sec_ids:
+            info = module_info[section_id]
+            module_rows.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "course_id": course_uuid,
+                    "stepik_course_id": course_int,
+                    "module_number": info["module_number"],
+                    "module_title": info["module_title"],
+                }
+            )
+        for lesson_id, attr in lesson_attr.items():
+            if attr["course"] != course_int:
+                continue
+            li = lesson_info.get(lesson_id)
+            if li is None:
+                continue
+            lesson_rows.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "course_id": course_uuid,
+                    "stepik_course_id": course_int,
+                    "lesson_id": lesson_id,
+                    "lesson_number": attr["lesson_number"],
+                    "module_number": attr["module_number"],
+                    "module_title": attr["module_title"],
+                    "lesson_title": li["title"],
+                }
+            )
+
+    # mart_steps = объединение шагов из raw_lesson.steps (структура) и всех
+    # строк raw_step (метрики/kpi), атрибуция пути через unit→section→course.
+    step_rows: dict[int, dict] = {}
+    for lesson_id, li in lesson_info.items():
+        attr = lesson_attr.get(lesson_id)
+        for step_id, step_number in li["step_positions"].items():
+            row = step_rows.setdefault(step_id, {"step_id": step_id})
+            row["lesson_id"] = lesson_id
+            row["step_number"] = step_number
+            row["lesson_title"] = li["title"]
+            if attr is not None:
+                row["module_number"] = attr["module_number"]
+                row["lesson_number"] = attr["lesson_number"]
+                row["module_title"] = attr["module_title"]
+                course_uuid = course_map.get(attr["course"])
+                if course_uuid is not None:
+                    row["course_id"] = course_uuid
+                    row["stepik_course_id"] = attr["course"]
+    for step_id, lesson_id in raw_step_lesson.items():
+        if step_id in step_rows and "lesson_id" in step_rows[step_id]:
+            continue
+        row = step_rows.setdefault(step_id, {"step_id": step_id})
+        row["lesson_id"] = lesson_id
+        li = lesson_info.get(lesson_id)
+        if li is not None:
+            row["lesson_title"] = li["title"]
+            if step_id in li["step_positions"]:
+                row["step_number"] = li["step_positions"][step_id]
+        attr = lesson_attr.get(lesson_id)
+        if attr is not None:
+            row["module_number"] = attr["module_number"]
+            row["lesson_number"] = attr["lesson_number"]
+            row["module_title"] = attr["module_title"]
+            course_uuid = course_map.get(attr["course"])
+            if course_uuid is not None:
+                row["course_id"] = course_uuid
+                row["stepik_course_id"] = attr["course"]
+
+    step_rows_final = []
+    for step_id, row in step_rows.items():
+        meta = step_meta.get(step_id, {})
+        step_rows_final.append(
+            {
+                "id": str(uuid.uuid4()),
+                "course_id": row.get("course_id"),
+                "stepik_course_id": row.get("stepik_course_id"),
+                "step_id": step_id,
+                "lesson_id": row.get("lesson_id"),
+                "step_number": row.get("step_number"),
+                "module_number": row.get("module_number"),
+                "lesson_number": row.get("lesson_number"),
+                "module_title": row.get("module_title"),
+                "lesson_title": row.get("lesson_title"),
+                "block": meta.get("block"),
+                "viewed_by": meta.get("viewed_by"),
+                "passed_by": meta.get("passed_by"),
+                "correct_ratio": meta.get("correct_ratio"),
+                "grade": meta.get("grade"),
+                "grade_votes": meta.get("grade_votes"),
+            }
+        )
+
+    await session.execute(text("DELETE FROM mart_steps"))
+    await session.execute(text("DELETE FROM mart_lessons"))
+    await session.execute(text("DELETE FROM mart_modules"))
+    await _insert_rows(session, "mart_modules", module_rows)
+    await _insert_rows(session, "mart_lessons", lesson_rows)
+    await _insert_rows(session, "mart_steps", step_rows_final)
+
+    logger.info("  modules=%d lessons=%d steps=%d", len(module_rows), len(lesson_rows), len(step_rows_final))
+
+
+async def transform_comments(session: AsyncSession):
+    """Build mart_comments from raw_comment, attributed via mart_steps.
+
+    Only attributable comments (step→course in the courses table). Aggregates
+    keep deleted comments; the list filters them out at read time.
+    """
+    logger.info("=== Mart comments ===")
+
+    r = await session.execute(text("SELECT id, stepik_course_id FROM courses"))
+    course_map = {int(row[1]): str(row[0]) for row in r}
+    if not course_map:
+        logger.warning("  no courses, skipping")
+        return
+
+    r = await session.execute(
+        text(
+            "SELECT step_id, course_id, stepik_course_id, lesson_id, step_number, "
+            "module_number, lesson_number, module_title, lesson_title "
+            "FROM mart_steps WHERE stepik_course_id IS NOT NULL"
+        )
+    )
+    step_attr = {}
+    for row in r:
+        step_attr[row[0]] = {
+            "course_uuid": row[1],
+            "stepik_course_id": row[2],
+            "lesson_id": row[3],
+            "step_number": row[4],
+            "module_number": row[5],
+            "lesson_number": row[6],
+            "module_title": row[7],
+            "lesson_title": row[8],
+        }
+
+    user_names = await _get_buyer_names(session)
+
+    r = await session.execute(text("SELECT _raw_json FROM raw_comment"))
+    rows = []
+    for (raw_json,) in r:
+        cm = _ensure_json(raw_json)
+        if not isinstance(cm, dict):
+            continue
+        time_raw = cm.get("time")
+        if not time_raw:
+            continue
+        ym = _month_tuple(time_raw)
+        if ym is None:
+            continue
+        try:
+            sid = int(cm.get("target"))
+        except (TypeError, ValueError):
+            continue
+        attr = step_attr.get(sid)
+        if attr is None:
+            continue
+        comment_id = _to_int(cm.get("id"))
+        if comment_id is None:
+            continue
+        user_id = _to_int(cm.get("user"))
+        thread = cm.get("thread", "")
+        is_solution = "solution" in thread if thread else False
+        vote_delta = _to_int(cm.get("vote_delta")) or 0
+        is_unanswered = not (cm.get("is_staff_replied") is True or cm.get("user_role") == "teacher")
+        rows.append(
+            {
+                "id": str(uuid.uuid4()),
+                "course_id": attr["course_uuid"],
+                "stepik_course_id": attr["stepik_course_id"],
+                "comment_id": comment_id,
+                "time": str(time_raw),
+                "year": ym[0],
+                "month": ym[1],
+                "user_id": user_id,
+                "user_name": user_names.get(user_id) if user_id is not None else None,
+                "text": _strip_html(cm.get("text")),
+                "likes": vote_delta if vote_delta > 0 else 0,
+                "dislikes": -vote_delta if vote_delta < 0 else 0,
+                "replies": _to_int(cm.get("reply_count")) or 0,
+                "is_solution": bool(is_solution),
+                "is_unanswered": bool(is_unanswered),
+                "is_disliked": bool(vote_delta < 0),
+                "is_deleted": bool(cm.get("is_deleted")),
+                "lesson_id": attr["lesson_id"],
+                "step_number": attr["step_number"],
+                "module_number": attr["module_number"],
+                "lesson_number": attr["lesson_number"],
+                "module_title": attr["module_title"],
+                "lesson_title": attr["lesson_title"],
+            }
+        )
+
+    await session.execute(text("DELETE FROM mart_comments"))
+    await _insert_rows(session, "mart_comments", rows)
+    logger.info("  comments=%d", len(rows))
+
+
+async def transform_certificates(session: AsyncSession):
+    """Build mart_certificates from raw_certificate (courses in the courses table)."""
+    logger.info("=== Mart certificates ===")
+
+    r = await session.execute(text("SELECT id, stepik_course_id FROM courses"))
+    course_map = {int(row[1]): str(row[0]) for row in r}
+    if not course_map:
+        logger.warning("  no courses, skipping")
+        return
+
+    r = await session.execute(
+        text("SELECT certificate_id, user_id, course_id, _raw_json FROM raw_certificate")
+    )
+    rows = []
+    for cert_id_raw, user_raw, course_raw, raw_json in r:
+        data = _ensure_json(raw_json)
+        if not isinstance(data, dict):
+            continue
+        cid = _to_int(course_raw)
+        if cid is None:
+            cid = _to_int(data.get("course"))
+        course_uuid = course_map.get(cid) if cid is not None else None
+        if course_uuid is None:
+            continue
+        ym = _month_tuple(data.get("issue_date"))
+        if ym is None:
+            continue
+        user_id = _to_int(user_raw)
+        if user_id is None:
+            user_id = _to_int(data.get("user"))
+        cert_id = _to_int(data.get("id"))
+        if cert_id is None:
+            cert_id = _to_int(cert_id_raw)
+        rows.append(
+            {
+                "id": str(uuid.uuid4()),
+                "course_id": course_uuid,
+                "stepik_course_id": cid,
+                "certificate_id": cert_id,
+                "user_id": user_id,
+                "year": ym[0],
+                "month": ym[1],
+                "type": data.get("type"),
+            }
+        )
+
+    await session.execute(text("DELETE FROM mart_certificates"))
+    await _insert_rows(session, "mart_certificates", rows)
+    logger.info("  certificates=%d", len(rows))
+
+
+async def transform_reviews(session: AsyncSession):
+    """Build mart_reviews from raw_course_review (courses in the courses table)."""
+    logger.info("=== Mart reviews ===")
+
+    r = await session.execute(text("SELECT id, stepik_course_id FROM courses"))
+    course_map = {int(row[1]): str(row[0]) for row in r}
+    if not course_map:
+        logger.warning("  no courses, skipping")
+        return
+
+    r = await session.execute(text('SELECT review_id, "user", course, _raw_json FROM raw_course_review'))
+    rows = []
+    for review_id_raw, user_raw, course_raw, raw_json in r:
+        data = _ensure_json(raw_json)
+        if not isinstance(data, dict):
+            continue
+        cid = _to_int(course_raw)
+        if cid is None:
+            cid = _to_int(data.get("course"))
+        course_uuid = course_map.get(cid) if cid is not None else None
+        if course_uuid is None:
+            continue
+        ym = _month_tuple(data.get("create_date"))
+        if ym is None:
+            continue
+        user_id = _to_int(user_raw)
+        if user_id is None:
+            user_id = _to_int(data.get("user"))
+        score = _to_float(data.get("score"))
+        rows.append(
+            {
+                "id": str(uuid.uuid4()),
+                "course_id": course_uuid,
+                "stepik_course_id": cid,
+                "review_id": _to_int(data.get("id")) if _to_int(data.get("id")) is not None else _to_int(review_id_raw),
+                "user_id": user_id,
+                "year": ym[0],
+                "month": ym[1],
+                "score": score,
+            }
+        )
+
+    await session.execute(text("DELETE FROM mart_reviews"))
+    await _insert_rows(session, "mart_reviews", rows)
+    logger.info("  reviews=%d", len(rows))

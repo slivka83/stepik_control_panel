@@ -6,7 +6,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
 from app.api.dashboard.common import (
-    _parse_step_positions,
     build_step_path_maps,
     get_courses_for_user,
     weighted_success_pct,

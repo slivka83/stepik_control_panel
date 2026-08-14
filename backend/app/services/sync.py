@@ -27,6 +27,76 @@ _last_sync_error: str | None = None
 
 SYNC_COOLDOWN_SECONDS = 60  # 1 minute
 
+_SYNC_STATE_ENDPOINT = "sync"
+_state_loaded = False
+
+
+async def _persist_sync_state(in_progress: bool, progress: int, step: str, last_error: str, last_completed_at: float):
+    """Best-effort write of sync status to raw_sync_state so it survives server reloads."""
+    try:
+        values = {
+            "in_progress": "1" if in_progress else "0",
+            "progress": str(progress),
+            "step": step or "",
+            "last_error": last_error or "",
+            "last_completed_at": str(int(last_completed_at or 0)),
+        }
+        async with async_session() as session, session.begin():
+            for key, value in values.items():
+                await session.execute(
+                    text(
+                        "INSERT INTO raw_sync_state (endpoint_name, key, value) "
+                        "VALUES (:ep, :k, :v) "
+                        "ON CONFLICT (endpoint_name, key) DO UPDATE SET value = :v2"
+                    ),
+                    {"ep": _SYNC_STATE_ENDPOINT, "k": key, "v": value, "v2": value},
+                )
+    except Exception as e:
+        logger.warning("Failed to persist sync state: %s", e)
+
+
+async def _load_sync_state():
+    """Restore sync status after a process restart (uvicorn --reload, crash)."""
+    global _sync_in_progress, _sync_progress, _sync_step, _last_sync_completed_at, _last_sync_error
+    async with async_session() as session:
+        r = await session.execute(
+            text("SELECT key, value FROM raw_sync_state WHERE endpoint_name = :ep"),
+            {"ep": _SYNC_STATE_ENDPOINT},
+        )
+        state = {row[0]: row[1] for row in r}
+
+    was_in_progress = state.get("in_progress") == "1"
+    if was_in_progress:
+        # Процесс умер во время синхронизации (например, авто-перезагрузка) —
+        # ни успеха, ни пойманной ошибки нет, но и синк не завершился.
+        _last_sync_error = "Синхронизация прервана перезапуском сервера"
+        _last_sync_completed_at = 0
+    else:
+        err = state.get("last_error", "")
+        _last_sync_error = err or None
+        try:
+            _last_sync_completed_at = float(state.get("last_completed_at", "0"))
+        except (TypeError, ValueError):
+            _last_sync_completed_at = 0
+
+    # В новом процессе синк физически не запущен — сбросить «застрявшие» флаги.
+    _sync_in_progress = False
+    _sync_progress = 0
+    _sync_step = ""
+    await _persist_sync_state(False, 0, "", _last_sync_error or "", _last_sync_completed_at)
+
+
+async def ensure_state_loaded():
+    """Lazy one-time load of persisted sync state (called on first status request)."""
+    global _state_loaded
+    if _state_loaded:
+        return
+    try:
+        await _load_sync_state()
+    except Exception as e:
+        logger.warning("Failed to load persisted sync state: %s", e)
+    _state_loaded = True
+
 
 async def _get_user_token(user_id=None) -> str | None:
     async with async_session() as session:
@@ -148,6 +218,22 @@ async def sync_community_stats(user_id=None):
     async with async_session() as session, session.begin():
         await transform.transform_community(session)
 
+    _sync_step = "структура: витрины"
+    async with async_session() as session, session.begin():
+        await transform.transform_steps(session)
+
+    _sync_step = "комментарии: витрина"
+    async with async_session() as session, session.begin():
+        await transform.transform_comments(session)
+
+    _sync_step = "сертификаты: витрина"
+    async with async_session() as session, session.begin():
+        await transform.transform_certificates(session)
+
+    _sync_step = "отзывы: витрина"
+    async with async_session() as session, session.begin():
+        await transform.transform_reviews(session)
+
     _sync_step = "студенты: витрина"
     async with async_session() as session, session.begin():
         await transform.transform_students(session)
@@ -177,6 +263,7 @@ async def sync_all(force: bool = False, user_id=None):
         _last_sync_error = None
 
     logger.info("=== Full sync started ===")
+    await _persist_sync_state(True, 0, "курсы", "", _last_sync_completed_at)
     try:
         _sync_step = "курсы и студенты"
         await sync_courses_and_enrollments(user_id)
@@ -197,12 +284,14 @@ async def sync_all(force: bool = False, user_id=None):
         _sync_step = "готово"
         with _sync_lock:
             _last_sync_completed_at = time.time()
+        await _persist_sync_state(False, 0, "", "", _last_sync_completed_at)
         logger.info("=== Full sync completed ===")
         return {"status": "ok"}
     except Exception as e:
         logger.error("Sync failed: %s", e, exc_info=True)
         with _sync_lock:
             _last_sync_error = str(e)
+        await _persist_sync_state(False, 0, "", str(e), _last_sync_completed_at)
         return {"status": "error", "detail": str(e)}
     finally:
         with _sync_lock:

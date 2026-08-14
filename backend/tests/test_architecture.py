@@ -26,13 +26,13 @@ class TestAlembicGraph:
         assert len(heads) == 1, f"Expected 1 alembic head, got {heads}"
 
     def test_meta_tables_migration_after_raw_fixes(self):
-        """016 must be the head, chained after 015 (which followed 014)."""
+        """017 must be the head, chained after 016 (which followed 015)."""
         cfg = Config(str(BACKEND_DIR / "alembic.ini"))
         script = ScriptDirectory.from_config(cfg)
         head = script.get_heads()[0]
-        assert head == "016", head
+        assert head == "017", head
         rev = script.get_revision(head)
-        assert rev.down_revision == "015", rev.down_revision
+        assert rev.down_revision == "016", rev.down_revision
 
 
 class TestDeadArtifacts:
@@ -90,6 +90,10 @@ class TestSingleSourceOfTruth:
             "transform_financials",
             "transform_community",
             "transform_students",
+            "transform_steps",
+            "transform_comments",
+            "transform_certificates",
+            "transform_reviews",
         ]:
             assert f"{fn}" in src, f"rebuild_marts.py must call {fn}"
         assert "raw_course is empty" in src, "rebuild_marts.py must abort on empty raw_course"
