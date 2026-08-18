@@ -826,6 +826,15 @@ async def transform_community(session: AsyncSession):
         thread = cm.get("thread", "")
         is_solution = "solution" in thread if thread else False
 
+        # Only comments whose step is attributable to one of the user's courses
+        # count towards the global/per-course totals. This keeps the snapshot
+        # consistent with mart_comments and with the filtered (course selection)
+        # community stats — otherwise "all courses" would not equal "no filter".
+        target = cm.get("target")
+        step_cid = step_course.get(int(target)) if (target and step_course) else None
+        if not step_cid:
+            continue
+
         total_comments += 1
         comments_monthly[key] = comments_monthly.get(key, 0) + 1
 
@@ -833,12 +842,8 @@ async def transform_community(session: AsyncSession):
             total_solutions += 1
             solutions_monthly[key] = solutions_monthly.get(key, 0) + 1
 
-        target = cm.get("target")
-        if target and step_course:
-            step_cid = step_course.get(int(target))
-            if step_cid:
-                cid_str = str(step_cid)
-                per_course_comments[cid_str] = per_course_comments.get(cid_str, 0) + 1
+        cid_str = str(step_cid)
+        per_course_comments[cid_str] = per_course_comments.get(cid_str, 0) + 1
 
     per_course = {}
     for cid, _ in course_map.items():

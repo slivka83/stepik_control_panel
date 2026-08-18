@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://stepik_panel:stepik_panel@localhost:5433/stepik_panel"
-    redis_url: str = "redis://localhost:6380/0"
+    redis_url: str = "redis://:stepik_redis@localhost:6380/0"
 
     stepik_client_id: str = ""
     stepik_client_secret: str = ""

@@ -290,3 +290,89 @@ class TestKpiEdgeCases:
             assert response.json()["average_rating"] == 0
         finally:
             app.dependency_overrides.clear()
+
+    async def test_revenue_trend_uses_previous_calendar_month(self, db_session):
+        # Regression: the revenue trend must compare the current calendar month
+        # against the *previous calendar month*, not months[-2]. When the latest
+        # data month is not the current month, months[-2] skips a month.
+        user = await _seed_user(db_session)
+        await _owned_course(db_session, user, 100)
+        db_session.add(
+            FinancialSnapshot(
+                id=uuid.uuid4(),
+                data={
+                    "summary": {
+                        # current calendar month (Aug) income
+                        "current_month_income": 200,
+                        "total_income": 1700,
+                        "total_turnover": 2000,
+                        "total_refunds": 0,
+                        "total_payments": 10,
+                    },
+                    "months": [
+                        {
+                            "month": "Май 2026",
+                            "year": 2026,
+                            "month_num": 5,
+                            "income": 400,
+                            "turnover": 500,
+                            "refunds": 0,
+                            "payments_count": 4,
+                            "refunds_count": 0,
+                        },
+                        {
+                            "month": "Июнь 2026",
+                            "year": 2026,
+                            "month_num": 6,
+                            "income": 500,
+                            "turnover": 600,
+                            "refunds": 0,
+                            "payments_count": 5,
+                            "refunds_count": 0,
+                        },
+                        {
+                            "month": "Июль 2026",
+                            "year": 2026,
+                            "month_num": 7,
+                            "income": 1000,
+                            "turnover": 1100,
+                            "refunds": 0,
+                            "payments_count": 6,
+                            "refunds_count": 0,
+                        },
+                    ],
+                    "courses": [],
+                    "recent_payments": [],
+                    "community": {"total_comments": 0},
+                },
+                updated_at=datetime.now(UTC).replace(tzinfo=None),
+            )
+        )
+        await db_session.commit()
+
+        fixed = datetime(2026, 8, 15, 12, 0, 0, tzinfo=UTC)
+
+        class _FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed
+
+        async def override_db():
+            yield db_session
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
+        try:
+            with patch.object(kpi_module, "datetime", _FixedDateTime):
+                response = client.get("/api/dashboard/kpi")
+            assert response.status_code == 200
+            data = response.json()
+            # prev calendar month = July (1000), current = Aug (200) → -80%.
+            # The buggy version compared against months[-2] = June (500) → -60%.
+            assert data["revenue_change_pct"] == -80
+            assert data["revenue_change_detail"] == {"current": 200, "previous": 1000}
+        finally:
+            app.dependency_overrides.clear()

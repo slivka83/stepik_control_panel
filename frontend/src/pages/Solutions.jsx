@@ -397,7 +397,7 @@ export default function Solutions() {
     setHardestLoading(true);
     setHardestError(null);
     const params = { limit: 200, min_submissions: 1 };
-    if (selectedCourseIds) params.course_ids = selectedCourseIds.join(',');
+    if (selectedCourseIds != null) params.course_ids = selectedCourseIds.join(',');
     api
       .get('/dashboard/hardest-steps', { params })
       .then((res) => setHardestSteps(res.data.steps || []))
@@ -414,7 +414,7 @@ export default function Solutions() {
   const totalSubmissions = months.reduce((s, m) => s + (m.total || 0), 0);
   const totalCorrect = months.reduce((s, m) => s + (m.correct || 0), 0);
   const totalWrong = totalSubmissions - totalCorrect;
-  const totalPublished = months.reduce((s, m) => s + (m.published || 0), 0);
+  const totalPublished = months.reduce((s, m) => s + Math.min(m.published || 0, m.correct || 0), 0);
   const avgSuccess = totalSubmissions > 0 ? Math.round((totalCorrect / totalSubmissions) * 100) : 0;
 
   return (

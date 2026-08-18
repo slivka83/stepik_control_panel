@@ -733,3 +733,29 @@ class TestFilterStepsAverageGrade:
         await db_session.commit()
         grade = await filter_steps_average_grade(db_session, {100})
         assert grade == 0.0
+
+    async def test_null_course_step_included_in_average(self, db_session):
+        # Regression: steps without course attribution (course_id IS NULL) feed
+        # the step-grade KPI, so selecting all courses must include them — the
+        # "filter = all courses" path must equal the "no filter" path.
+        db_session.add(
+            MartStep(
+                id=uuid.uuid4(),
+                stepik_course_id=None,
+                step_id=1,
+                grade=5.0,
+                grade_votes=10,
+            )
+        )
+        db_session.add(
+            MartStep(
+                id=uuid.uuid4(),
+                stepik_course_id=100,
+                step_id=2,
+                grade=3.0,
+                grade_votes=10,
+            )
+        )
+        await db_session.commit()
+        grade = await filter_steps_average_grade(db_session, {100})
+        assert grade == 4.0

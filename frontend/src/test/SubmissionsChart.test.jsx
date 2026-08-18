@@ -36,7 +36,7 @@ describe('SubmissionsChart', () => {
     };
     render(<SubmissionsChart data={data} />);
     expect(screen.getByText('Правильные')).toBeInTheDocument();
-    expect(screen.getByText('Всего')).toBeInTheDocument();
+    expect(screen.getByText('Не завершён')).toBeInTheDocument();
     expect(screen.getByText('не завершён')).toBeInTheDocument();
   });
 

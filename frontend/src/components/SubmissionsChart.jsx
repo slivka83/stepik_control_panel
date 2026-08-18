@@ -120,7 +120,7 @@ export default function SubmissionsChart({
           {!hideTotalLegend && (
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: dim }}></div>
-              <span className="text-xs text-gray-400">Всего</span>
+              <span className="text-xs text-gray-400">Не завершён</span>
             </div>
           )}
           <div className="flex items-center gap-2">

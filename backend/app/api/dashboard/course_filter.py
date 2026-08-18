@@ -238,7 +238,9 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
     recent_payments = [
         p
         for p in data.get("recent_payments", []) or []
-        if isinstance(p, dict) and isinstance(p.get("raw"), dict) and _int_or_none(p["raw"].get("course")) in selected_ids
+        if isinstance(p, dict)
+        and isinstance(p.get("raw"), dict)
+        and _int_or_none(p["raw"].get("course")) in selected_ids
     ]
 
     return {
@@ -367,7 +369,7 @@ async def filter_steps_average_grade(db: AsyncSession, selected_stepik_ids: set[
     rows = await db.execute(
         text(
             "SELECT grade, grade_votes FROM mart_steps "
-            f"WHERE stepik_course_id IN ({placeholders})"
+            f"WHERE stepik_course_id IN ({placeholders}) OR stepik_course_id IS NULL"
         ),
         params,
     )

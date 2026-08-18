@@ -773,6 +773,19 @@ class TestTransformCommunity:
         )
         await db_session.commit()
 
+        # Course structure so the comment's target (step 101) is attributable
+        # to course 101 (mirrors build_step_course_map join).
+        await db_session.execute(
+            text("INSERT INTO raw_section (section_id, course) VALUES ('201', '101')")
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_unit (lesson_id, section_id) VALUES ('301', '201')")
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_step (step_id, lesson) VALUES ('101', '301')")
+        )
+        await db_session.commit()
+
         await db_session.execute(
             text("""
             INSERT INTO raw_course_review_summary (average, count, _raw_json)
@@ -809,6 +822,63 @@ class TestTransformCommunity:
 
         # Original data preserved
         assert data["summary"]["total_turnover"] == 5000
+
+    @pytest.mark.asyncio
+    async def test_community_skips_non_attributable(self, db_session):
+        # Regression: comments whose step is not attributable to any of the
+        # user's courses must be excluded from the global totals, so that the
+        # snapshot's total_comments matches the filtered (course selection)
+        # community stats (mart_comments only holds attributable comments).
+        from app.services.transform import transform_community
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=101)
+        await db_session.execute(
+            text("""
+            INSERT INTO financial_snapshots (id, data, updated_at)
+            VALUES (:id, :data, :now)
+        """),
+            {
+                "id": str(uuid.uuid4()),
+                "data": json.dumps(
+                    {"summary": {"total_turnover": 5000}, "months": [], "courses": [], "recent_payments": []}
+                ),
+                "now": datetime.now(UTC),
+            },
+        )
+        await db_session.commit()
+
+        await db_session.execute(
+            text("INSERT INTO raw_section (section_id, course) VALUES ('201', '101')")
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_unit (lesson_id, section_id) VALUES ('301', '201')")
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_step (step_id, lesson) VALUES ('101', '301')")
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_comment ("user", target, "time", thread, _raw_json)
+            VALUES (1, 101, '2026-07-10T10:00:00Z', '', :j1),
+                   (2, 999, '2026-07-11T10:00:00Z', '', :j2)
+        """),
+            {
+                "j1": json.dumps({"user": 1, "target": 101, "time": "2026-07-10T10:00:00Z", "thread": ""}),
+                "j2": json.dumps({"user": 2, "target": 999, "time": "2026-07-11T10:00:00Z", "thread": ""}),
+            },
+        )
+        await db_session.commit()
+
+        await transform_community(db_session)
+        await db_session.commit()
+
+        r = await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
+        row = r.fetchone()
+        data = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+        community = data.get("community", {})
+        assert community["total_comments"] == 1
+        assert community["comments_monthly"]["2026-07"] == 1
 
     @pytest.mark.asyncio
     async def test_no_existing_snapshot_creates_new(self, db_session):

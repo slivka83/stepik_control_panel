@@ -72,7 +72,7 @@ export default function RevenueChart({ data = [] }) {
           </div>
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: COLOR, opacity: 0.4 }}></div>
-            <span className="text-xs text-gray-400">Оборот</span>
+            <span className="text-xs text-gray-400">Комиссия</span>
           </div>
           <div className="flex items-center gap-2">
             <svg className="w-3 h-3" viewBox="0 0 12 12">

@@ -196,7 +196,7 @@ function stepColor(step, metric, maxValue) {
     return successColor(ratio);
   }
   const value = m.value(step);
-  if (!value || !maxValue) return EMPTY_CELL;
+  if (value == null || !maxValue) return EMPTY_CELL;
   const t = Math.max(0, Math.min(1, value / maxValue));
   return `rgba(56, 189, 248, ${(0.25 + 0.7 * t).toFixed(3)})`;
 }

@@ -63,6 +63,14 @@ def _pct(cur, prev):
     return 0 if cur == 0 else None
 
 
+def _month_income(months, year, month):
+    """Income of a specific calendar month from the months series (0 if absent)."""
+    for m in months:
+        if m.get("year") == year and m.get("month_num") == month:
+            return m.get("income", 0)
+    return 0
+
+
 @router.get("/kpi")
 async def get_kpi(
     user: User = Depends(get_user),
@@ -153,6 +161,12 @@ async def get_kpi(
     payments_change_detail = None
     refunds_change_detail = None
     refunds_pcs_change_detail = None
+    now = datetime.now(UTC)
+    cur_year, cur_month = now.year, now.month
+    if cur_month == 1:
+        prev_year, prev_month = cur_year - 1, 12
+    else:
+        prev_year, prev_month = cur_year, cur_month - 1
     if snapshot:
         current = summary.get("current_month_income", 0)
         if months:
@@ -160,7 +174,7 @@ async def get_kpi(
             current_month_payments = last.get("payments_count", 0)
             current_month_refunds_count = last.get("refunds", 0)
             current_month_refunds_pcs = last.get("refunds_count", 0)
-            prev_income = months[-2].get("income", 0) if len(months) >= 2 else 0
+            prev_income = _month_income(months, prev_year, prev_month)
             revenue_change_pct = _pct(current, prev_income)
             if revenue_change_pct is not None:
                 revenue_change_detail = {"current": current, "previous": prev_income}
@@ -177,13 +191,6 @@ async def get_kpi(
             refunds_pcs_change_pct = _pct(current_month_refunds_pcs, prev_refunds_pcs)
             if refunds_pcs_change_pct is not None:
                 refunds_pcs_change_detail = {"current": current_month_refunds_pcs, "previous": prev_refunds_pcs}
-
-    now = datetime.now(UTC)
-    cur_year, cur_month = now.year, now.month
-    if cur_month == 1:
-        prev_year, prev_month = cur_year - 1, 12
-    else:
-        prev_year, prev_month = cur_year, cur_month - 1
 
     sub_result = await db.execute(
         select(

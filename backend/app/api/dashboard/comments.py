@@ -164,7 +164,7 @@ async def get_comments(
 async def get_comments_list(
     user: User = Depends(get_user),
     db: AsyncSession = Depends(get_db),
-    type: str = Query("unanswered"),
+    list_type: str = Query("unanswered", alias="type"),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     sort: str = Query("time"),
@@ -177,8 +177,8 @@ async def get_comments_list(
     is_unanswered/is_disliked пресчитаны трансформом; не-атрибутируемые шаги
     отсутствуют в витрине, поэтому «фильтр = все курсы» == «без фильтра».
     """
-    if type not in LIST_TYPES:
-        raise HTTPException(status_code=400, detail=f"invalid type: {type!r}")
+    if list_type not in LIST_TYPES:
+        raise HTTPException(status_code=400, detail=f"invalid type: {list_type!r}")
     if sort not in LIST_SORTS:
         raise HTTPException(status_code=400, detail=f"invalid sort field: {sort!r}")
     if order not in ("asc", "desc"):
@@ -191,7 +191,7 @@ async def get_comments_list(
 
     course_by_stepik = {c.stepik_course_id: c for c in courses}
     placeholders, params = _in_clause(selected_stepik)
-    type_filter = "is_unanswered = TRUE" if type == "unanswered" else "is_disliked = TRUE"
+    type_filter = "is_unanswered = TRUE" if list_type == "unanswered" else "is_disliked = TRUE"
 
     rows = await db.execute(
         text(

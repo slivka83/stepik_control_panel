@@ -39,7 +39,7 @@ function KpiCard({
 
   const getRatingStyle = () => {
     if (!ratingColor) return {};
-    const r = Math.max(1, Math.min(5, value));
+    const r = value == null ? 0 : Math.max(1, Math.min(5, value));
     const stops = [
       [1.0, 255, 0, 0],
       [2.0, 255, 120, 0],
@@ -48,7 +48,7 @@ function KpiCard({
       [4.5, 0, 180, 0],
       [4.9, 0, 255, 0],
     ];
-    let color = stops[stops.length - 1];
+    let color = stops[0];
     for (const [stop, cr, cg, cb] of stops) {
       if (r >= stop) color = [cr, cg, cb];
       else break;
