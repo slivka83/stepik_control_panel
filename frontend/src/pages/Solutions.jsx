@@ -5,7 +5,9 @@ import KpiCard from '../components/KpiCard';
 import ErrorBanner from '../components/ErrorBanner';
 import DataTable from '../components/DataTable';
 import Tabs from '../components/Tabs';
-import { parseMonthLabel } from '../utils/monthWindow';
+import MetricBarChart from '../components/MetricBarChart';
+import ChartToggle from '../components/ChartToggle';
+import { parseMonthLabel, makeMonthsTick } from '../utils/monthWindow';
 import { yearMonthLabel } from '../utils/format';
 import { STEPIK_URLS } from '../constants.jsx';
 import api from '../api';
@@ -16,6 +18,35 @@ const TABS = [
   { key: 'courses', label: 'По курсам' },
   { key: 'hardest', label: 'Самые сложные' },
 ];
+
+const CHART_METRICS = {
+  correct_wrong: {
+    label: 'Правильно / Неверно',
+    format: 'count',
+    bars: [
+      { dataKey: 'correct', color: '#38bdf8' },
+      { dataKey: 'wrong', color: '#1a6a9e' },
+    ],
+    tooltip: (row) => [
+      { label: 'Правильно', value: row.correct, color: '#38bdf8' },
+      { label: 'Неверно', value: row.wrong, color: '#1a6a9e' },
+      { label: 'Опубликованные', value: row.published },
+      { label: 'Всего', value: row.total },
+    ],
+  },
+  published: {
+    label: 'Опубликованные',
+    format: 'count',
+    bars: [{ dataKey: 'published', color: '#DB62C4' }],
+    tooltip: (row) => [{ label: 'Опубликованные', value: row.published, color: '#DB62C4' }],
+  },
+  students: {
+    label: 'Студенты',
+    format: 'count',
+    bars: [{ dataKey: 'students', color: '#38bdf8' }],
+    tooltip: (row) => [{ label: 'Студенты', value: row.students, color: '#38bdf8' }],
+  },
+};
 
 const SORT_INIT = {
   months: { key: 'month', dir: 'desc' },
@@ -337,6 +368,8 @@ export default function Solutions() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'months');
   const [sorts, setSorts] = useState(SORT_INIT);
+  const [viewMode, setViewMode] = useState('table');
+  const [chartMetric, setChartMetric] = useState('correct_wrong');
 
   const [hardestSteps, setHardestSteps] = useState([]);
   const [hardestLoading, setHardestLoading] = useState(false);
@@ -376,6 +409,7 @@ export default function Solutions() {
   const months = submissions.months || [];
   const byCourse = submissions.by_course || [];
   const years = submissions.years || [];
+  const chartRows = months.map((m) => ({ ...m, wrong: calcWrong(m) }));
 
   const totalSubmissions = months.reduce((s, m) => s + (m.total || 0), 0);
   const totalCorrect = months.reduce((s, m) => s + (m.correct || 0), 0);
@@ -401,54 +435,77 @@ export default function Solutions() {
       </div>
 
       <div className="flex flex-col flex-1 min-h-0">
-        <Tabs items={TABS} active={activeTab} onChange={handleTabChange} />
+        <div className="flex items-center justify-between gap-3 shrink-0 flex-wrap">
+          <Tabs items={TABS} active={activeTab} onChange={handleTabChange} />
 
-        {activeTab === 'months' && (
-          <DataTable
-            columns={MONTH_COLUMNS}
-            rows={months}
-            initialSort={SORT_INIT.months}
-            sort={sorts.months}
-            onSort={onSort('months')}
-            rowKey={(m) => m.month}
+          <ChartToggle
+            visible={activeTab === 'months'}
+            viewMode={viewMode}
+            onToggle={() => setViewMode(viewMode === 'chart' ? 'table' : 'chart')}
+            metric={chartMetric}
+            onMetricChange={setChartMetric}
+            metrics={CHART_METRICS}
           />
-        )}
+        </div>
 
-        {activeTab === 'years' && (
-          <DataTable
-            columns={YEARS_COLUMNS}
-            rows={years}
-            initialSort={SORT_INIT.years}
-            sort={sorts.years}
-            onSort={onSort('years')}
-            rowKey={(m) => m.year}
+        {viewMode === 'chart' && activeTab === 'months' ? (
+          <MetricBarChart
+            rows={chartRows}
+            metric={chartMetric}
+            metrics={CHART_METRICS}
+            xTick={makeMonthsTick(chartRows)}
+            periodLabel={(m) => m.month}
           />
-        )}
+        ) : (
+          <>
+            {activeTab === 'months' && (
+              <DataTable
+                columns={MONTH_COLUMNS}
+                rows={months}
+                initialSort={SORT_INIT.months}
+                sort={sorts.months}
+                onSort={onSort('months')}
+                rowKey={(m) => m.month}
+              />
+            )}
 
-        {activeTab === 'courses' && (
-          <DataTable
-            columns={COURSES_COLUMNS}
-            rows={byCourse}
-            initialSort={SORT_INIT.courses}
-            sort={sorts.courses}
-            onSort={onSort('courses')}
-            rowKey={(c) => c.course_id}
-          />
-        )}
+            {activeTab === 'years' && (
+              <DataTable
+                columns={YEARS_COLUMNS}
+                rows={years}
+                initialSort={SORT_INIT.years}
+                sort={sorts.years}
+                onSort={onSort('years')}
+                rowKey={(m) => m.year}
+              />
+            )}
 
-        {activeTab === 'hardest' && (
-          <DataTable
-            columns={HARDEST_COLUMNS}
-            rows={hardestSteps}
-            initialSort={SORT_INIT.hardest}
-            sort={sorts.hardest}
-            onSort={onSort('hardest')}
-            rowKey={(s) => s.stepik_step_id}
-            loading={hardestLoading}
-            error={hardestError}
-            emptyText="Нет данных"
-            emptyCentered
-          />
+            {activeTab === 'courses' && (
+              <DataTable
+                columns={COURSES_COLUMNS}
+                rows={byCourse}
+                initialSort={SORT_INIT.courses}
+                sort={sorts.courses}
+                onSort={onSort('courses')}
+                rowKey={(c) => c.course_id}
+              />
+            )}
+
+            {activeTab === 'hardest' && (
+              <DataTable
+                columns={HARDEST_COLUMNS}
+                rows={hardestSteps}
+                initialSort={SORT_INIT.hardest}
+                sort={sorts.hardest}
+                onSort={onSort('hardest')}
+                rowKey={(s) => s.stepik_step_id}
+                loading={hardestLoading}
+                error={hardestError}
+                emptyText="Нет данных"
+                emptyCentered
+              />
+            )}
+          </>
         )}
       </div>
     </div>

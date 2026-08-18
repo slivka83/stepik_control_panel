@@ -7,7 +7,7 @@ import {
   COHORT_DAYS,
   STATUS_LABELS,
   STATUS_COLORS,
-  NAV_ITEMS,
+  NAV_GROUPS,
 } from '../constants.jsx';
 
 describe('Constants', () => {
@@ -89,42 +89,56 @@ describe('Constants', () => {
     });
   });
 
-  describe('NAV_ITEMS', () => {
-    it('has nine navigation items', () => {
-      expect(NAV_ITEMS).toHaveLength(9);
+  describe('NAV_GROUPS', () => {
+    it('has three navigation groups', () => {
+      expect(NAV_GROUPS).toHaveLength(3);
+    });
+
+    it('has nine navigation items in total', () => {
+      const items = NAV_GROUPS.flatMap((group) => group.items);
+      expect(items).toHaveLength(9);
     });
 
     it('each item has to, label, and icon', () => {
-      for (const item of NAV_ITEMS) {
-        expect(item).toHaveProperty('to');
-        expect(item).toHaveProperty('label');
-        expect(item).toHaveProperty('icon');
+      for (const group of NAV_GROUPS) {
+        for (const item of group.items) {
+          expect(item).toHaveProperty('to');
+          expect(item).toHaveProperty('label');
+          expect(item).toHaveProperty('icon');
+        }
       }
     });
 
-    it('first item is dashboard', () => {
-      expect(NAV_ITEMS[0].to).toBe('/');
-      expect(NAV_ITEMS[0].label).toBe('Дашборд');
+    it('groups items in the expected order', () => {
+      const labelsByGroup = NAV_GROUPS.map((group) => group.items.map((item) => item.label));
+      expect(labelsByGroup).toEqual([
+        ['Дашборд', 'Активности', 'Курсы'],
+        ['Финансы', 'Решения', 'Комментарии', 'Сертификаты', 'Отзывы'],
+        ['Студенты'],
+      ]);
     });
 
-    it('has comments item after solutions', () => {
-      expect(NAV_ITEMS[3].to).toBe('/comments');
-      expect(NAV_ITEMS[3].label).toBe('Комментарии');
+    it('first group starts with dashboard', () => {
+      expect(NAV_GROUPS[0].items[0].to).toBe('/');
+      expect(NAV_GROUPS[0].items[0].label).toBe('Дашборд');
     });
 
-    it('last item is activities', () => {
-      expect(NAV_ITEMS[8].to).toBe('/activities');
-      expect(NAV_ITEMS[8].label).toBe('Активности');
+    it('students group comes last', () => {
+      expect(NAV_GROUPS[2].items[0].to).toBe('/students');
+      expect(NAV_GROUPS[2].items[0].label).toBe('Студенты');
     });
 
-    it('certificates item comes after students', () => {
-      expect(NAV_ITEMS[6].to).toBe('/certificates');
-      expect(NAV_ITEMS[6].label).toBe('Сертификаты');
+    it('certificates item comes after comments', () => {
+      const items = NAV_GROUPS[1].items;
+      expect(items[2].to).toBe('/comments');
+      expect(items[3].to).toBe('/certificates');
+      expect(items[3].label).toBe('Сертификаты');
     });
 
     it('reviews item comes after certificates', () => {
-      expect(NAV_ITEMS[7].to).toBe('/reviews');
-      expect(NAV_ITEMS[7].label).toBe('Отзывы');
+      const items = NAV_GROUPS[1].items;
+      expect(items[4].to).toBe('/reviews');
+      expect(items[4].label).toBe('Отзывы');
     });
   });
 });

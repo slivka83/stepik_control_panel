@@ -106,4 +106,32 @@ describe('Certificates', () => {
     const zeros = screen.getAllByText('0');
     expect(zeros.length).toBeGreaterThanOrEqual(4);
   });
+
+  it('shows chart toggle only on months tab', async () => {
+    const user = userEvent.setup();
+    renderCertificates();
+    expect(screen.getByRole('button', { name: 'Показать график' })).toBeInTheDocument();
+    await user.click(screen.getByText('По годам'));
+    expect(screen.queryByRole('button', { name: 'Показать график' })).not.toBeInTheDocument();
+  });
+
+  it('toggles certificates table to bar chart and back', async () => {
+    const user = userEvent.setup();
+    renderCertificates();
+    await user.click(screen.getByRole('button', { name: 'Показать график' }));
+    expect(screen.getByRole('combobox', { name: 'Метрика графика' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Диаграмма С отличием / Обычные' })).toBeInTheDocument();
+    expect(screen.queryByText('Месяц')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Показать таблицу' }));
+    expect(screen.getByText('Месяц')).toBeInTheDocument();
+  });
+
+  it('switches certificates chart metric via the select', async () => {
+    const user = userEvent.setup();
+    renderCertificates();
+    await user.click(screen.getByRole('button', { name: 'Показать график' }));
+    const select = screen.getByRole('combobox', { name: 'Метрика графика' });
+    await user.selectOptions(select, 'total');
+    expect(screen.getByRole('img', { name: 'Диаграмма Всего' })).toBeInTheDocument();
+  });
 });

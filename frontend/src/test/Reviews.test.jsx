@@ -109,4 +109,32 @@ describe('Reviews', () => {
     const zeros = screen.getAllByText('0');
     expect(zeros.length).toBeGreaterThanOrEqual(3);
   });
+
+  it('shows chart toggle only on months tab', async () => {
+    const user = userEvent.setup();
+    renderReviews();
+    expect(screen.getByRole('button', { name: 'Показать график' })).toBeInTheDocument();
+    await user.click(screen.getByText('По годам'));
+    expect(screen.queryByRole('button', { name: 'Показать график' })).not.toBeInTheDocument();
+  });
+
+  it('toggles reviews table to bar chart and back', async () => {
+    const user = userEvent.setup();
+    renderReviews();
+    await user.click(screen.getByRole('button', { name: 'Показать график' }));
+    expect(screen.getByRole('combobox', { name: 'Метрика графика' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Диаграмма Отзывы' })).toBeInTheDocument();
+    expect(screen.queryByText('Месяц')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Показать таблицу' }));
+    expect(screen.getByText('Месяц')).toBeInTheDocument();
+  });
+
+  it('switches reviews chart metric via the select', async () => {
+    const user = userEvent.setup();
+    renderReviews();
+    await user.click(screen.getByRole('button', { name: 'Показать график' }));
+    const select = screen.getByRole('combobox', { name: 'Метрика графика' });
+    await user.selectOptions(select, 'avg_score');
+    expect(screen.getByRole('img', { name: 'Диаграмма Средняя оценка' })).toBeInTheDocument();
+  });
 });

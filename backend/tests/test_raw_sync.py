@@ -482,6 +482,55 @@ class TestSyncSubmissions:
         )
         assert await _count_rows(db_session, "raw_attempt") == 2
 
+    @pytest.mark.asyncio
+    async def test_step_pass_does_not_stop_at_old_200_page_limit(self, db_session):
+        """Regression: step-pass обрезался на 200 страницах (4000 строк на шаг).
+
+        Большой шаг (например 1192035) имеет больше 4000 решений — хвост не
+        докачивался, из-за чего витрина хранила строки, которых уже нет в raw.
+        Лимит поднят до 500 страниц (10000 строк).
+        """
+        from app.services.raw_sync import sync_submissions
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('submissions', 'id', 'submission_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_step (step_id, lesson, _raw_json)
+            VALUES (500, 10, '{"block": {"name": "code"}}')
+        """)
+        )
+        await db_session.commit()
+
+        requested_pages = []
+
+        def request_side_effect(method, path, token, params=None):
+            if "submissions" in path and "step" in str(params):
+                page = params.get("page", 1)
+                requested_pages.append(page)
+                return {
+                    "submissions": [{"id": page, "status": "correct", "attempt": page}],
+                    "meta": {"has_next": True},
+                }
+            if "submissions" in path and "course" in str(params):
+                return {"submissions": [], "meta": {"has_next": False}}
+            return {}
+
+        with patch("app.services.raw_sync._request", side_effect=request_side_effect):
+            await sync_submissions(db_session, "fake_token")
+
+        assert requested_pages[-1] == 500, (
+            f"step-pass должен докачать до лимита 500 страниц, последняя: {requested_pages[-1]}"
+        )
+        assert len(requested_pages) == 500
+        assert await _count_rows(db_session, "raw_submission") == 500
+
 
 # ─── sync_financials ───────────────────────────────────────────────────
 
@@ -821,6 +870,54 @@ class TestSyncSubmissionsStep404:
         )
         r = await db_session.execute(text("SELECT submission_id FROM raw_submission"))
         assert r.scalar() == "2000"
+
+
+class TestSyncSubmissionsSkipsTextSteps:
+    @pytest.mark.asyncio
+    async def test_text_steps_are_not_polled(self, db_session):
+        """Regression: text-шаги не должны опрашиваться вообще.
+
+        Раньше sync опрашивал каждый text-шаг (485 из 768), получал 400
+        «Bad step parameter» и записывал в skipped_steps — ~60% запросов
+        к /submissions уходили впустую. Тип блока известен из raw_step.
+        """
+        from app.services.raw_sync import sync_submissions
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('submissions', 'id', 'submission_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES
+                (500, 10, '{"block": {"name": "text"}}'),
+                (501, 11, '{"block": {"name": "code"}}'),
+                (502, 12, '{"block": {"name": "external-grader"}}'),
+                (503, 13, '{}')
+        """)
+        )
+        await db_session.commit()
+
+        requested_steps = []
+
+        def request_side_effect(method, path, token, params=None):
+            if "submissions" in path and "step" in str(params):
+                requested_steps.append(params.get("step"))
+                return {"submissions": [], "meta": {"has_next": False}}
+            if "submissions" in path and "course" in str(params):
+                return {"submissions": [], "meta": {"has_next": False}}
+            return {}
+
+        with patch("app.services.raw_sync._request", side_effect=request_side_effect):
+            await sync_submissions(db_session, "fake_token")
+
+        assert requested_steps == [501, 502, 503], (
+            f"text-шаг (500) не должен опрашиваться, получено запросов: {requested_steps}"
+        )
 
 
 class TestSyncSubmissionsTheoryStep400:

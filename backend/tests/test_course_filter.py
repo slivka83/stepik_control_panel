@@ -17,11 +17,24 @@ from sqlalchemy import text
 
 from app.api.auth import get_user
 from app.api.dashboard.common import get_courses_for_user
-from app.api.dashboard.course_filter import parse_course_ids
+from app.api.dashboard.course_filter import (
+    filter_community,
+    filter_financials,
+    filter_steps_average_grade,
+    parse_course_ids,
+)
 from app.constants import MONTH_NAMES
 from app.database import get_db
 from app.main import app
-from app.models import Course, FinancialSnapshot, StudentEnrollment, StudentMart, Submission, User
+from app.models import (
+    Course,
+    FinancialSnapshot,
+    MartStep,
+    StudentEnrollment,
+    StudentMart,
+    Submission,
+    User,
+)
 from app.services.crypto import encrypt_token
 from tests.conftest import build_marts
 
@@ -648,3 +661,75 @@ class TestFilterKPI:
             assert data["steps_average_grade"] == round(expected_grade, 2)
         finally:
             app.dependency_overrides.clear()
+
+
+class TestFilterFinancialsDefensive:
+    """filter_financials must skip malformed/non-member payments, not crash."""
+
+    def _raw(self, course, **overrides):
+        base = {"course": course, "status": "debited", "amount": 100, "payment_amount": 100, "time": _now().isoformat()}
+        base.update(overrides)
+        return base
+
+    async def test_skips_missing_nondict_and_nonmember_raw(self, db_session):
+        selected = {100}
+        data = {
+            "recent_payments": [
+                {"raw": self._raw(100)},                       # counted
+                {"raw": None},                                 # no raw → skipped
+                {"raw": "not-a-dict"},                         # non-dict → skipped
+                {"raw": self._raw(None)},                      # no course → skipped
+                {"raw": self._raw(999)},                       # not selected → skipped
+                {  # refunded positive amount on selected course
+                    "raw": self._raw(100, status="refunded", amount=1000, payment_amount=1200)
+                },
+            ]
+        }
+        result = filter_financials(data, selected)
+        summary = result["summary"]
+        assert summary["total_payments"] == 2
+        assert summary["total_turnover"] == 100 - 1200
+        assert summary["total_income"] == 100 + 1000
+        assert summary["total_refunds"] == 1000
+        assert summary["total_refunds_count"] == 1
+        # recent_payments kept only for selected courses
+        assert len(result["recent_payments"]) == 2
+
+    async def test_refunded_positive_amount_uses_abs(self, db_session):
+        selected = {100}
+        data = {"recent_payments": [{"raw": self._raw(100, status="refunded", amount=500, payment_amount=700)}]}
+        summary = filter_financials(data, selected)["summary"]
+        assert summary["total_refunds"] == 500
+        assert summary["total_turnover"] == -700
+
+    async def test_garbage_course_ids_parse_to_empty(self):
+        assert parse_course_ids("foo,bar,baz") == []
+        assert parse_course_ids("") == []
+        assert parse_course_ids(None) is None
+
+
+class TestFilterCommunityEmpty:
+    async def test_empty_community_returns_zeros(self, db_session):
+        community = await filter_community(db_session, {"community": {}}, {100})
+        assert community["average_rating"] == 0.0
+        assert community["total_comments"] == 0
+        assert community["total_reviews"] == 0
+        assert community["comments_monthly"] == {}
+        assert community["solutions_monthly"] == {}
+
+
+class TestFilterStepsAverageGrade:
+    async def test_selected_course_without_steps_returns_zero(self, db_session):
+        # A step belongs to course 200 (not selected) → must not be counted.
+        db_session.add(
+            MartStep(
+                id=uuid.uuid4(),
+                stepik_course_id=200,
+                step_id=1,
+                grade=5.0,
+                grade_votes=10,
+            )
+        )
+        await db_session.commit()
+        grade = await filter_steps_average_grade(db_session, {100})
+        assert grade == 0.0

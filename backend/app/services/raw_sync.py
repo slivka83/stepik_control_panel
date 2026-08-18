@@ -19,6 +19,24 @@ def _query_params(extra: dict | None = None, page: int = 1) -> dict:
     return p
 
 
+def _is_text_step(raw_json) -> bool:
+    """Является ли шаг теоретическим (text-блок, на нём нет решений).
+
+    `_raw_json` — dict (PG jsonb) или JSON-строка (SQLite TEXT), обрабатываем оба.
+    """
+    if isinstance(raw_json, (str, bytes, bytearray)):
+        try:
+            raw = json.loads(raw_json)
+        except (json.JSONDecodeError, TypeError):
+            return False
+    else:
+        raw = raw_json
+    if not isinstance(raw, dict):
+        return False
+    block = raw.get("block")
+    return isinstance(block, dict) and block.get("name") == "text"
+
+
 async def _paginated_fetch(
     path: str,
     token: str,
@@ -329,9 +347,19 @@ async def sync_submissions(session: AsyncSession, token: str):
     mapping_subs = await _get_fields_mapping(session, "submissions")
     mapping_attempts = await _get_fields_mapping(session, "attempts")
 
-    # Get all steps from raw_step
-    r = await session.execute(text("SELECT step_id FROM raw_step"))
-    step_ids = [int(row[0]) for row in r if row[0] is not None]
+    # Get all steps from raw_step. Теоретические (text) шаги не опрашиваем:
+    # на них решений в принципе нет, а Stepik отвечает 400 «Bad step parameter».
+    # Тип блока берём из свежего full_reload raw_step — при изменении структуры
+    # курса фильтр применится на следующем синке автоматически.
+    r = await session.execute(text("SELECT step_id, _raw_json FROM raw_step"))
+    step_ids = []
+    for row in r:
+        sid = row[0]
+        if sid is None:
+            continue
+        if _is_text_step(row[1]):
+            continue
+        step_ids.append(int(sid))
 
     if not step_ids:
         logger.warning("  no steps, skipping")
@@ -349,7 +377,7 @@ async def sync_submissions(session: AsyncSession, token: str):
         last_page = page_state.get(int(sid), 0)
         page = last_page + 1 if last_page > 0 else 1
         step_new = 0
-        while page <= 200:
+        while page <= 500:
             try:
                 data = await _request("GET", "/submissions", token, {"step": sid, "page": page, "page_size": 500})
             except StepikAPIError as e:
@@ -386,6 +414,9 @@ async def sync_submissions(session: AsyncSession, token: str):
             if not data.get("meta", {}).get("has_next"):
                 break
             page += 1
+
+        if page > 500 and step_new > 0:
+            logger.warning("  step %d: достигнут лимит 500 страниц — возможно, не все решения догружены", sid)
 
         if step_new > 0:
             logger.info("  step %d: +%d (page %d+)", sid, step_new, last_page + 1 if last_page > 0 else 1)

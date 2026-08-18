@@ -48,3 +48,14 @@ export function buildMonthWindow(months, { now = new Date(), size = 18 } = {}) {
   }
   return entries;
 }
+
+export function makeMonthsTick(rows) {
+  const years = new Set((rows || []).map((m) => m.year));
+  return (value) => {
+    const parts = String(value).split(' ');
+    const name = parts[0] || '';
+    const short = name.length > 3 ? name.substring(0, 3) : name;
+    const yearNum = Number(parts[1]);
+    return years.size > 1 && yearNum ? `${short} ${String(yearNum).slice(2)}` : short;
+  };
+}

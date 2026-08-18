@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSync } from '../contexts/SyncContext';
-import { NAV_ITEMS } from '../constants.jsx';
+import { NAV_GROUPS } from '../constants.jsx';
 import CourseFilterMenu from './CourseFilterMenu';
 import api from '../api';
 
@@ -92,32 +92,39 @@ function Sidebar() {
   };
 
   return (
-    <aside className="fixed top-0 left-0 h-screen w-16 bg-space-gray border-r border-cyber-blue/10 flex flex-col items-center py-6 z-40">
+    <aside className="fixed top-0 left-0 h-screen w-16 bg-space-gray border-r border-cyber-blue/10 flex flex-col items-center pt-4 pb-6 z-40">
       <nav role="navigation" aria-label="Основная навигация" className="flex flex-col w-full">
-        {NAV_ITEMS.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === '/'}
-            aria-label={item.label}
-            title={item.label}
-            className={({ isActive }) =>
-              `flex items-center justify-center gap-3 h-[50px] px-3 transition-all duration-200 border-l-2 ${
-                isActive
-                  ? 'text-cyber-blue border-l-cyber-blue bg-cyber-blue/10'
-                  : 'text-gray-400 border-l-transparent hover:text-gray-200 hover:bg-white/5'
-              }`
-            }
-          >
-            <span
-              className="text-lg leading-none flex items-center"
-              aria-hidden="true"
-              style={item.iconScale ? { transform: `scale(${item.iconScale})`, display: 'inline-block' } : undefined}
-            >
-              {item.icon}
-            </span>
-            <span className="hidden text-sm font-medium">{item.label}</span>
-          </NavLink>
+        {NAV_GROUPS.map((group, groupIndex) => (
+          <div key={groupIndex}>
+            {groupIndex > 0 && <div className="w-full h-px bg-cyber-blue/10" aria-hidden="true" />}
+            {group.items.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.to === '/'}
+                aria-label={item.label}
+                title={item.label}
+                className={({ isActive }) =>
+                  `flex items-center justify-center gap-3 h-[50px] px-3 transition-all duration-200 border-l-2 ${
+                    isActive
+                      ? 'text-cyber-blue border-l-cyber-blue bg-cyber-blue/10'
+                      : 'text-gray-400 border-l-transparent hover:text-gray-200 hover:bg-white/5'
+                  }`
+                }
+              >
+                <span
+                  className="text-lg leading-none flex items-center"
+                  aria-hidden="true"
+                  style={
+                    item.iconScale ? { transform: `scale(${item.iconScale})`, display: 'inline-block' } : undefined
+                  }
+                >
+                  {item.icon}
+                </span>
+                <span className="hidden text-sm font-medium">{item.label}</span>
+              </NavLink>
+            ))}
+          </div>
         ))}
       </nav>
 

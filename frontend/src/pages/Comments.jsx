@@ -5,7 +5,9 @@ import KpiCard from '../components/KpiCard';
 import ErrorBanner from '../components/ErrorBanner';
 import DataTable, { useRowsPerPage, useSortState } from '../components/DataTable';
 import Tabs from '../components/Tabs';
-import { parseMonthLabel } from '../utils/monthWindow';
+import MetricBarChart from '../components/MetricBarChart';
+import ChartToggle from '../components/ChartToggle';
+import { parseMonthLabel, makeMonthsTick } from '../utils/monthWindow';
 import { yearMonthLabel, fmtDate } from '../utils/format';
 import { STEPIK_URLS } from '../constants.jsx';
 import api from '../api';
@@ -28,14 +30,41 @@ const LIST_SORT_INIT = { key: 'time', dir: 'desc' };
 
 const LIST_TABS = new Set(['unanswered', 'disliked']);
 
+const CHART_METRICS = {
+  likes_dislikes: {
+    label: 'Лайки / Дизлайки',
+    format: 'count',
+    bars: [
+      { dataKey: 'likes', color: '#4ade80' },
+      { dataKey: 'dislikes', color: '#f43f5e' },
+    ],
+    tooltip: (row) => [
+      { label: 'Лайки', value: row.likes, color: '#4ade80' },
+      { label: 'Дизлайки', value: row.dislikes, color: '#f43f5e' },
+      { label: 'Ответы', value: row.replies },
+      { label: 'Всего', value: row.total },
+    ],
+  },
+  replies: {
+    label: 'Ответы',
+    format: 'count',
+    bars: [{ dataKey: 'replies', color: '#38bdf8' }],
+    tooltip: (row) => [{ label: 'Ответы', value: row.replies, color: '#38bdf8' }],
+  },
+  total: {
+    label: 'Всего',
+    format: 'count',
+    bars: [{ dataKey: 'total', color: '#38bdf8' }],
+    tooltip: (row) => [{ label: 'Всего', value: row.total, color: '#38bdf8' }],
+  },
+};
+
 function monthComposite(m) {
   const p = parseMonthLabel(m.month);
   return p ? p.year * 100 + p.month : 0;
 }
 
-const num = (row, key) => (
-  <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1">{row[key] || 0}</td>
-);
+const num = (row, key) => <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1">{row[key] || 0}</td>;
 const likesCell = (row) => (
   <td className="text-right font-mono text-xs pl-1 pr-1" style={{ color: '#4ade80' }}>
     {row.likes || 0}
@@ -62,12 +91,12 @@ const stepCell = (c) => (
         href={STEPIK_URLS.comment(c.lesson_id, c.comment_id)}
         target="_blank"
         rel="noopener noreferrer"
-        title={c.module_title && c.lesson_title ? `${c.module_title} — ${c.lesson_title}` : `Комментарий ${c.comment_id}`}
+        title={
+          c.module_title && c.lesson_title ? `${c.module_title} — ${c.lesson_title}` : `Комментарий ${c.comment_id}`
+        }
         className="text-cyber-blue font-mono text-xs hover:underline"
       >
-        {c.module_number && c.lesson_number
-          ? `${c.module_number}.${c.lesson_number}-${c.step_number}`
-          : c.step_number}
+        {c.module_number && c.lesson_number ? `${c.module_number}.${c.lesson_number}-${c.step_number}` : c.step_number}
       </a>
     ) : (
       <span className="text-cyber-blue font-mono text-xs" title={`Комментарий ${c.comment_id}`}>
@@ -116,11 +145,32 @@ const MONTH_COLUMNS = [
     getValue: monthComposite,
     render: (m) => <td className="text-gray-300 font-mono text-xs pl-1 truncate">{yearMonthLabel(m.month)}</td>,
   },
-  { key: 'students', label: 'Студенты', align: 'right', width: 'w-[14%]', numeric: true, render: (m) => num(m, 'students') },
+  {
+    key: 'students',
+    label: 'Студенты',
+    align: 'right',
+    width: 'w-[14%]',
+    numeric: true,
+    render: (m) => num(m, 'students'),
+  },
   { key: 'total', label: 'Всего', align: 'right', width: 'w-[14%]', numeric: true, render: (m) => num(m, 'total') },
   { key: 'likes', label: 'Лайки', align: 'right', width: 'w-[16%]', numeric: true, render: (m) => likesCell(m) },
-  { key: 'dislikes', label: 'Дизлайки', align: 'right', width: 'w-[16%]', numeric: true, render: (m) => dislikesCell(m) },
-  { key: 'replies', label: 'Ответы', align: 'right', width: 'w-[18%]', numeric: true, render: (m) => num(m, 'replies') },
+  {
+    key: 'dislikes',
+    label: 'Дизлайки',
+    align: 'right',
+    width: 'w-[16%]',
+    numeric: true,
+    render: (m) => dislikesCell(m),
+  },
+  {
+    key: 'replies',
+    label: 'Ответы',
+    align: 'right',
+    width: 'w-[18%]',
+    numeric: true,
+    render: (m) => num(m, 'replies'),
+  },
 ];
 
 const YEARS_COLUMNS = [
@@ -131,11 +181,32 @@ const YEARS_COLUMNS = [
     numeric: true,
     render: (m) => <td className="text-gray-300 font-mono text-xs pl-1 truncate">{m.year}</td>,
   },
-  { key: 'students', label: 'Студенты', align: 'right', width: 'w-[16%]', numeric: true, render: (m) => num(m, 'students') },
+  {
+    key: 'students',
+    label: 'Студенты',
+    align: 'right',
+    width: 'w-[16%]',
+    numeric: true,
+    render: (m) => num(m, 'students'),
+  },
   { key: 'total', label: 'Всего', align: 'right', width: 'w-[16%]', numeric: true, render: (m) => num(m, 'total') },
   { key: 'likes', label: 'Лайки', align: 'right', width: 'w-[15%]', numeric: true, render: (m) => likesCell(m) },
-  { key: 'dislikes', label: 'Дизлайки', align: 'right', width: 'w-[15%]', numeric: true, render: (m) => dislikesCell(m) },
-  { key: 'replies', label: 'Ответы', align: 'right', width: 'w-[16%]', numeric: true, render: (m) => num(m, 'replies') },
+  {
+    key: 'dislikes',
+    label: 'Дизлайки',
+    align: 'right',
+    width: 'w-[15%]',
+    numeric: true,
+    render: (m) => dislikesCell(m),
+  },
+  {
+    key: 'replies',
+    label: 'Ответы',
+    align: 'right',
+    width: 'w-[16%]',
+    numeric: true,
+    render: (m) => num(m, 'replies'),
+  },
 ];
 
 const COURSES_COLUMNS = [
@@ -160,11 +231,32 @@ const COURSES_COLUMNS = [
       </td>
     ),
   },
-  { key: 'students', label: 'Студенты', align: 'right', width: 'w-[14%]', numeric: true, render: (c) => num(c, 'students') },
+  {
+    key: 'students',
+    label: 'Студенты',
+    align: 'right',
+    width: 'w-[14%]',
+    numeric: true,
+    render: (c) => num(c, 'students'),
+  },
   { key: 'total', label: 'Всего', align: 'right', width: 'w-[14%]', numeric: true, render: (c) => num(c, 'total') },
   { key: 'likes', label: 'Лайки', align: 'right', width: 'w-[14%]', numeric: true, render: (c) => likesCell(c) },
-  { key: 'dislikes', label: 'Дизлайки', align: 'right', width: 'w-[14%]', numeric: true, render: (c) => dislikesCell(c) },
-  { key: 'replies', label: 'Ответы', align: 'right', width: 'w-[14%]', numeric: true, render: (c) => num(c, 'replies') },
+  {
+    key: 'dislikes',
+    label: 'Дизлайки',
+    align: 'right',
+    width: 'w-[14%]',
+    numeric: true,
+    render: (c) => dislikesCell(c),
+  },
+  {
+    key: 'replies',
+    label: 'Ответы',
+    align: 'right',
+    width: 'w-[14%]',
+    numeric: true,
+    render: (c) => num(c, 'replies'),
+  },
 ];
 
 const COMMENTS_LIST_COLUMNS = [
@@ -198,7 +290,14 @@ const COMMENTS_LIST_COLUMNS = [
     render: commentTextCell,
   },
   { key: 'likes', label: 'Лайки', align: 'right', width: 'w-[7%]', numeric: true, render: (c) => likesCell(c) },
-  { key: 'dislikes', label: 'Дизлайки', align: 'right', width: 'w-[7%]', numeric: true, render: (c) => dislikesCell(c) },
+  {
+    key: 'dislikes',
+    label: 'Дизлайки',
+    align: 'right',
+    width: 'w-[7%]',
+    numeric: true,
+    render: (c) => dislikesCell(c),
+  },
   { key: 'replies', label: 'Ответы', align: 'right', width: 'w-[7%]', numeric: true, render: (c) => num(c, 'replies') },
   {
     key: 'step',
@@ -223,6 +322,8 @@ export default function Comments() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'months');
   const [sorts, setSorts] = useState(SORT_INIT);
+  const [viewMode, setViewMode] = useState('table');
+  const [chartMetric, setChartMetric] = useState('likes_dislikes');
 
   const [listRows, setListRows] = useState([]);
   const [listTotal, setListTotal] = useState(0);
@@ -299,7 +400,11 @@ export default function Comments() {
   }, [selectedCourseIds, listSort.key, listSort.dir, activeTab]);
 
   useEffect(() => {
-    if (LIST_TABS.has(activeTab) && prevLastSyncRef.current !== null && syncStatus.last_sync !== prevLastSyncRef.current) {
+    if (
+      LIST_TABS.has(activeTab) &&
+      prevLastSyncRef.current !== null &&
+      syncStatus.last_sync !== prevLastSyncRef.current
+    ) {
       fetchList();
     }
     prevLastSyncRef.current = syncStatus.last_sync;
@@ -329,56 +434,79 @@ export default function Comments() {
       </div>
 
       <div className="flex flex-col flex-1 min-h-0">
-        <Tabs items={TABS} active={activeTab} onChange={handleTabChange} />
+        <div className="flex items-center justify-between gap-3 shrink-0 flex-wrap">
+          <Tabs items={TABS} active={activeTab} onChange={handleTabChange} />
 
-        {activeTab === 'months' && (
-          <DataTable
-            columns={MONTH_COLUMNS}
+          <ChartToggle
+            visible={activeTab === 'months'}
+            viewMode={viewMode}
+            onToggle={() => setViewMode(viewMode === 'chart' ? 'table' : 'chart')}
+            metric={chartMetric}
+            onMetricChange={setChartMetric}
+            metrics={CHART_METRICS}
+          />
+        </div>
+
+        {viewMode === 'chart' && activeTab === 'months' ? (
+          <MetricBarChart
             rows={months}
-            initialSort={SORT_INIT.months}
-            sort={sorts.months}
-            onSort={onSort('months')}
-            rowKey={(m) => m.month}
+            metric={chartMetric}
+            metrics={CHART_METRICS}
+            xTick={makeMonthsTick(months)}
+            periodLabel={(m) => m.month}
           />
-        )}
+        ) : (
+          <>
+            {activeTab === 'months' && (
+              <DataTable
+                columns={MONTH_COLUMNS}
+                rows={months}
+                initialSort={SORT_INIT.months}
+                sort={sorts.months}
+                onSort={onSort('months')}
+                rowKey={(m) => m.month}
+              />
+            )}
 
-        {activeTab === 'years' && (
-          <DataTable
-            columns={YEARS_COLUMNS}
-            rows={years}
-            initialSort={SORT_INIT.years}
-            sort={sorts.years}
-            onSort={onSort('years')}
-            rowKey={(m) => m.year}
-          />
-        )}
+            {activeTab === 'years' && (
+              <DataTable
+                columns={YEARS_COLUMNS}
+                rows={years}
+                initialSort={SORT_INIT.years}
+                sort={sorts.years}
+                onSort={onSort('years')}
+                rowKey={(m) => m.year}
+              />
+            )}
 
-        {activeTab === 'courses' && (
-          <DataTable
-            columns={COURSES_COLUMNS}
-            rows={byCourse}
-            initialSort={SORT_INIT.courses}
-            sort={sorts.courses}
-            onSort={onSort('courses')}
-            rowKey={(c) => c.course_id}
-          />
-        )}
+            {activeTab === 'courses' && (
+              <DataTable
+                columns={COURSES_COLUMNS}
+                rows={byCourse}
+                initialSort={SORT_INIT.courses}
+                sort={sorts.courses}
+                onSort={onSort('courses')}
+                rowKey={(c) => c.course_id}
+              />
+            )}
 
-        {isListTab && (
-          <DataTable
-            columns={COMMENTS_LIST_COLUMNS}
-            rows={listRows}
-            initialSort={LIST_SORT_INIT}
-            sort={listSort}
-            onSort={listOnSort}
-            page={listPage}
-            setPage={setListPage}
-            rowsPerPage={rowsPerPage}
-            tableRef={tableRef}
-            totalPages={listTotalPages}
-            rowKey={(c) => c.comment_id}
-            emptyText="Нет комментариев"
-          />
+            {isListTab && (
+              <DataTable
+                columns={COMMENTS_LIST_COLUMNS}
+                rows={listRows}
+                initialSort={LIST_SORT_INIT}
+                sort={listSort}
+                onSort={listOnSort}
+                page={listPage}
+                setPage={setListPage}
+                rowsPerPage={rowsPerPage}
+                tableRef={tableRef}
+                totalPages={listTotalPages}
+                rowKey={(c) => c.comment_id}
+                emptyText="Нет комментариев"
+              />
+            )}
+          </>
         )}
       </div>
     </div>

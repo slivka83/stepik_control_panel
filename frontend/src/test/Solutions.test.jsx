@@ -118,7 +118,8 @@ describe('Solutions', () => {
     const user = userEvent.setup();
     renderSolutions();
     const cellOf = (row, idx) => row.querySelectorAll('td')[idx].textContent;
-    const headerLabels = () => screen.getAllByRole('columnheader').map((th) => th.textContent.trim().replace(/[↓↑]/g, ''));
+    const headerLabels = () =>
+      screen.getAllByRole('columnheader').map((th) => th.textContent.trim().replace(/[↓↑]/g, ''));
 
     let labels = headerLabels();
     expect(labels.indexOf('Опубликованные')).toBeGreaterThan(-1);
@@ -148,9 +149,7 @@ describe('Solutions', () => {
   it('sorts by Опубликованные numeric (desc first, asc second)', async () => {
     const user = userEvent.setup();
     renderSolutions();
-    const header = screen
-      .getAllByRole('columnheader')
-      .find((th) => th.textContent.includes('Опубликованные'));
+    const header = screen.getAllByRole('columnheader').find((th) => th.textContent.includes('Опубликованные'));
     await user.click(header);
     let rows = screen.getAllByRole('row').slice(1);
     expect(within(rows[0]).getByText('2026 Февраль')).toBeInTheDocument();
@@ -706,5 +705,33 @@ describe('Solutions', () => {
     expect(api.get).toHaveBeenCalledWith('/dashboard/hardest-steps', {
       params: { limit: 200, min_submissions: 1, course_ids: 'c1,c2' },
     });
+  });
+
+  it('shows chart toggle only on months tab', async () => {
+    const user = userEvent.setup();
+    renderSolutions();
+    expect(screen.getByRole('button', { name: 'Показать график' })).toBeInTheDocument();
+    await user.click(screen.getByText('По годам'));
+    expect(screen.queryByRole('button', { name: 'Показать график' })).not.toBeInTheDocument();
+  });
+
+  it('toggles solutions table to bar chart and back', async () => {
+    const user = userEvent.setup();
+    renderSolutions();
+    await user.click(screen.getByRole('button', { name: 'Показать график' }));
+    expect(screen.getByRole('combobox', { name: 'Метрика графика' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Диаграмма Правильно / Неверно' })).toBeInTheDocument();
+    expect(screen.queryByText('Месяц')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Показать таблицу' }));
+    expect(screen.getByText('Месяц')).toBeInTheDocument();
+  });
+
+  it('switches solutions chart metric via the select', async () => {
+    const user = userEvent.setup();
+    renderSolutions();
+    await user.click(screen.getByRole('button', { name: 'Показать график' }));
+    const select = screen.getByRole('combobox', { name: 'Метрика графика' });
+    await user.selectOptions(select, 'students');
+    expect(screen.getByRole('img', { name: 'Диаграмма Студенты' })).toBeInTheDocument();
   });
 });

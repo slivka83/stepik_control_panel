@@ -21,8 +21,26 @@ const mockComments = {
     { year: 2025, students: 3, total: 5, likes: 4, dislikes: 1, replies: 2 },
   ],
   by_course: [
-    { course_id: 1, stepik_course_id: 101, title: 'Тестовый курс', students: 11, total: 30, likes: 37, dislikes: 7, replies: 12 },
-    { course_id: 2, stepik_course_id: 102, title: 'Алгоритмы', students: 2, total: 5, likes: 4, dislikes: 1, replies: 2 },
+    {
+      course_id: 1,
+      stepik_course_id: 101,
+      title: 'Тестовый курс',
+      students: 11,
+      total: 30,
+      likes: 37,
+      dislikes: 7,
+      replies: 12,
+    },
+    {
+      course_id: 2,
+      stepik_course_id: 102,
+      title: 'Алгоритмы',
+      students: 2,
+      total: 5,
+      likes: 4,
+      dislikes: 1,
+      replies: 2,
+    },
   ],
   totals: { comments: 35, students: 13, likes: 41, dislikes: 8, replies: 14 },
 };
@@ -292,9 +310,7 @@ describe('Comments', () => {
     rerender(
       <MemoryRouter>
         <AuthProvider>
-          <SyncContext.Provider
-            value={makeSyncValue(mockComments, { selectedCourseIds: ['u2'] })}
-          >
+          <SyncContext.Provider value={makeSyncValue(mockComments, { selectedCourseIds: ['u2'] })}>
             <Comments />
           </SyncContext.Provider>
         </AuthProvider>
@@ -312,5 +328,33 @@ describe('Comments', () => {
     renderComments();
     await user.click(screen.getByText('Не отвеченные'));
     expect(await screen.findByText('Сеть недоступна')).toBeInTheDocument();
+  });
+
+  it('shows chart toggle only on months tab', async () => {
+    const user = userEvent.setup();
+    renderComments();
+    expect(screen.getByRole('button', { name: 'Показать график' })).toBeInTheDocument();
+    await user.click(screen.getByText('По годам'));
+    expect(screen.queryByRole('button', { name: 'Показать график' })).not.toBeInTheDocument();
+  });
+
+  it('toggles comments table to bar chart and back', async () => {
+    const user = userEvent.setup();
+    renderComments();
+    await user.click(screen.getByRole('button', { name: 'Показать график' }));
+    expect(screen.getByRole('combobox', { name: 'Метрика графика' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Диаграмма Лайки / Дизлайки' })).toBeInTheDocument();
+    expect(screen.queryByText('Месяц')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Показать таблицу' }));
+    expect(screen.getByText('Месяц')).toBeInTheDocument();
+  });
+
+  it('switches comments chart metric via the select', async () => {
+    const user = userEvent.setup();
+    renderComments();
+    await user.click(screen.getByRole('button', { name: 'Показать график' }));
+    const select = screen.getByRole('combobox', { name: 'Метрика графика' });
+    await user.selectOptions(select, 'replies');
+    expect(screen.getByRole('img', { name: 'Диаграмма Ответы' })).toBeInTheDocument();
   });
 });

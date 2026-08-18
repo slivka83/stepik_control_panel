@@ -3,10 +3,13 @@ import { useSearchParams } from 'react-router-dom';
 import { useSync } from '../contexts/SyncContext';
 import { formatCurrency } from '../utils/formatNumber';
 import { yearMonthLabel } from '../utils/format';
+import { makeMonthsTick } from '../utils/monthWindow';
 import ErrorBanner from '../components/ErrorBanner';
 import KpiCard from '../components/KpiCard';
 import DataTable from '../components/DataTable';
 import Tabs from '../components/Tabs';
+import MetricBarChart from '../components/MetricBarChart';
+import ChartToggle from '../components/ChartToggle';
 
 const TABS = [
   { key: 'months', label: 'По месяцам' },
@@ -17,6 +20,35 @@ const TABS = [
   { key: 'utms', label: 'По UTM' },
   { key: 'recent', label: 'Последние операции' },
 ];
+
+const CHARTABLE_TABS = ['months', 'days'];
+
+const CHART_METRICS = {
+  turnover_income: {
+    label: 'Оборот / Доход',
+    format: 'money',
+    bars: [
+      { dataKey: 'income', color: '#4ade80' },
+      { dataKey: 'commission', color: '#4ade80', fillOpacity: 0.35 },
+    ],
+    tooltip: (row) => [
+      { label: 'Доход', value: row.income, color: '#4ade80' },
+      { label: 'Оборот', value: row.turnover, color: '#4ade80', dim: true },
+    ],
+  },
+  payments: {
+    label: 'Покупок',
+    format: 'count',
+    bars: [{ dataKey: 'payments_count', color: '#38bdf8' }],
+    tooltip: (row) => [{ label: 'Покупок', value: row.payments_count, color: '#38bdf8' }],
+  },
+  refunds: {
+    label: 'Возвраты',
+    format: 'money',
+    bars: [{ dataKey: 'refunds', color: '#f43f5e' }],
+    tooltip: (row) => [{ label: 'Возвраты', value: row.refunds, color: '#f43f5e' }],
+  },
+};
 
 const SORT_INIT = {
   months: { key: 'month', dir: 'desc' },
@@ -361,12 +393,24 @@ const TAB_COLUMNS = {
   recent: RECENT_COLUMNS,
 };
 
+const DAYS_TICK = (value) => {
+  const [, mm, dd] = String(value).split('-');
+  return `${dd}.${mm}`;
+};
+const MONTHS_PERIOD = (m) => m.month || '';
+const DAYS_PERIOD = (d) => {
+  const [yyyy, mm, dd] = String(d.day).split('-');
+  return `${dd}.${mm}.${yyyy}`;
+};
+
 export default function Financials() {
   const { data, error, refresh } = useSync();
   const financials = data.financials;
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'months');
   const [sorts, setSorts] = useState(SORT_INIT);
+  const [viewMode, setViewMode] = useState('table');
+  const [chartMetric, setChartMetric] = useState('turnover_income');
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
@@ -386,6 +430,11 @@ export default function Financials() {
   };
 
   const { summary, months, years, days, courses, promos, utms, recent_payments } = financials || {};
+  const chartTab = CHARTABLE_TABS.includes(activeTab) ? activeTab : null;
+  const chartRows = chartTab === 'months' ? months || [] : days || [];
+  const chartXKey = chartTab === 'months' ? 'month' : 'day';
+  const chartXTick = chartTab === 'months' ? makeMonthsTick(chartRows) : DAYS_TICK;
+  const chartPeriodLabel = chartTab === 'months' ? MONTHS_PERIOD : DAYS_PERIOD;
 
   return (
     <div className="flex flex-col flex-1 h-0 gap-4">
@@ -399,83 +448,107 @@ export default function Financials() {
       </div>
 
       <div className="flex flex-col flex-1 min-h-0">
-        <Tabs items={TABS} active={activeTab} onChange={handleTabChange} />
+        <div className="flex items-center justify-between gap-3 shrink-0 flex-wrap">
+          <Tabs items={TABS} active={activeTab} onChange={handleTabChange} />
 
-        {activeTab === 'months' && (
-          <DataTable
-            columns={MONTHS_COLUMNS}
-            rows={months || []}
-            initialSort={SORT_INIT.months}
-            sort={sorts.months}
-            onSort={onSort('months')}
-            rowKey={(m) => `month-${m.year}-${m.month_num}`}
+          <ChartToggle
+            visible={!!chartTab}
+            viewMode={viewMode}
+            onToggle={() => setViewMode(viewMode === 'chart' ? 'table' : 'chart')}
+            metric={chartMetric}
+            onMetricChange={setChartMetric}
+            metrics={CHART_METRICS}
           />
-        )}
+        </div>
 
-        {activeTab === 'years' && (
-          <DataTable
-            columns={YEARS_COLUMNS}
-            rows={years || []}
-            initialSort={SORT_INIT.years}
-            sort={sorts.years}
-            onSort={onSort('years')}
-            rowKey={(m) => `year-${m.year}`}
+        {viewMode === 'chart' && chartTab ? (
+          <MetricBarChart
+            rows={chartRows}
+            xKey={chartXKey}
+            metric={chartMetric}
+            metrics={CHART_METRICS}
+            xTick={chartXTick}
+            periodLabel={chartPeriodLabel}
           />
-        )}
+        ) : (
+          <>
+            {activeTab === 'months' && (
+              <DataTable
+                columns={MONTHS_COLUMNS}
+                rows={months || []}
+                initialSort={SORT_INIT.months}
+                sort={sorts.months}
+                onSort={onSort('months')}
+                rowKey={(m) => `month-${m.year}-${m.month_num}`}
+              />
+            )}
 
-        {activeTab === 'days' && (
-          <DataTable
-            columns={DAYS_COLUMNS}
-            rows={days || []}
-            initialSort={SORT_INIT.days}
-            sort={sorts.days}
-            onSort={onSort('days')}
-            rowKey={(d) => `day-${d.day}`}
-          />
-        )}
+            {activeTab === 'years' && (
+              <DataTable
+                columns={YEARS_COLUMNS}
+                rows={years || []}
+                initialSort={SORT_INIT.years}
+                sort={sorts.years}
+                onSort={onSort('years')}
+                rowKey={(m) => `year-${m.year}`}
+              />
+            )}
 
-        {activeTab === 'courses' && (
-          <DataTable
-            columns={COURSES_COLUMNS}
-            rows={courses || []}
-            initialSort={SORT_INIT.courses}
-            sort={sorts.courses}
-            onSort={onSort('courses')}
-            rowKey={(c) => `course-${c.course_id}`}
-          />
-        )}
+            {activeTab === 'days' && (
+              <DataTable
+                columns={DAYS_COLUMNS}
+                rows={days || []}
+                initialSort={SORT_INIT.days}
+                sort={sorts.days}
+                onSort={onSort('days')}
+                rowKey={(d) => `day-${d.day}`}
+              />
+            )}
 
-        {activeTab === 'promo' && (
-          <DataTable
-            columns={PROMOS_COLUMNS}
-            rows={promos || []}
-            initialSort={SORT_INIT.promo}
-            sort={sorts.promo}
-            onSort={onSort('promo')}
-            rowKey={(p) => `promo-${p.promo_code}`}
-          />
-        )}
+            {activeTab === 'courses' && (
+              <DataTable
+                columns={COURSES_COLUMNS}
+                rows={courses || []}
+                initialSort={SORT_INIT.courses}
+                sort={sorts.courses}
+                onSort={onSort('courses')}
+                rowKey={(c) => `course-${c.course_id}`}
+              />
+            )}
 
-        {activeTab === 'utms' && (
-          <DataTable
-            columns={UTMS_COLUMNS}
-            rows={utms || []}
-            initialSort={SORT_INIT.utms}
-            sort={sorts.utms}
-            onSort={onSort('utms')}
-            rowKey={(u) => `utm-${u.utm_source}`}
-          />
-        )}
+            {activeTab === 'promo' && (
+              <DataTable
+                columns={PROMOS_COLUMNS}
+                rows={promos || []}
+                initialSort={SORT_INIT.promo}
+                sort={sorts.promo}
+                onSort={onSort('promo')}
+                rowKey={(p) => `promo-${p.promo_code}`}
+              />
+            )}
 
-        {activeTab === 'recent' && (
-          <DataTable
-            columns={RECENT_COLUMNS}
-            rows={recent_payments || []}
-            initialSort={SORT_INIT.recent}
-            sort={sorts.recent}
-            onSort={onSort('recent')}
-            rowKey={(p) => `payment-${p.id}`}
-          />
+            {activeTab === 'utms' && (
+              <DataTable
+                columns={UTMS_COLUMNS}
+                rows={utms || []}
+                initialSort={SORT_INIT.utms}
+                sort={sorts.utms}
+                onSort={onSort('utms')}
+                rowKey={(u) => `utm-${u.utm_source}`}
+              />
+            )}
+
+            {activeTab === 'recent' && (
+              <DataTable
+                columns={RECENT_COLUMNS}
+                rows={recent_payments || []}
+                initialSort={SORT_INIT.recent}
+                sort={sorts.recent}
+                onSort={onSort('recent')}
+                rowKey={(p) => `payment-${p.id}`}
+              />
+            )}
+          </>
         )}
       </div>
     </div>

@@ -236,7 +236,9 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
 
     selected_ids = selected_stepik_ids
     recent_payments = [
-        p for p in data.get("recent_payments", []) or [] if _int_or_none(p.get("raw", {}).get("course")) in selected_ids
+        p
+        for p in data.get("recent_payments", []) or []
+        if isinstance(p, dict) and isinstance(p.get("raw"), dict) and _int_or_none(p["raw"].get("course")) in selected_ids
     ]
 
     return {

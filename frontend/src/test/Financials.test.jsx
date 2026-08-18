@@ -364,4 +364,55 @@ describe('Financials', () => {
     await user.click(header);
     expect(arrowOf(header)).toBe('↓');
   });
+
+  it('shows the chart toggle only on months/days tabs', async () => {
+    const user = userEvent.setup();
+    renderFinancials();
+    expect(screen.getByRole('button', { name: 'Показать график' })).toBeInTheDocument();
+    await user.click(screen.getByText('По годам'));
+    expect(screen.queryByRole('button', { name: 'Показать график' })).not.toBeInTheDocument();
+    await user.click(screen.getByText('По курсам'));
+    expect(screen.queryByRole('button', { name: 'Показать график' })).not.toBeInTheDocument();
+    await user.click(screen.getByText('По промокодам'));
+    expect(screen.queryByRole('button', { name: 'Показать график' })).not.toBeInTheDocument();
+    await user.click(screen.getByText('По дням'));
+    expect(screen.getByRole('button', { name: 'Показать график' })).toBeInTheDocument();
+  });
+
+  it('toggles table to bar chart and back', async () => {
+    const user = userEvent.setup();
+    renderFinancials();
+    await user.click(screen.getByRole('button', { name: 'Показать график' }));
+    expect(screen.getByRole('combobox', { name: 'Метрика графика' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Диаграмма Оборот / Доход' })).toBeInTheDocument();
+    expect(screen.queryByText('Месяц')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Показать таблицу' })).toHaveAttribute('aria-pressed', 'true');
+    await user.click(screen.getByRole('button', { name: 'Показать таблицу' }));
+    expect(screen.getByText('Месяц')).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Метрика графика' })).not.toBeInTheDocument();
+  });
+
+  it('switches chart metric via the select', async () => {
+    const user = userEvent.setup();
+    renderFinancials();
+    await user.click(screen.getByRole('button', { name: 'Показать график' }));
+    const select = screen.getByRole('combobox', { name: 'Метрика графика' });
+    await user.selectOptions(select, 'payments');
+    expect(screen.getByRole('img', { name: 'Диаграмма Покупок' })).toBeInTheDocument();
+    await user.selectOptions(select, 'refunds');
+    expect(screen.getByRole('img', { name: 'Диаграмма Возвраты' })).toBeInTheDocument();
+  });
+
+  it('keeps chart mode when switching between months/days and hides it on years and other tabs', async () => {
+    const user = userEvent.setup();
+    renderFinancials();
+    await user.click(screen.getByRole('button', { name: 'Показать график' }));
+    await user.click(screen.getByText('По дням'));
+    expect(screen.getByRole('combobox', { name: 'Метрика графика' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Диаграмма Оборот / Доход' })).toBeInTheDocument();
+    await user.click(screen.getByText('По годам'));
+    expect(screen.queryByRole('combobox', { name: 'Метрика графика' })).not.toBeInTheDocument();
+    await user.click(screen.getByText('По месяцам'));
+    expect(screen.getByRole('combobox', { name: 'Метрика графика' })).toBeInTheDocument();
+  });
 });

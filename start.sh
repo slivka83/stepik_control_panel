@@ -97,7 +97,7 @@ echo "[2/3] Backend (port $BACKEND_PORT)..."
 cd "$PROJECT_DIR/backend"
 if [ ! -f ".venv/bin/uvicorn" ]; then
   echo "  Creating Python venv..."
-  uv venv --python 3.12 .venv
+  uv venv --clear --python 3.12 .venv
   echo "  Installing dependencies..."
   uv pip install -r requirements.txt --python .venv
 fi

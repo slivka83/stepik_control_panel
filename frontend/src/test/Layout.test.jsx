@@ -81,6 +81,40 @@ describe('Layout', () => {
     });
   });
 
+  it('renders nav links in grouped order', async () => {
+    renderLayout(false);
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Дашборд' })).toBeInTheDocument();
+    });
+    const nav = screen.getByRole('navigation', { name: 'Основная навигация' });
+    const labels = [...nav.querySelectorAll('a')].map((a) => a.getAttribute('aria-label'));
+    expect(labels).toEqual([
+      'Дашборд',
+      'Активности',
+      'Курсы',
+      'Финансы',
+      'Решения',
+      'Комментарии',
+      'Сертификаты',
+      'Отзывы',
+      'Студенты',
+    ]);
+  });
+
+  it('renders a thin divider line between nav groups, flush with the buttons', async () => {
+    renderLayout(false);
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Дашборд' })).toBeInTheDocument();
+    });
+    const nav = screen.getByRole('navigation', { name: 'Основная навигация' });
+    const dividers = [...nav.querySelectorAll('div[aria-hidden="true"]')];
+    expect(dividers).toHaveLength(2);
+    for (const divider of dividers) {
+      expect(divider.className).toContain('h-px');
+      expect(divider.className).not.toMatch(/\b(my|py|mt|mb)-/);
+    }
+  });
+
   it('renders nav links with correct hrefs', async () => {
     renderLayout(false);
     await waitFor(() => {
