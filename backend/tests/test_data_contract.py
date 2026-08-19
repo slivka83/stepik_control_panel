@@ -437,8 +437,8 @@ async def test_every_course_has_price_and_per_course_entry(db_session):
 
     # course 102 has no reviews/comments — must still get a zeros row
     assert per_course["102"] == {"comments": 0, "reviews_count": 0, "average_rating": 0}
-    # course 101 has data
-    assert per_course["101"]["comments"] == 2
+    # course 101 has data (published solutions excluded from plain comments)
+    assert per_course["101"]["comments"] == 1
     assert per_course["101"]["reviews_count"] == 100
     assert per_course["101"]["average_rating"] == 4.5
 
@@ -490,7 +490,7 @@ async def test_courses_api_returns_every_frontend_field(db_session):
         py = next(c for c in courses if c["title"] == "Python 101")
         assert py["price"] == 2990
         assert py["income"] == 800
-        assert py["comments_count"] == 2
+        assert py["comments_count"] == 1
         assert py["reviews_count"] == 100
         assert py["average_rating"] == 4.5
         assert py["enrollment_count"] == 2

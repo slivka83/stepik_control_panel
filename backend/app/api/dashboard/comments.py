@@ -69,7 +69,8 @@ async def get_comments(
     rows = await db.execute(
         text(
             "SELECT stepik_course_id, year, month, user_id, likes, dislikes, replies "
-            f"FROM mart_comments WHERE stepik_course_id IN ({placeholders})"
+            f"FROM mart_comments WHERE is_solution = FALSE "
+            f"AND stepik_course_id IN ({placeholders})"
         ),
         params,
     )
@@ -199,7 +200,7 @@ async def get_comments_list(
             "likes, dislikes, replies, lesson_id, step_number, module_number, "
             "lesson_number, module_title, lesson_title "
             f"FROM mart_comments WHERE is_deleted = FALSE AND {type_filter} "
-            f"AND stepik_course_id IN ({placeholders})"
+            f"AND is_solution = FALSE AND stepik_course_id IN ({placeholders})"
         ),
         params,
     )

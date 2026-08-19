@@ -206,6 +206,39 @@ async def test_comments_foreign_course_excluded(db_session):
 # ─── /comments/list (вкладки «Не отвеченные» и «Дизлайки») ────────────────
 
 
+async def test_comments_exclude_published_solutions(db_session):
+    """Regression: опубликованные решения (комментарии в ветках с 'solution')
+    исключаются из агрегатов и списков страницы Комментарии — они считаются
+    отдельно как «Опубликованные решения»."""
+    user = _make_user()
+    c1, c2 = await _seed(db_session, user)
+
+    # опубликованное решение в том же шаге (thread содержит 'solution')
+    await db_session.execute(
+        text('INSERT INTO raw_comment (comment_id, "user", target, "time", _raw_json) '
+             "VALUES ('c_sol', '1', '500', '2026-07-15T10:00:00Z', :j)"),
+        {"j": json.dumps({"id": 999, "user": 1, "target": 500,
+                          "time": "2026-07-15T10:00:00Z", "thread": "solutions",
+                          "vote_delta": 2, "reply_count": 1})},
+    )
+    await db_session.flush()
+    await build_marts(db_session)
+
+    # агрегаты не должны учитывать решение
+    data = _get_comments(db_session, user)
+    assert data["totals"] == {"comments": 4, "students": 2, "likes": 4, "dislikes": 1, "replies": 3}
+    july = {m["month"]: m for m in data["months"]}["Июль 2026"]
+    assert july["total"] == 3
+
+    # списки тоже исключают решение
+    un = _get_list(db_session, user, type="unanswered")
+    assert un["total"] == 4
+    assert all(r["comment_id"] != 999 for r in un["comments"])
+
+    dis = _get_list(db_session, user, type="disliked")
+    assert dis["total"] == 1
+
+
 async def test_comments_list_unanswered_basics(db_session):
     """unanswered: is_staff_replied != true, user_role != teacher, не-атрибутируемые пропускаются."""
     user = _make_user()

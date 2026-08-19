@@ -815,8 +815,8 @@ class TestTransformCommunity:
         community = data.get("community", {})
         assert community["total_reviews"] == 100
         assert community["average_rating"] == 4.5
-        assert community["total_comments"] == 2
-        assert community["comments_monthly"]["2026-07"] == 2
+        assert community["total_comments"] == 1
+        assert community["comments_monthly"]["2026-07"] == 1
         assert community["total_solutions"] == 1
         assert community["solutions_monthly"]["2026-07"] == 1
 

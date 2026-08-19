@@ -337,12 +337,17 @@ async def filter_community(db: AsyncSession, data: dict, selected_stepik_ids: se
         for year, month, is_solution in rows:
             if year is None or month is None:
                 continue
+            # Published solutions are counted separately (total_solutions /
+            # solutions_monthly); plain "comments" excludes them.
+            if is_solution:
+                total_solutions += 1
+                solutions_monthly[f"{year}-{month:02d}"] = (
+                    solutions_monthly.get(f"{year}-{month:02d}", 0) + 1
+                )
+                continue
             key = f"{year}-{month:02d}"
             total_comments += 1
             comments_monthly[key] = comments_monthly.get(key, 0) + 1
-            if is_solution:
-                total_solutions += 1
-                solutions_monthly[key] = solutions_monthly.get(key, 0) + 1
 
     return {
         "average_rating": average_rating,

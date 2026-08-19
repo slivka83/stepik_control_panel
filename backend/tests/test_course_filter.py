@@ -278,12 +278,12 @@ async def _seed_scenario(session):
         "community": {
             "average_rating": 3.75,
             "total_reviews": 3,
-            "total_comments": 3,
-            "comments_monthly": {cur_key: 3},
+            "total_comments": 2,
+            "comments_monthly": {cur_key: 2},
             "total_solutions": 1,
             "solutions_monthly": {cur_key: 1},
             "per_course": {
-                "100": {"comments": 2, "reviews_count": 2, "average_rating": 4.5},
+                "100": {"comments": 1, "reviews_count": 2, "average_rating": 4.5},
                 "200": {"comments": 1, "reviews_count": 1, "average_rating": 3.0},
             },
         },
@@ -535,13 +535,13 @@ class TestFilterFinancials:
             assert utms["Telegram"]["refunds"] == 200
 
             community = data["community"]
-            assert community["total_comments"] == 2
-            assert community["comments_monthly"][cur_key] == 2
+            assert community["total_comments"] == 1
+            assert community["comments_monthly"][cur_key] == 1
             assert community["total_solutions"] == 1
             assert community["solutions_monthly"][cur_key] == 1
             assert community["total_reviews"] == 2
             assert community["average_rating"] == 4.5
-            assert community["per_course"] == {"100": {"comments": 2, "reviews_count": 2, "average_rating": 4.5}}
+            assert community["per_course"] == {"100": {"comments": 1, "reviews_count": 2, "average_rating": 4.5}}
         finally:
             app.dependency_overrides.clear()
 
@@ -652,7 +652,7 @@ class TestFilterKPI:
             assert data["current_month_students"] == 2
             assert data["total_income"] == 800
             assert data["current_month_turnover"] == 800
-            assert data["total_comments"] == 2
+            assert data["total_comments"] == 1
             assert data["total_reviews"] == 2
             assert data["average_rating"] == 4.5
             assert data["certificates_current_month"] == 1

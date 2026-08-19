@@ -835,15 +835,18 @@ async def transform_community(session: AsyncSession):
         if not step_cid:
             continue
 
-        total_comments += 1
-        comments_monthly[key] = comments_monthly.get(key, 0) + 1
-
         if is_solution:
             total_solutions += 1
             solutions_monthly[key] = solutions_monthly.get(key, 0) + 1
+        else:
+            # Published solutions are counted separately (total_solutions /
+            # solutions_monthly); plain "comments" excludes them so the two
+            # categories don't double-count.
+            total_comments += 1
+            comments_monthly[key] = comments_monthly.get(key, 0) + 1
 
-        cid_str = str(step_cid)
-        per_course_comments[cid_str] = per_course_comments.get(cid_str, 0) + 1
+            cid_str = str(step_cid)
+            per_course_comments[cid_str] = per_course_comments.get(cid_str, 0) + 1
 
     per_course = {}
     for cid, _ in course_map.items():

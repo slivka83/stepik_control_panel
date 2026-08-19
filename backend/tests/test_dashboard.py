@@ -184,11 +184,11 @@ class TestDashboardKPIMonthSplit:
                     "courses": [],
                     "recent_payments": [],
                     "community": {
-                        "total_comments": 5,
+                        "total_comments": 1,
                         "total_reviews": 3,
                         "average_rating": 4.5,
                         "total_solutions": 4,
-                        "comments_monthly": {cur_month: 2},
+                        "comments_monthly": {cur_month: 1},
                         "solutions_monthly": {cur_month: 1, prev_month_key: 2},
                     },
                 },
@@ -260,10 +260,10 @@ class TestDashboardKPIMonthSplit:
             assert data["certificates_current_month"] == 1
             assert data["certificates_change_pct"] == 0, "1 vs 1 → 0%"
             assert data["certificates_change_detail"] == {"current": 1, "previous": 1}
-            assert data["total_comments"] == 5
-            assert data["comments_prev_months"] == 3
-            assert data["current_month_comments"] == 2
-            assert data["comments_change_detail"] is None, "2 vs 0 → нет процента (деление на ноль)"
+            assert data["total_comments"] == 1
+            assert data["comments_prev_months"] == 0
+            assert data["current_month_comments"] == 1
+            assert data["comments_change_detail"] is None, "1 vs 0 → нет процента (деление на ноль)"
             assert data["total_reviews"] == 3
             assert data["reviews_prev_months"] == 2
             assert data["reviews_current_month"] == 1
