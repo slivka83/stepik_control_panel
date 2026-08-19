@@ -8,7 +8,7 @@ import Tabs from '../components/Tabs';
 import MetricBarChart from '../components/MetricBarChart';
 import ChartToggle from '../components/ChartToggle';
 import { parseMonthLabel, makeMonthsTick } from '../utils/monthWindow';
-import { yearMonthLabel } from '../utils/format';
+import { yearMonthLabel, getRatingColor } from '../utils/format';
 import { STEPIK_URLS } from '../constants.jsx';
 
 const TABS = [
@@ -43,28 +43,6 @@ const SORT_INIT = {
   years: { key: 'year', dir: 'desc' },
   courses: { key: 'title', dir: 'asc' },
 };
-
-function getRatingColor(rating) {
-  const r = Math.max(1, Math.min(5, rating));
-  const stops = [
-    [1.0, 239, 68, 68],
-    [2.0, 249, 115, 22],
-    [3.0, 234, 179, 8],
-    [4.0, 132, 204, 22],
-    [4.5, 100, 214, 81],
-    [4.9, 74, 222, 128],
-  ];
-  let i = 0;
-  while (i < stops.length - 1 && stops[i + 1][0] < r) i++;
-  if (i >= stops.length - 1) {
-    const [, cr, cg, cb] = stops[stops.length - 1];
-    return `rgb(${cr}, ${cg}, ${cb})`;
-  }
-  const [r0, r1, g1, b1] = stops[i];
-  const [r1v, r2, g2, b2] = stops[i + 1];
-  const t = (r - r0) / (r1v - r0);
-  return `rgb(${Math.round(r1 + (r2 - r1) * t)}, ${Math.round(g1 + (g2 - g1) * t)}, ${Math.round(b1 + (b2 - b1) * t)})`;
-}
 
 function monthComposite(m) {
   const p = parseMonthLabel(m.month);

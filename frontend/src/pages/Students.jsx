@@ -10,8 +10,8 @@ const COHORT_COLORS = {
   Active: '#4ade80',
   Passive: '#38bdf8',
   Fading: '#f59e0b',
-  Sleeping: '#f43f5e',
-  Zombie: '#a855f7',
+  Sleeping: '#6b7280',
+  Zombie: '#6b7280',
 };
 
 const STUDENT_COLUMNS = [

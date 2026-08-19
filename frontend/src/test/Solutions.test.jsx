@@ -438,17 +438,18 @@ describe('Solutions', () => {
     expect(rows[2].children[6].style.color).toBe('rgb(244, 63, 94)');
   });
 
-  it('uses backend success_pct (Wilson) when present', () => {
+  it('uses plain success percentage (correct / total)', () => {
     renderSolutions({
       months: [
         { month: 'Январь 2026', total: 5, correct: 1, success_pct: 3.6 },
-        { month: 'Февраль 2026', total: 1000, correct: 200, success_pct: 17.6 },
+        { month: 'Февраль 2026', total: 4, correct: 1, success_pct: 4.9 },
       ],
       years: [],
       by_course: [],
     });
-    expect(screen.getAllByText('3.6%').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('17.6%').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('20.0%').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('25.0%').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('3.6%')).toBeNull();
   });
 
   it('sorts hardest steps by weighted success default (worst first) and by Всего', async () => {

@@ -23,6 +23,7 @@ from app.api.dashboard.course_filter import (
     filter_steps_average_grade,
     parse_course_ids,
 )
+from app.api.dashboard.kpi import _steps_average_grade
 from app.constants import MONTH_NAMES
 from app.database import get_db
 from app.main import app
@@ -734,10 +735,9 @@ class TestFilterStepsAverageGrade:
         grade = await filter_steps_average_grade(db_session, {100})
         assert grade == 0.0
 
-    async def test_null_course_step_included_in_average(self, db_session):
-        # Regression: steps without course attribution (course_id IS NULL) feed
-        # the step-grade KPI, so selecting all courses must include them — the
-        # "filter = all courses" path must equal the "no filter" path.
+    async def test_null_course_step_excluded_under_subset_filter(self, db_session):
+        # A step without course attribution (course_id IS NULL) does not belong
+        # to any selected course, so filtering to a subset must exclude it.
         db_session.add(
             MartStep(
                 id=uuid.uuid4(),
@@ -758,4 +758,131 @@ class TestFilterStepsAverageGrade:
         )
         await db_session.commit()
         grade = await filter_steps_average_grade(db_session, {100})
+        assert grade == 3.0
+
+    async def test_null_course_step_included_when_no_filter(self, db_session):
+        # Without a course filter (all courses) NULL-attributed steps feed the
+        # step-grade KPI.
+        db_session.add(
+            MartStep(
+                id=uuid.uuid4(),
+                stepik_course_id=None,
+                step_id=1,
+                grade=5.0,
+                grade_votes=10,
+            )
+        )
+        db_session.add(
+            MartStep(
+                id=uuid.uuid4(),
+                stepik_course_id=100,
+                step_id=2,
+                grade=3.0,
+                grade_votes=10,
+            )
+        )
+        await db_session.commit()
+        grade = await _steps_average_grade(db_session)
         assert grade == 4.0
+
+
+class TestFilterFinancialsInvariant:
+    """Regression: «filter = all courses» must equal «no filter».
+
+    Unfiltered financials read monthly Stepik aggregates (course-benefit-by-months);
+    the filtered view recomputes the same totals from per-payment records
+    (course-benefits). When both Stepik sources describe the same payments the
+    two code paths must agree — otherwise the dashboard numbers would jump when
+    the user merely toggles the course filter on.
+    """
+
+    async def _seed_consistent_financials(self, db_session):
+        from sqlalchemy import text
+
+        from app.services.transform import transform_financials
+
+        await db_session.execute(
+            text(
+                "INSERT INTO courses (id, user_id, stepik_course_id, title, status, created_at) "
+                "VALUES (:id1, :u, 101, 'Python 101', 'Published', :now), "
+                "       (:id2, :u, 102, 'Python 102', 'Published', :now)"
+            ),
+            {"id1": str(uuid.uuid4()), "id2": str(uuid.uuid4()), "u": str(uuid.uuid4()), "now": datetime.now(UTC)},
+        )
+
+        benefits = [
+            {"course": 101, "amount": 800, "payment_amount": 800, "status": "completed", "time": "2026-01-10T00:00:00Z"},
+            {"course": 101, "amount": 200, "payment_amount": 200, "status": "completed", "time": "2026-01-15T00:00:00Z"},
+            {"course": 101, "amount": -100, "payment_amount": 100, "status": "refunded", "time": "2026-01-20T00:00:00Z"},
+            {"course": 102, "amount": 500, "payment_amount": 500, "status": "completed", "time": "2026-02-05T00:00:00Z"},
+        ]
+        for b in benefits:
+            await db_session.execute(
+                text(
+                    "INSERT INTO raw_course_benefit (course, amount, payment_amount, status, \"time\", _raw_json) "
+                    "VALUES (:course, :amount, :pa, :status, :time, :raw)"
+                ),
+                {
+                    "course": b["course"],
+                    "amount": b["amount"],
+                    "pa": b["payment_amount"],
+                    "status": b["status"],
+                    "time": b["time"],
+                    "raw": json.dumps(b),
+                },
+            )
+
+        by_months = [
+            {"year": 2026, "month": 1, "total_turnover": 900, "total_user_income": 900, "total_refunds": 100, "count_payments": 3, "count_refunds": 1},
+            {"year": 2026, "month": 2, "total_turnover": 500, "total_user_income": 500, "total_refunds": 0, "count_payments": 1, "count_refunds": 0},
+        ]
+        for m in by_months:
+            await db_session.execute(
+                text(
+                    "INSERT INTO raw_course_benefit_by_month (year, month, total_turnover, total_user_income, "
+                    "total_refunds, count_payments, count_refunds, _raw_json) "
+                    "VALUES (:year, :month, :tt, :ti, :tr, :cp, :cr, :raw)"
+                ),
+                {
+                    "year": m["year"], "month": m["month"], "tt": m["total_turnover"],
+                    "ti": m["total_user_income"], "tr": m["total_refunds"],
+                    "cp": m["count_payments"], "cr": m["count_refunds"], "raw": json.dumps(m),
+                },
+            )
+        await db_session.commit()
+
+        await transform_financials(db_session)
+        await db_session.commit()
+
+        row = (await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))).fetchone()
+        data = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+        return data
+
+    async def test_filtered_equals_unfiltered_totals(self, db_session):
+        from app.api.dashboard.course_filter import filter_financials
+
+        data = await self._seed_consistent_financials(db_session)
+        unfiltered = data["summary"]
+
+        filtered = filter_financials(data, {101, 102})["summary"]
+
+        for key in ("total_turnover", "total_income", "total_refunds", "total_payments", "total_refunds_count"):
+            assert filtered[key] == unfiltered[key], f"{key}: filtered {filtered[key]} != unfiltered {unfiltered[key]}"
+
+    async def test_filtered_equals_unfiltered_month_sums(self, db_session):
+        from app.api.dashboard.course_filter import filter_financials
+
+        data = await self._seed_consistent_financials(db_session)
+
+        def _sum_months(months):
+            return {
+                "turnover": sum(m["turnover"] for m in months),
+                "income": sum(m["income"] for m in months),
+                "refunds": sum(m["refunds"] for m in months),
+                "payments_count": sum(m["payments_count"] for m in months),
+                "refunds_count": sum(m["refunds_count"] for m in months),
+            }
+
+        unfiltered = _sum_months(data["months"])
+        filtered = _sum_months(filter_financials(data, {101, 102})["months"])
+        assert filtered == unfiltered

@@ -87,7 +87,7 @@ async def get_submissions(
                 "total": row.total,
                 "correct": row.correct,
                 "students": row.students,
-                "published": min(published_monthly.get((y, m), 0), row.correct),
+                "published": published_monthly.get((y, m), 0),
                 "success_pct": round(wilson_success_pct(row.correct, row.total), 1),
                 "weighted_success_pct": round(weighted_success_pct(row.correct, row.total, global_pct), 1),
             }
@@ -118,7 +118,7 @@ async def get_submissions(
         years.append(
             {
                 **agg,
-                "published": min(published_yearly.get(y, 0), agg["correct"]),
+                "published": published_yearly.get(y, 0),
                 "success_pct": round(wilson_success_pct(agg["correct"], agg["total"]), 1),
                 "weighted_success_pct": round(weighted_success_pct(agg["correct"], agg["total"], global_pct), 1),
             }
@@ -149,7 +149,7 @@ async def get_submissions(
                 "total": course_row.total,
                 "correct": course_row.correct,
                 "students": course_row.students,
-                "published": min(published_per_course.get(course_obj.stepik_course_id, 0), course_row.correct) if course_obj else 0,
+                "published": published_per_course.get(course_obj.stepik_course_id, 0) if course_obj else 0,
                 "success_pct": round(wilson_success_pct(course_row.correct, course_row.total), 1),
                 "weighted_success_pct": round(
                     weighted_success_pct(course_row.correct, course_row.total, global_pct), 1

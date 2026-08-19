@@ -2,6 +2,7 @@ import { memo } from 'react';
 import CountUp from 'react-countup';
 import PropTypes from 'prop-types';
 import { formatNumber } from '../utils/formatNumber';
+import { getRatingColor } from '../utils/format';
 
 const COLOR_CLASSES = {
   'cyber-blue': 'text-cyber-blue border-cyber-blue/20',
@@ -39,22 +40,7 @@ function KpiCard({
 
   const getRatingStyle = () => {
     if (!ratingColor) return {};
-    const r = value == null ? 0 : Math.max(1, Math.min(5, value));
-    const stops = [
-      [1.0, 255, 0, 0],
-      [2.0, 255, 120, 0],
-      [3.0, 255, 210, 0],
-      [4.0, 160, 230, 0],
-      [4.5, 0, 180, 0],
-      [4.9, 0, 255, 0],
-    ];
-    let color = stops[0];
-    for (const [stop, cr, cg, cb] of stops) {
-      if (r >= stop) color = [cr, cg, cb];
-      else break;
-    }
-    const [cr, cg, cb] = color;
-    return { color: `rgb(${cr}, ${cg}, ${cb})` };
+    return { color: getRatingColor(value) };
   };
 
   return (

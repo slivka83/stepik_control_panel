@@ -66,7 +66,6 @@ function calcWrong(m) {
 }
 
 function calcPct(m) {
-  if (m.success_pct != null) return m.success_pct;
   return m.total > 0 ? ((m.correct || 0) / m.total) * 100 : 0;
 }
 
@@ -331,12 +330,8 @@ const HARDEST_COLUMNS = [
     align: 'right',
     width: 'w-[14%]',
     numeric: true,
-    getValue: (s) => s.success_pct,
-    render: (s) => (
-      <td className="text-right font-mono text-xs pl-1 pr-1" style={{ color: successColor(s.success_pct) }}>
-        {s.success_pct}%
-      </td>
-    ),
+    getValue: (s) => calcPct(s),
+    render: (s) => successCell(calcPct(s)),
   },
   {
     key: 'weighted_success',

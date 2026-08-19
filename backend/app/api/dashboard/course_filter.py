@@ -368,8 +368,8 @@ async def filter_steps_average_grade(db: AsyncSession, selected_stepik_ids: set[
     params = {f"cid{i}": cid for i, cid in enumerate(ids)}
     rows = await db.execute(
         text(
-            "SELECT grade, grade_votes FROM mart_steps "
-            f"WHERE stepik_course_id IN ({placeholders}) OR stepik_course_id IS NULL"
+        "SELECT grade, grade_votes FROM mart_steps "
+        f"WHERE stepik_course_id IN ({placeholders})"
         ),
         params,
     )
