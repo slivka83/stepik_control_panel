@@ -121,7 +121,7 @@ class TestCohortsBoundaries:
         assert data["fading"] == 0
         assert data["sleeping"] == 0
 
-    async def test_null_last_viewed_not_counted(self, db_session):
+    async def test_null_last_viewed_counted_as_zombie(self, db_session):
         user = await _seed_user(db_session)
         course = Course(
             id=uuid.uuid4(),
@@ -153,9 +153,12 @@ class TestCohortsBoundaries:
         app.dependency_overrides[get_user] = override_user
         try:
             data = client.get("/api/dashboard/cohorts").json()
+            # Regression: записавшиеся без даты активности (last_viewed_at IS NULL)
+            # учитываются в сегменте «Зомби», чтобы сумма графика совпадала с KPI total_students.
             assert data["active"] == 0
             assert data["passive"] == 0
             assert data["fading"] == 0
             assert data["sleeping"] == 0
+            assert data["zombie"] == 1
         finally:
             app.dependency_overrides.clear()

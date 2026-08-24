@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useSync } from '../contexts/SyncContext';
 import { formatCurrency } from '../utils/formatNumber';
@@ -168,6 +168,65 @@ const DAYS_COLUMNS = [
   { key: 'income', label: 'Доход', align: 'right', width: 'w-[20%]', numeric: true, render: greenMoneyCell },
   { key: 'refunds', label: 'Возвраты', align: 'right', width: 'w-[14%]', numeric: true, render: refundsCell },
 ];
+
+// Aggregate recent payments by the viewer's LOCAL calendar day, mirroring the
+// date logic used by the "Последние операции" tab (new Date(p.time)). This
+// guarantees the "today" row matches what the recent-operations tab shows.
+export function buildDailyStats(recent, daysBack = 30) {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const buckets = {};
+  for (const p of recent || []) {
+    const t = new Date(p.time);
+    if (Number.isNaN(t.getTime())) continue;
+    const d = new Date(t.getFullYear(), t.getMonth(), t.getDate());
+    if (d > today) continue;
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const b =
+      buckets[key] ||
+      (buckets[key] = {
+        day: key,
+        payments_count: 0,
+        turnover: 0,
+        income: 0,
+        refunds: 0,
+        refunds_count: 0,
+      });
+    b.payments_count += 1;
+    const status = p.status || '';
+    const amount = parseFloat(p.amount) || 0;
+    const paymentAmount = parseFloat(p.payment_amount) || 0;
+    if (status === 'refunded') {
+      b.refunds += Math.abs(amount);
+      b.refunds_count += 1;
+      b.turnover -= paymentAmount;
+      b.income += amount;
+    } else {
+      b.turnover += paymentAmount;
+      b.income += amount;
+    }
+  }
+  const out = [];
+  const start = new Date(today);
+  start.setDate(start.getDate() - (daysBack - 1));
+  for (let i = 0; i < daysBack; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    out.push(
+      buckets[key] || {
+        day: key,
+        payments_count: 0,
+        turnover: 0,
+        income: 0,
+        refunds: 0,
+        refunds_count: 0,
+      },
+    );
+  }
+  out.sort((a, b) => (a.day < b.day ? 1 : -1));
+  return out;
+}
 
 const COURSES_COLUMNS = [
   {
@@ -429,9 +488,10 @@ export default function Financials() {
     });
   };
 
-  const { summary, months, years, days, courses, promos, utms, recent_payments } = financials || {};
+  const { summary, months, years, courses, promos, utms, recent_payments } = financials || {};
+  const dailyRows = useMemo(() => buildDailyStats(recent_payments), [recent_payments]);
   const chartTab = CHARTABLE_TABS.includes(activeTab) ? activeTab : null;
-  const chartRows = chartTab === 'months' ? months || [] : days || [];
+  const chartRows = chartTab === 'months' ? months || [] : dailyRows;
   const chartXKey = chartTab === 'months' ? 'month' : 'day';
   const chartXTick = chartTab === 'months' ? makeMonthsTick(chartRows) : DAYS_TICK;
   const chartPeriodLabel = chartTab === 'months' ? MONTHS_PERIOD : DAYS_PERIOD;
@@ -497,7 +557,7 @@ export default function Financials() {
             {activeTab === 'days' && (
               <DataTable
                 columns={DAYS_COLUMNS}
-                rows={days || []}
+                rows={dailyRows}
                 initialSort={SORT_INIT.days}
                 sort={sorts.days}
                 onSort={onSort('days')}

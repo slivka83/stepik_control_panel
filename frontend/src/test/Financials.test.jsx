@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { SyncContext } from '../contexts/SyncContext';
 import { AuthProvider } from '../contexts/AuthContext';
-import Financials from '../pages/Financials';
+import Financials, { buildDailyStats } from '../pages/Financials';
 
 const mockFinancials = {
   summary: {
@@ -170,14 +170,27 @@ describe('Financials', () => {
     expect(screen.getByText('15')).toBeInTheDocument();
   });
 
-  it('switches to days tab on click', async () => {
+  it('switches to days tab and aggregates recent payments by local day', async () => {
     const user = userEvent.setup();
-    renderFinancials();
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const todayISO = `${y}-${m}-${d}`;
+    const todayLabel = `${d}.${m}.${y}`;
+    renderFinancials({
+      ...mockFinancials,
+      recent_payments: [
+        { id: 'p1', amount: 5000, payment_amount: 7000, status: 'debited', time: `${todayISO}T10:00:00` },
+        { id: 'p2', amount: -500, payment_amount: 7000, status: 'refunded', time: `${todayISO}T09:30:00` },
+      ],
+    });
     await user.click(screen.getByText('По дням'));
     expect(screen.getByText('Дата')).toBeInTheDocument();
-    expect(screen.getByText('15.01.2026')).toBeInTheDocument();
-    expect(screen.getByText('14.01.2026')).toBeInTheDocument();
-    expect(screen.getByText('5 000 ₽')).toBeInTheDocument();
+    // Regression: the "today" row matches the latest date shown in "Последние операции".
+    expect(screen.getByText(todayLabel)).toBeInTheDocument();
+    // income = 5000 + (-500) = 4500; refunds = 500
+    expect(screen.getByText('4 500 ₽')).toBeInTheDocument();
     expect(screen.getByText('-500 ₽')).toHaveClass('text-crimson-alert');
   });
 
@@ -414,5 +427,44 @@ describe('Financials', () => {
     expect(screen.queryByRole('combobox', { name: 'Метрика графика' })).not.toBeInTheDocument();
     await user.click(screen.getByText('По месяцам'));
     expect(screen.getByRole('combobox', { name: 'Метрика графика' })).toBeInTheDocument();
+  });
+});
+
+describe('buildDailyStats', () => {
+  const mk = (time, overrides = {}) => ({
+    id: 'x',
+    amount: 100,
+    payment_amount: 100,
+    status: 'debited',
+    time,
+    ...overrides,
+  });
+  const todayKey = () => {
+    const n = new Date();
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+  };
+
+  it('buckets a payment onto the viewer local day', () => {
+    // Regression: a payment "today" (local) must land in the "today" row,
+    // matching what the "Последние операции" tab shows.
+    const key = todayKey();
+    const days = buildDailyStats([mk(`${key}T12:00:00`)]);
+    expect(days.find((d) => d.day === key).payments_count).toBe(1);
+  });
+
+  it('returns 30 zero-filled days for empty input', () => {
+    const days = buildDailyStats([]);
+    expect(days).toHaveLength(30);
+    expect(days.every((d) => d.payments_count === 0)).toBe(true);
+  });
+
+  it('applies the refund formula (abs amount, turnover decreases)', () => {
+    const key = todayKey();
+    const days = buildDailyStats([mk(`${key}T12:00:00`, { status: 'refunded', amount: -500, payment_amount: 7000 })]);
+    const today = days.find((d) => d.day === key);
+    expect(today.refunds).toBe(500);
+    expect(today.refunds_count).toBe(1);
+    expect(today.turnover).toBe(-7000);
+    expect(today.income).toBe(-500);
   });
 });

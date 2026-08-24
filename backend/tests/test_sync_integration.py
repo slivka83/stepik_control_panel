@@ -140,7 +140,7 @@ class TestCohortBoundaries:
         assert calculate_cohort_status(last) == "Sleeping"
 
     def test_zombie_none(self):
-        assert calculate_cohort_status(None) == "Sleeping"
+        assert calculate_cohort_status(None) == "Zombie"
 
     def test_zombie_same_day_old(self):
         from datetime import timedelta

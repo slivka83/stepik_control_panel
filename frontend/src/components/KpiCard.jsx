@@ -24,6 +24,7 @@ function KpiCard({
   suffix = '',
   color = 'cyber-blue',
   trend = null,
+  trendBadge = false,
   fractionDigits = 0,
   minimumFractionDigits = 0,
   noAnimate = false,
@@ -37,6 +38,7 @@ function KpiCard({
   const dp = Math.max(fractionDigits, minimumFractionDigits);
   const fmt = (val) => formatNumber(val, { minimumFractionDigits, maximumFractionDigits: fractionDigits });
   const textColor = ratingColor ? undefined : COLOR_CLASSES[color]?.split(' ')[0] || 'text-cyber-blue';
+  const effTrend = trend === null ? 1 : trend;
 
   const getRatingStyle = () => {
     if (!ratingColor) return {};
@@ -47,12 +49,12 @@ function KpiCard({
     <div className="glass-panel glass-panel-hover p-4 transition-all duration-300">
       <div className="flex items-end justify-between mb-2">
         <div className="text-gray-400 text-xs">{title}</div>
-        {trend !== null && (
+        {(trend !== null || (trendBadge && secondValue !== null && secondValue > 0)) && (
           <span
             title={trendTooltip || undefined}
-            className={`text-xs font-mono ${trendInverted ? (trend > 0 ? 'text-crimson-alert' : 'text-neon-green') : trend > 0 ? 'text-neon-green' : 'text-crimson-alert'}`}
+            className={`text-xs font-mono ${trendInverted ? (effTrend > 0 ? 'text-crimson-alert' : 'text-neon-green') : effTrend > 0 ? 'text-neon-green' : 'text-crimson-alert'}`}
           >
-            {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}%
+            {trend !== null ? `${trend >= 0 ? '↑' : '↓'} ${Math.abs(trend)}%` : '↑ --%'}
           </span>
         )}
       </div>
@@ -113,6 +115,7 @@ KpiCard.propTypes = {
   ]),
   trend: PropTypes.number,
   trendInverted: PropTypes.bool,
+  trendBadge: PropTypes.bool,
   trendTooltip: PropTypes.string,
   fractionDigits: PropTypes.number,
   secondValue: PropTypes.number,

@@ -99,6 +99,7 @@ export default function Dashboard() {
           trendTooltip={buildTrendTooltip('Сертификаты', kpi?.certificates_change_detail, kpi?.certificates_change_pct)}
           secondHighlight
           color="white"
+          trendBadge
         />
         <KpiCard
           title="Публичные решения"
@@ -112,6 +113,7 @@ export default function Dashboard() {
           )}
           secondHighlight
           color="white"
+          trendBadge
         />
         <KpiCard
           title="Комментарии"
@@ -121,6 +123,7 @@ export default function Dashboard() {
           trendTooltip={buildTrendTooltip('Комментарии', kpi?.comments_change_detail, kpi?.comments_change_pct)}
           secondHighlight
           color="white"
+          trendBadge
         />
         <KpiCard
           title="Отзывы"
@@ -130,6 +133,7 @@ export default function Dashboard() {
           trendTooltip={buildTrendTooltip('Отзывы', kpi?.reviews_change_detail, kpi?.reviews_change_pct)}
           secondHighlight
           color="white"
+          trendBadge
         />
       </div>
 

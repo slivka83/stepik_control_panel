@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
@@ -56,7 +56,10 @@ async def get_cohorts(
     zombie_result = await db.execute(
         select(func.count(StudentEnrollment.id)).where(
             StudentEnrollment.course_id.in_(course_ids),
-            StudentEnrollment.cohort_status == "Zombie",
+            or_(
+                StudentEnrollment.cohort_status == "Zombie",
+                StudentEnrollment.last_viewed_at.is_(None),
+            ),
         )
     )
     cohorts["zombie"] = zombie_result.scalar() or 0

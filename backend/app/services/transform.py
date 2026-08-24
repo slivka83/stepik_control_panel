@@ -143,7 +143,7 @@ def parse_dt(raw):
 
 def calculate_cohort_status(last_viewed_at, date_joined=None):
     if last_viewed_at is None:
-        return "Sleeping"
+        return "Zombie"
     if last_viewed_at.tzinfo is None:
         last_viewed_at = last_viewed_at.replace(tzinfo=UTC)
     days = (datetime.now(UTC) - last_viewed_at).days

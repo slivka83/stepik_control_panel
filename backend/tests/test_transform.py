@@ -195,7 +195,7 @@ class TestTransformEnrollments:
         assert e1[4] is not None
 
         e2 = next(e for e in enrollments if e[0] == 1002)
-        assert e2[1] == "Sleeping"
+        assert e2[1] == "Zombie"
         assert e2[2] == 0
         assert e2[3] == 0
         assert e2[4] is None

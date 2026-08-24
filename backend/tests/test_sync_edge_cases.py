@@ -116,10 +116,10 @@ class TestCalculateCohortStatusEdgeCases:
         assert result == "Sleeping"
 
     def test_zombie_none_date_joined_none_last_viewed(self):
-        assert calculate_cohort_status(None, None) == "Sleeping"
+        assert calculate_cohort_status(None, None) == "Zombie"
 
     def test_zombie_none_last_viewed_with_date_joined(self):
-        assert calculate_cohort_status(None, datetime.now(UTC)) == "Sleeping"
+        assert calculate_cohort_status(None, datetime.now(UTC)) == "Zombie"
 
     def test_zombie_naive_datetime(self):
         from datetime import datetime as dt_mod
