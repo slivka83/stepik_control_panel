@@ -185,8 +185,6 @@ async def sync_full_reload(
     endpoint: dict,
     raw_table: str,
     api_path: str,
-    page_size: int,
-    auth_method: str,
 ):
     """TRUNCATE + full paginated reload. Determines query mode from api_path."""
     clean = clean_path(api_path)
@@ -431,7 +429,9 @@ async def sync_incremental_page(engine, token, endpoint: dict, raw_table: str, a
 
     for sid in step_ids[:max_steps]:
         last_page = state.get(int(sid), 0)
-        page = last_page + 1 if last_page > 0 else 1
+        # Продолжаем С последней страницы: новые записи заполняют хвост
+        # последней скачанной страницы (API oldest-first); upsert дедуплит повторы
+        page = last_page if last_page > 0 else 1
         step_new = 0
 
         while page <= max_pages_per_step:
@@ -478,9 +478,21 @@ async def sync_incremental_page(engine, token, endpoint: dict, raw_table: str, a
     if ep_name in STEP_COURSE_ENDPOINTS:
         print(f"  {raw_table}: fetching author submissions per-course...")
         course_ids = await get_course_ids(engine)
+
+        # Инкрементальные страницы по курсам (как в raw_sync.sync_submissions):
+        # раньше каждый запуск начинал с page=1 и падал на втором запуске —
+        # INSERT без ON CONFLICT задевал уникальность submission_id
+        async with engine.begin() as conn:
+            r = await conn.execute(
+                text("SELECT key, value FROM raw_sync_state WHERE endpoint_name = :ep AND key LIKE 'course_%'"),
+                {"ep": ep_name},
+            )
+            course_state = {int(row[0].split("_", 1)[1]): int(row[1]) for row in r}
+
         author_total = 0
         for cid in course_ids:
-            page = 1
+            last_page = course_state.get(int(cid), 0)
+            page = last_page if last_page > 0 else 1
             while page <= 50:
                 data = await fetch_page(clean, token, {"course": cid, "page": page})
                 objects = extract_objects(data, api_path)
@@ -488,6 +500,15 @@ async def sync_incremental_page(engine, token, endpoint: dict, raw_table: str, a
                     break
                 await _upsert_objects(engine, raw_table, api_path, objects)
                 author_total += len(objects)
+                async with engine.begin() as conn:
+                    await conn.execute(
+                        text(
+                            "INSERT INTO raw_sync_state (endpoint_name, key, value) "
+                            "VALUES (:ep, :k, :v) "
+                            "ON CONFLICT (endpoint_name, key) DO UPDATE SET value = :v2"
+                        ),
+                        {"ep": ep_name, "k": f"course_{cid}", "v": str(page), "v2": str(page)},
+                    )
                 meta = data.get("meta", {})
                 if not meta.get("has_next"):
                     break
@@ -571,7 +592,9 @@ async def sync_incremental_time(engine, token, endpoint: dict, raw_table: str, a
 async def _upsert_objects(
     engine, raw_table: str, api_path: str, objects: list[dict], extra_columns: dict | None = None
 ):
-    """INSERT objects for incremental sync (no conflict handling — incremental shouldn't produce duplicates).
+    """INSERT objects for incremental sync. ON CONFLICT DO NOTHING — повторная
+    загрузка уже существующих строк (инкремент перечитывает последнюю страницу)
+    не должна ронять скрипт на unique-констрейнтах.
 
     extra_columns — контекстные значения, которых нет в ответе API (например,
     step для submissions из ?step=)."""
@@ -618,7 +641,7 @@ async def _upsert_objects(
             return
         placeholders = ", ".join(f":{c}" for c in col_names)
         cols_str = ", ".join(f'"{c}"' for c in col_names)
-        insert_sql = f'INSERT INTO "{raw_table}" ({cols_str}) VALUES ({placeholders})'
+        insert_sql = f'INSERT INTO "{raw_table}" ({cols_str}) VALUES ({placeholders}) ON CONFLICT DO NOTHING'
 
         for obj in objects:
             raw_json = json.dumps(obj, ensure_ascii=False)
@@ -676,7 +699,6 @@ async def main():
         strategy = ep["incremental"]
         api_path = ep["api_path"]
         raw_table = ep["raw_table"]
-        page_size = ep.get("page_size") or 20
         auth_method = ep["auth_method"]
 
         print(f"[{ep_name}] {raw_table} ({strategy})")
@@ -698,7 +720,7 @@ async def main():
 
         try:
             if strategy == "full_reload":
-                await sync_full_reload(engine, token, ep, raw_table, api_path, page_size, auth_method)
+                await sync_full_reload(engine, token, ep, raw_table, api_path)
             elif strategy == "incremental_page":
                 await sync_incremental_page(engine, token, ep, raw_table, api_path)
             elif strategy == "incremental_time":

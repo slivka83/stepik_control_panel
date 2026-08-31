@@ -1,4 +1,4 @@
-import { memo, Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const ROW_HEIGHT = 35;
 
@@ -59,17 +59,6 @@ export function useRowsPerPage() {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const tableRef = useRef(null);
   const prevRows = useRef(0);
-  const resizeRef = useRef(null);
-
-  useLayoutEffect(() => {
-    const node = tableRef.current;
-    if (!node) return;
-    const calc = calcRowsPerPage(node);
-    if (calc !== prevRows.current) {
-      prevRows.current = calc;
-      setRowsPerPage(calc);
-    }
-  });
 
   useEffect(() => {
     prevRows.current = 0;
@@ -82,7 +71,6 @@ export function useRowsPerPage() {
         setRowsPerPage(calc);
       }
     });
-    resizeRef.current = ro;
     ro.observe(node);
     return () => ro.disconnect();
   }, []);
@@ -231,7 +219,7 @@ export default function DataTable({
           </thead>
           <tbody>
             {view.rows.map((row) => (
-              <Row key={rowKey(row)} columns={columns} row={row} rowKey={row} />
+              <Row key={rowKey(row)} columns={columns} row={row} />
             ))}
             {showEmpty && !emptyCentered && (
               <tr>

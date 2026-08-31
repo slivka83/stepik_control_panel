@@ -10,7 +10,6 @@ transform_students из raw_comment, по аналогии с comments_count.
 """
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision = "016"

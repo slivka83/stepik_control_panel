@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useTabState } from '../hooks/useTabState';
 import { useSync } from '../contexts/SyncContext';
 import { formatCurrency } from '../utils/formatNumber';
 import { yearMonthLabel } from '../utils/format';
@@ -93,7 +93,7 @@ const commissionOf = (p) => {
   const payment = Number(p.payment_amount);
   const income = Number(p.amount);
   if (!Number.isFinite(payment) || payment <= 0) return null;
-  const fee = payment - Math.abs(Number.isFinite(income) ? income : 0);
+  const fee = Math.max(0, payment - Math.abs(Number.isFinite(income) ? income : 0));
   return { pct: Math.round((fee / payment) * 100), amount: fee };
 };
 
@@ -465,16 +465,11 @@ const DAYS_PERIOD = (d) => {
 export default function Financials() {
   const { data, error, refresh } = useSync();
   const financials = data.financials;
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'months');
+  const [activeTab, handleTabChange] = useTabState();
   const [sorts, setSorts] = useState(SORT_INIT);
   const [viewMode, setViewMode] = useState('table');
   const [chartMetric, setChartMetric] = useState('turnover_income');
 
-  const handleTabChange = (tab) => {
-    setActiveTab(tab);
-    setSearchParams({ tab });
-  };
 
   const onSort = (tab) => (key) => {
     setSorts((prev) => {
@@ -491,7 +486,11 @@ export default function Financials() {
   const { summary, months, years, courses, promos, utms, recent_payments } = financials || {};
   const dailyRows = useMemo(() => buildDailyStats(recent_payments), [recent_payments]);
   const chartTab = CHARTABLE_TABS.includes(activeTab) ? activeTab : null;
-  const chartRows = chartTab === 'months' ? months || [] : dailyRows;
+  const commissionOf = (row) => (row?.turnover || 0) - (row?.income || 0);
+  const chartRows = useMemo(() => {
+    const base = chartTab === 'months' ? months || [] : dailyRows;
+    return base.map((r) => ({ ...r, commission: commissionOf(r) }));
+  }, [chartTab, months, dailyRows]);
   const chartXKey = chartTab === 'months' ? 'month' : 'day';
   const chartXTick = chartTab === 'months' ? makeMonthsTick(chartRows) : DAYS_TICK;
   const chartPeriodLabel = chartTab === 'months' ? MONTHS_PERIOD : DAYS_PERIOD;

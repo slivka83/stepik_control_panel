@@ -75,13 +75,13 @@ class TestCrossCuttingConcerns:
 
     @pytest.mark.asyncio
     async def test_scope_read_in_token_exchange(self):
-        from unittest.mock import AsyncMock, patch
+        from unittest.mock import AsyncMock, MagicMock, patch
 
         import httpx
 
         from app.services.stepik_api import exchange_code_for_token
 
-        mock_response = AsyncMock()
+        mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"access_token": "test"}
 

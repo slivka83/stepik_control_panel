@@ -1,12 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   CHART_COLORS,
-  APP_VERSION,
   COHORT_COLORS,
   COHORT_LABELS,
   COHORT_DAYS,
-  STATUS_LABELS,
-  STATUS_COLORS,
   NAV_GROUPS,
 } from '../constants.jsx';
 
@@ -24,16 +21,6 @@ describe('Constants', () => {
       for (const val of Object.values(CHART_COLORS)) {
         expect(val).toMatch(/^#[0-9a-f]{6}$/i);
       }
-    });
-  });
-
-  describe('APP_VERSION', () => {
-    it('is a semver string', () => {
-      expect(APP_VERSION).toMatch(/^\d+\.\d+\.\d+$/);
-    });
-
-    it('is version 0.2.0', () => {
-      expect(APP_VERSION).toBe('0.2.0');
     });
   });
 
@@ -70,22 +57,6 @@ describe('Constants', () => {
       expect(COHORT_DAYS.passive).toContain('30');
       expect(COHORT_DAYS.fading).toContain('90');
       expect(COHORT_DAYS.sleeping).toContain('90');
-    });
-  });
-
-  describe('STATUS_LABELS', () => {
-    it('has Russian labels for all statuses', () => {
-      expect(STATUS_LABELS.debited).toBe('Зачислен');
-      expect(STATUS_LABELS.refunded).toBe('Возврат');
-      expect(STATUS_LABELS.pending).toBe('Ожидание');
-    });
-  });
-
-  describe('STATUS_COLORS', () => {
-    it('has color classes for all statuses', () => {
-      expect(STATUS_COLORS.debited).toContain('neon-green');
-      expect(STATUS_COLORS.refunded).toContain('crimson-alert');
-      expect(STATUS_COLORS.pending).toContain('amber-alert');
     });
   });
 

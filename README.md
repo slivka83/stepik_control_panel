@@ -81,7 +81,7 @@ alembic current
 │   │   ├── models/       # SQLAlchemy модели
 │   │   ├── services/     # Бизнес-логика (sync, stepik_api, crypto)
 │   │   └── config.py     # Настройки из .env
-│   ├── alembic/          # Миграции БД
+│   ├── migrations/       # Миграции БД (Alembic)
 │   ├── tests/            # Backend тесты (pytest)
 │   │   ├── conftest.py   # Фикстуры, test DB engine
 │   │   └── test_*.py     # Модульные тесты API и бизнес-логики
@@ -93,7 +93,7 @@ alembic current
 │   │   ├── components/   # React компоненты
 │   │   ├── pages/        # Страницы (Dashboard, Courses, Financials, Cohorts)
 │   │   ├── contexts/     # AuthContext, SyncContext
-│   │   ├── constants.js  # Цвета (CHART_COLORS), лейблы, навигация, APP_VERSION
+│   │   ├── constants.jsx # Цвета (CHART_COLORS), лейблы, навигация, когорты
 │   │   └── test/         # Frontend тесты (vitest + jsdom)
 │   ├── vite.config.js
 │   └── package.json
@@ -107,11 +107,11 @@ alembic current
 ### Тестирование
 
 ```bash
-# Backend — 319 тестов (нужен docker-compose для live-PG)
+# Backend — 516 тестов + 7 live-PG (нужен docker-compose)
 cd backend
 python -m pytest tests/ -v
 
-# Frontend — 192 теста
+# Frontend — 399 тестов
 cd frontend
 npx vitest run
 ```

@@ -12,7 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
-from app.api.dashboard.common import format_month_label, get_courses_for_user
+from app.api.dashboard.common import format_month_label, get_courses_for_user, in_clause
 from app.api.dashboard.course_filter import parse_course_ids
 from app.database import get_db
 from app.models import User
@@ -44,9 +44,7 @@ async def get_reviews_stats(
     if not selected_stepik:
         return _empty()
 
-    stepik_ids = sorted(selected_stepik)
-    placeholders = ", ".join(f":cid{i}" for i in range(len(stepik_ids)))
-    params = {f"cid{i}": cid for i, cid in enumerate(stepik_ids)}
+    placeholders, params = in_clause(selected_stepik, "cid")
     rows = await db.execute(
         text(
             "SELECT stepik_course_id, user_id, year, month, score "

@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -486,8 +487,8 @@ class TestDashboardKPITrends:
         course = _make_course_in_db(db_session, user.id)
 
         months_data = [
-            {"month": "Июнь 2026", "income": 8000, "payments_count": 8, "refunds_count": 1},
-            {"month": "Июль 2026", "income": 10000, "payments_count": 10, "refunds_count": 2},
+            {"month": "Июнь 2026", "year": 2026, "month_num": 6, "income": 8000, "payments_count": 8, "refunds_count": 1},
+            {"month": "Июль 2026", "year": 2026, "month_num": 7, "income": 10000, "payments_count": 10, "refunds_count": 2},
         ]
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
@@ -513,7 +514,14 @@ class TestDashboardKPITrends:
 
         _setup_overrides(db_session, user)
         try:
-            response = client.get("/api/dashboard/kpi")
+            # Pin KPI "now" to July 2026 so the "previous month" is deterministic.
+            class _FakeDateTime:
+                @classmethod
+                def now(cls, tz=None):
+                    return datetime(2026, 7, 15, tzinfo=tz)
+
+            with patch("app.api.dashboard.kpi.datetime", _FakeDateTime):
+                response = client.get("/api/dashboard/kpi")
             data = response.json()
             assert data["revenue_change_pct"] == 25
             assert data["revenue_change_detail"] == {"current": 10000, "previous": 8000}
@@ -525,8 +533,8 @@ class TestDashboardKPITrends:
         course = _make_course_in_db(db_session, user.id)
 
         months_data = [
-            {"month": "Июнь 2026", "income": 8000, "payments_count": 5, "refunds_count": 1},
-            {"month": "Июль 2026", "income": 10000, "payments_count": 10, "refunds_count": 2},
+            {"month": "Июнь 2026", "year": 2026, "month_num": 6, "income": 8000, "payments_count": 5, "refunds_count": 1},
+            {"month": "Июль 2026", "year": 2026, "month_num": 7, "income": 10000, "payments_count": 10, "refunds_count": 2},
         ]
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
@@ -552,7 +560,14 @@ class TestDashboardKPITrends:
 
         _setup_overrides(db_session, user)
         try:
-            response = client.get("/api/dashboard/kpi")
+            # Pin KPI "now" to July 2026 so the "previous month" is deterministic.
+            class _FakeDateTime:
+                @classmethod
+                def now(cls, tz=None):
+                    return datetime(2026, 7, 15, tzinfo=tz)
+
+            with patch("app.api.dashboard.kpi.datetime", _FakeDateTime):
+                response = client.get("/api/dashboard/kpi")
             data = response.json()
             assert data["payments_change_pct"] == 100
             assert data["payments_change_detail"] == {"current": 10, "previous": 5}
@@ -564,8 +579,8 @@ class TestDashboardKPITrends:
         course = _make_course_in_db(db_session, user.id)
 
         months_data = [
-            {"month": "Июнь 2026", "income": 0, "payments_count": 0, "refunds_count": 0},
-            {"month": "Июль 2026", "income": 0, "payments_count": 0, "refunds_count": 0},
+            {"month": "Июнь 2026", "year": 2026, "month_num": 6, "income": 0, "payments_count": 0, "refunds_count": 0},
+            {"month": "Июль 2026", "year": 2026, "month_num": 7, "income": 0, "payments_count": 0, "refunds_count": 0},
         ]
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
@@ -820,8 +835,8 @@ class TestDashboardKPITrends:
         course = _make_course_in_db(db_session, user.id)
 
         months_data = [
-            {"month": "Июнь 2026", "income": 8000, "payments_count": 8, "refunds": 500, "refunds_count": 1},
-            {"month": "Июль 2026", "income": 10000, "payments_count": 10, "refunds": 1200, "refunds_count": 3},
+            {"month": "Июнь 2026", "year": 2026, "month_num": 6, "income": 8000, "payments_count": 8, "refunds": 500, "refunds_count": 1},
+            {"month": "Июль 2026", "year": 2026, "month_num": 7, "income": 10000, "payments_count": 10, "refunds": 1200, "refunds_count": 3},
         ]
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
@@ -847,7 +862,14 @@ class TestDashboardKPITrends:
 
         _setup_overrides(db_session, user)
         try:
-            response = client.get("/api/dashboard/kpi")
+            # Pin KPI "now" to July 2026 so the "previous month" is deterministic.
+            class _FakeDateTime:
+                @classmethod
+                def now(cls, tz=None):
+                    return datetime(2026, 7, 15, tzinfo=tz)
+
+            with patch("app.api.dashboard.kpi.datetime", _FakeDateTime):
+                response = client.get("/api/dashboard/kpi")
             data = response.json()
             assert data["current_month_refunds_count"] == 1200
             assert data["refunds_change_pct"] == 140

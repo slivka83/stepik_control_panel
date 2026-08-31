@@ -93,7 +93,7 @@ class TestRateLimitHandling:
                     instance.request = AsyncMock(side_effect=[mock_response_429, mock_response_200])
 
                     result = await _request("GET", "/test")
-                    mock_sleep.assert_called_once_with(1)
+                    mock_sleep.assert_called_once_with(2)
                     assert result == {"data": "ok"}
 
     @pytest.mark.asyncio

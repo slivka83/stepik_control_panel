@@ -44,13 +44,20 @@ class Settings(BaseSettings):
                 logger.warning("Using default SECRET_KEY='dev-secret-key' — do NOT use in production!")
         return self
 
+    frontend_url_override: str = ""
+    stepik_redirect_uri_override: str = ""
+
     @property
     def frontend_url(self) -> str:
+        if self.frontend_url_override:
+            return self.frontend_url_override
         return f"http://localhost:{self.frontend_port}"
 
     @property
     def stepik_redirect_uri(self) -> str:
-        return f"http://localhost:{self.frontend_port}/api/auth/callback"
+        if self.stepik_redirect_uri_override:
+            return self.stepik_redirect_uri_override
+        return f"{self.frontend_url}/api/auth/callback"
 
     model_config = {"env_file": str(PROJECT_ROOT / ".env"), "env_file_encoding": "utf-8", "extra": "ignore"}
 

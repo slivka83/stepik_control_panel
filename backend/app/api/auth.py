@@ -201,7 +201,9 @@ async def callback(
     expires_in = token_data.get("expires_in", 3600)
 
     profile = await get_user_profile(access_token)
-    stepik_id = profile.get("id", 0)
+    stepik_id = profile.get("id") if isinstance(profile, dict) else None
+    if not stepik_id:
+        raise HTTPException(status_code=401, detail="Unable to fetch Stepik profile")
 
     encrypted_access = encrypt_token(access_token)
     encrypted_refresh = encrypt_token(refresh_token)

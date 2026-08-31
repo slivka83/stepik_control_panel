@@ -15,9 +15,9 @@ export default function Activities() {
     months: Object.entries(commentsMonthly)
       .map(([key, val]) => {
         const [y, m] = key.split('-');
-        return { month: formatMonthLabel(Number(m), Number(y)), total: val, correct: val };
+        return { month: formatMonthLabel(Number(m), Number(y)), year: Number(y), monthNum: Number(m), total: val, correct: val };
       })
-      .sort((a, b) => a.month.localeCompare(b.month)),
+      .sort((a, b) => a.year * 100 + a.monthNum - (b.year * 100 + b.monthNum)),
   };
 
   return (

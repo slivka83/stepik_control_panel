@@ -24,9 +24,8 @@ transform_comments → transform_certificates → transform_reviews). API
 """
 
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
-
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision = "017"
 down_revision = "016"

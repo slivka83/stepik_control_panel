@@ -10,7 +10,6 @@ Mirrors the aggregation formulas in transform_financials/transform_community,
 so the filtered view keeps the same shape as the unfiltered snapshot.
 """
 
-import json
 import uuid
 from datetime import UTC, datetime
 
@@ -18,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import MONTH_NAMES, UTM_SOURCE_LABELS
+from app.api.dashboard.common import in_clause
 
 
 def parse_course_ids(raw: str | None) -> list[uuid.UUID] | None:
@@ -47,18 +47,6 @@ def _int_or_none(val):
         return int(val)
     except (TypeError, ValueError):
         return None
-
-
-def _parse_json(raw) -> dict | None:
-    if isinstance(raw, dict):
-        return raw
-    if isinstance(raw, (str, bytes, bytearray)):
-        try:
-            parsed = json.loads(raw)
-            return parsed if isinstance(parsed, dict) else None
-        except (json.JSONDecodeError, TypeError):
-            return None
-    return None
 
 
 def _month_tuple(time_raw) -> tuple[int, int] | None:
@@ -153,6 +141,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
             ps["payments"] += 1
             if status == "refunded":
                 ps["refunds"] += abs(amount)
+                ps["turnover"] -= payment_amount
                 ps["income"] += amount
             else:
                 ps["turnover"] += payment_amount
@@ -178,6 +167,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
             us["payments"] += 1
             if status == "refunded":
                 us["refunds"] += abs(amount)
+                us["turnover"] -= payment_amount
                 us["income"] += amount
             else:
                 us["turnover"] += payment_amount
@@ -278,9 +268,7 @@ async def published_solutions_stats(
     per_course: dict[int, int] = {}
     if not selected_stepik_ids:
         return monthly, yearly, per_course
-    ids = sorted(selected_stepik_ids)
-    placeholders = ", ".join(f":cid{i}" for i in range(len(ids)))
-    params = {f"cid{i}": cid for i, cid in enumerate(ids)}
+    placeholders, params = in_clause(selected_stepik_ids, "cid")
     rows = await db.execute(
         text(
             "SELECT stepik_course_id, year, month FROM mart_comments "
@@ -324,9 +312,7 @@ async def filter_community(db: AsyncSession, data: dict, selected_stepik_ids: se
     total_comments = 0
     total_solutions = 0
     if selected_stepik_ids:
-        ids = sorted(selected_stepik_ids)
-        placeholders = ", ".join(f":cid{i}" for i in range(len(ids)))
-        params = {f"cid{i}": cid for i, cid in enumerate(ids)}
+        placeholders, params = in_clause(selected_stepik_ids, "cid")
         rows = await db.execute(
             text(
                 "SELECT year, month, is_solution FROM mart_comments "
@@ -368,9 +354,7 @@ async def filter_steps_average_grade(db: AsyncSession, selected_stepik_ids: set[
     """
     if not selected_stepik_ids:
         return 0.0
-    ids = sorted(selected_stepik_ids)
-    placeholders = ", ".join(f":cid{i}" for i in range(len(ids)))
-    params = {f"cid{i}": cid for i, cid in enumerate(ids)}
+    placeholders, params = in_clause(selected_stepik_ids, "cid")
     rows = await db.execute(
         text(
         "SELECT grade, grade_votes FROM mart_steps "

@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import time
-from contextvars import ContextVar
 from typing import Any
 
 import httpx
@@ -27,16 +26,31 @@ class StepikRateLimitError(StepikAPIError):
         super().__init__(429, detail)
 
 
-_client_var: ContextVar[httpx.AsyncClient | None] = ContextVar("_client_var", default=None)
+# Module-level singleton: ContextVar не подходит — set() внутри корутины
+# меняет только копию контекста текущей задачи, и каждая задача обработки
+# запроса создавала свой AsyncClient, который никто не закрывал (утечка
+# соединений). Один клиент потокобезопасен для конкурентных запросов.
+_client: httpx.AsyncClient | None = None
+_client_lock = asyncio.Lock()
 
 
 async def _get_client() -> httpx.AsyncClient:
-    client = _client_var.get()
-    if client is None:
-        limits = httpx.Limits(max_keepalive_connections=20, max_connections=50)
-        client = httpx.AsyncClient(limits=limits, timeout=30.0)
-        _client_var.set(client)
-    return client
+    global _client
+    if _client is None:
+        async with _client_lock:
+            if _client is None:
+                limits = httpx.Limits(max_keepalive_connections=20, max_connections=50)
+                _client = httpx.AsyncClient(limits=limits, timeout=30.0)
+    return _client
+
+
+async def close_client() -> None:
+    """Закрыть общий httpx-клиент (вызывается при остановке приложения)."""
+    global _client
+    async with _client_lock:
+        if _client is not None:
+            await _client.aclose()
+            _client = None
 
 
 async def _request(
@@ -76,8 +90,12 @@ async def _request(
     if response.status_code == 429:
         if retries >= MAX_RETRIES:
             raise StepikRateLimitError(f"Exceeded {MAX_RETRIES} retries for {path}")
-        retry_after_header = int(response.headers.get("Retry-After", 2**retries))
-        retry_after = min(retry_after_header, 2**retries)
+        try:
+            retry_after_header = int(response.headers.get("Retry-After", 2**retries))
+        except (ValueError, TypeError):
+            retry_after_header = 2**retries
+        # Respect the server's Retry-After, but cap to avoid hanging forever.
+        retry_after = min(retry_after_header, 300)
         logger.warning("Rate limited on %s, retry %d/%d after %ds", path, retries + 1, MAX_RETRIES, retry_after)
         await asyncio.sleep(retry_after)
         return await _request(method, path, token, params, retries + 1)

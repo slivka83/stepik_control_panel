@@ -24,12 +24,12 @@ async def sync_status(
     snap = result.scalar_one_or_none()
     last_sync = None
     if snap is not None:
-        # Колонка в PG — timestamp without time zone, значение в ней UTC (naive).
-        # Без явного смещения фронтенд трактует строку как локальное время.
+        # Колонка в PG — timestamp with time zone, значение в ней UTC.
+        # Фронтенд ожидает явное смещение +00:00, иначе трактует время как локальное.
         updated = snap.updated_at
-        if updated.tzinfo is None:
+        if updated is not None and updated.tzinfo is None:
             updated = updated.replace(tzinfo=UTC)
-        last_sync = updated.isoformat()
+        last_sync = updated.isoformat() if updated is not None else None
 
     remaining = 0
     if sync_mod._last_sync_completed_at > 0:
@@ -57,6 +57,6 @@ async def trigger_sync(
     if not force and not sync_mod.can_sync():
         remaining = int(sync_mod.SYNC_COOLDOWN_SECONDS - (time_mod.time() - sync_mod._last_sync_completed_at))
         return {"status": "cooldown", "cooldown_remaining_seconds": max(0, remaining)}
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     loop.run_in_executor(None, sync_mod.sync_all_sync, force, user.id)
     return {"status": "sync_started"}

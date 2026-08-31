@@ -80,13 +80,26 @@ class TestCORSMiddleware:
 class TestRouterRegistration:
     def _collect_paths(self):
         paths = set()
-        for route in app.routes:
-            if hasattr(route, "path"):
-                paths.add(route.path)
-            if hasattr(route, "original_router"):
-                for r in route.original_router.routes:
-                    if hasattr(r, "path"):
-                        paths.add(r.path)
+
+        def _walk(router):
+            for route in getattr(router, "routes", router):
+                if hasattr(route, "path") and not hasattr(route, "routes"):
+                    paths.add(route.path)
+                elif hasattr(route, "original_router"):
+                    sub = route.original_router
+                    sub_prefix = getattr(sub, "prefix", "")
+                    old_paths = paths.copy()
+                    _walk(sub)
+                    # If the collected sub-paths do not already include the
+                    # router prefix, prepend it (dashboard nested routers).
+                    if sub_prefix:
+                        for p in paths - old_paths:
+                            if not p.startswith(sub_prefix):
+                                paths.add(sub_prefix + p)
+                elif hasattr(route, "routes"):
+                    _walk(route)
+
+        _walk(app)
         return paths
 
     def test_all_routers_registered(self):

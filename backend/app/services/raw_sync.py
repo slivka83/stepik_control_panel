@@ -11,6 +11,18 @@ logger = logging.getLogger(__name__)
 
 API_PAGE_SIZE = 20
 
+# Preferred natural-key column for upsert conflict resolution per raw table.
+# The serial `id` column is intentionally excluded; objects are identified by
+# their business key (submission_id, attempt_id, comment_id, etc.).
+_NATURAL_KEYS = {
+    "raw_submission": "submission_id",
+    "raw_attempt": "attempt_id",
+    "raw_comment": "comment_id",
+    "raw_certificate": "certificate_id",
+    "raw_course_review": "review_id",
+    "raw_course_review_summary": "review_summary_id",
+}
+
 
 def _query_params(extra: dict | None = None, page: int = 1) -> dict:
     p = {"page": page, "page_size": API_PAGE_SIZE}
@@ -206,12 +218,11 @@ async def _upsert_raw_table(
     placeholders = ", ".join(f":{c}" for c in col_names)
     cols_str = ", ".join(f'"{c}"' for c in col_names)
 
-    # Find the id field for conflict detection (usually the first unique column)
-    id_field = None
-    for c in col_names:
-        if c.endswith("_id") or c in ("id",):
-            id_field = c
-            break
+    # Determine the conflict target: the table's business/natural key if known,
+    # otherwise the first *_id column present in the insert.
+    id_field = _NATURAL_KEYS.get(raw_table)
+    if id_field not in col_names:
+        id_field = next((c for c in col_names if c.endswith("_id")), None)
 
     conflict_clause = f' ON CONFLICT ("{id_field}") DO NOTHING' if id_field else ""
 
@@ -375,7 +386,11 @@ async def sync_submissions(session: AsyncSession, token: str):
     skipped_steps = []
     for sid in step_ids:
         last_page = page_state.get(int(sid), 0)
-        page = last_page + 1 if last_page > 0 else 1
+        # Продолжаем С последней сохранённой страницы, а не со следующей:
+        # API отдаёт решения oldest-first, и новые записи сначала заполняют
+        # хвост последней скачанной страницы (она могла быть неполной).
+        # Старт с last_page+1 пропускал бы их навсегда (upsert дедупит повторы).
+        page = last_page if last_page > 0 else 1
         step_new = 0
         while page <= 500:
             try:
@@ -419,7 +434,7 @@ async def sync_submissions(session: AsyncSession, token: str):
             logger.warning("  step %d: достигнут лимит 500 страниц — возможно, не все решения догружены", sid)
 
         if step_new > 0:
-            logger.info("  step %d: +%d (page %d+)", sid, step_new, last_page + 1 if last_page > 0 else 1)
+            logger.info("  step %d: +%d (page %d+)", sid, step_new, last_page if last_page > 0 else 1)
             await session.commit()
 
     if skipped_steps:
@@ -437,9 +452,11 @@ async def sync_submissions(session: AsyncSession, token: str):
     skipped_courses = []
     for cid in course_ids:
         last_page = course_page_state.get(cid, 0)
-        page = last_page + 1 if last_page > 0 else 1
+        # Инкремент с последней страницы (не +1): новые записи заполняют хвост
+        # последней страницы; upsert дедуплит уже загруженные строки
+        page = last_page if last_page > 0 else 1
         course_new = 0
-        while page <= 50:
+        while page <= 500:
             try:
                 data = await _request("GET", "/submissions", token, {"course": cid, "page": page, "page_size": 500})
             except StepikAPIError as e:
@@ -468,7 +485,7 @@ async def sync_submissions(session: AsyncSession, token: str):
                 break
             page += 1
         if course_new > 0:
-            start_page = last_page + 1 if last_page > 0 else 1
+            start_page = last_page if last_page > 0 else 1
             logger.info("    course %d: +%d author subs (page %d+)", cid, course_new, start_page)
             await session.commit()
     if skipped_courses:
@@ -537,23 +554,20 @@ async def sync_community(session: AsyncSession, token: str):
     r = await session.execute(text("SELECT course_id FROM raw_course"))
     course_ids = [int(row[0]) for row in r if row[0] is not None]
 
-    # Reviews
+    # Reviews (сводки): все review_summary_json одним запросом, не по курсу за раз
     review_ids = []
-    for cid in course_ids:
-        r = await session.execute(
-            text("SELECT review_summary_json FROM raw_course WHERE course_id = :cid"),
-            {"cid": str(cid)},
-        )
-        row = r.fetchone()
-        if row and row[0]:
-            try:
-                rid = json.loads(row[0]) if isinstance(row[0], str) else row[0]
-                if isinstance(rid, (list, tuple)):
-                    review_ids.extend(rid)
-                else:
-                    review_ids.append(rid)
-            except (json.JSONDecodeError, TypeError):
-                pass
+    r = await session.execute(text("SELECT review_summary_json FROM raw_course"))
+    for (rs_json,) in r:
+        if not rs_json:
+            continue
+        try:
+            rid = json.loads(rs_json) if isinstance(rs_json, str) else rs_json
+            if isinstance(rid, (list, tuple)):
+                review_ids.extend(rid)
+            else:
+                review_ids.append(rid)
+        except (json.JSONDecodeError, TypeError):
+            pass
     review_ids = list(set(int(x) for x in review_ids if x is not None))
 
     if review_ids:

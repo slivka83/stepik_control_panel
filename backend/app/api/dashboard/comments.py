@@ -17,7 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
-from app.api.dashboard.common import format_month_label, get_courses_for_user
+from app.api.dashboard.common import format_month_label, get_courses_for_user, in_clause
 from app.api.dashboard.course_filter import parse_course_ids
 from app.database import get_db
 from app.models import User
@@ -26,16 +26,17 @@ router = APIRouter()
 
 LIST_TYPES = ("unanswered", "disliked")
 
-# sort key → функция извлечения значения из строки списка (для серверной сортировки)
-LIST_SORTS = {
-    "time": lambda c: c["time"],
-    "student": lambda c: c["user_name"],
-    "course": lambda c: c["course_title"],
-    "text": lambda c: c["text"],
-    "likes": lambda c: c["likes"],
-    "dislikes": lambda c: c["dislikes"],
-    "replies": lambda c: c["replies"],
-    "step": lambda c: c["step_sort"],
+# SQL ordering expressions for server-side sorting. Only whitelisted keys are
+# interpolated into the query, so this is safe from SQL injection.
+LIST_SORT_SQL = {
+    "time": "time",
+    "student": "user_name",
+    "course": "stepik_course_id",
+    "text": "text",
+    "likes": "likes",
+    "dislikes": "dislikes",
+    "replies": "replies",
+    "step": "COALESCE(module_number, 0) * 100000 + COALESCE(lesson_number, 0) * 1000 + COALESCE(step_number, 0)",
 }
 
 
@@ -46,12 +47,6 @@ def _empty() -> dict:
         "by_course": [],
         "totals": {"comments": 0, "students": 0, "likes": 0, "dislikes": 0, "replies": 0},
     }
-
-
-def _in_clause(stepik_ids: set[int]) -> tuple[str, dict]:
-    ids = sorted(stepik_ids)
-    placeholders = ", ".join(f":cid{i}" for i in range(len(ids)))
-    return placeholders, {f"cid{i}": cid for i, cid in enumerate(ids)}
 
 
 @router.get("/comments")
@@ -65,7 +60,7 @@ async def get_comments(
     if not selected_stepik:
         return _empty()
 
-    placeholders, params = _in_clause(selected_stepik)
+    placeholders, params = in_clause(selected_stepik, "cid")
     rows = await db.execute(
         text(
             "SELECT stepik_course_id, year, month, user_id, likes, dislikes, replies "
@@ -180,7 +175,7 @@ async def get_comments_list(
     """
     if list_type not in LIST_TYPES:
         raise HTTPException(status_code=400, detail=f"invalid type: {list_type!r}")
-    if sort not in LIST_SORTS:
+    if sort not in LIST_SORT_SQL:
         raise HTTPException(status_code=400, detail=f"invalid sort field: {sort!r}")
     if order not in ("asc", "desc"):
         raise HTTPException(status_code=400, detail="order must be 'asc' or 'desc'")
@@ -191,8 +186,23 @@ async def get_comments_list(
         return {"comments": [], "total": 0}
 
     course_by_stepik = {c.stepik_course_id: c for c in courses}
-    placeholders, params = _in_clause(selected_stepik)
+    placeholders, params = in_clause(selected_stepik, "cid")
     type_filter = "is_unanswered = TRUE" if list_type == "unanswered" else "is_disliked = TRUE"
+    sort_expr = LIST_SORT_SQL[sort]
+    # NULLS LAST expressed via a CASE so it works on both PostgreSQL and SQLite.
+    order_clause = (
+        f"CASE WHEN {sort_expr} IS NULL THEN 1 ELSE 0 END, {sort_expr} {order.upper()}"
+    )
+
+    count_result = await db.execute(
+        text(
+            "SELECT count(*) FROM mart_comments "
+            f"WHERE is_deleted = FALSE AND {type_filter} "
+            f"AND is_solution = FALSE AND stepik_course_id IN ({placeholders})"
+        ),
+        params,
+    )
+    total = count_result.scalar() or 0
 
     rows = await db.execute(
         text(
@@ -200,9 +210,10 @@ async def get_comments_list(
             "likes, dislikes, replies, lesson_id, step_number, module_number, "
             "lesson_number, module_title, lesson_title "
             f"FROM mart_comments WHERE is_deleted = FALSE AND {type_filter} "
-            f"AND is_solution = FALSE AND stepik_course_id IN ({placeholders})"
+            f"AND is_solution = FALSE AND stepik_course_id IN ({placeholders}) "
+            f"ORDER BY {order_clause} LIMIT :limit OFFSET :skip"
         ),
-        params,
+        {**params, "limit": limit, "skip": skip},
     )
 
     comments = []
@@ -236,8 +247,4 @@ async def get_comments_list(
             }
         )
 
-    total = len(comments)
-    key = LIST_SORTS[sort]
-    comments.sort(key=lambda c: key(c) if key(c) is not None else "", reverse=(order == "desc"))
-    comments.sort(key=lambda c: key(c) is None)
-    return {"comments": comments[skip : skip + limit], "total": total}
+    return {"comments": comments, "total": total}

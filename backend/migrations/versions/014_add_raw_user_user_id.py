@@ -11,7 +11,6 @@ raw-слой) и переводим mapping `id → user_id`.
 """
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision = "014"

@@ -88,6 +88,24 @@ class TestCheckAuthRateLimit:
             assert retry_after >= 1
 
     @pytest.mark.asyncio
+    async def test_exactly_at_limit_allowed(self):
+        """Regression: off-by-one — при max_requests=5 пятый запрос (count=5)
+        должен проходить. Раньше сравнение `count >= max_requests` блокировало
+        уже пятый запрос, и реальный лимит был 4/60с."""
+
+        async def _check(count):
+            mock_pipe = MagicMock()
+            mock_pipe.execute = AsyncMock(return_value=[0, 1, count, True])
+            mock_redis = MagicMock()
+            mock_redis.pipeline.return_value = mock_pipe
+            mock_redis.zrange = AsyncMock(return_value=[(b"123", 123.0)])
+            with patch("app.services.rate_limiter.redis_client", mock_redis):
+                return await check_auth_rate_limit("127.0.0.1", max_requests=5)
+
+        assert (await _check(5))[0] is True, "пятый запрос (count=5) должен проходить при лимите 5"
+        assert (await _check(6))[0] is False, "шестой запрос (count=6) должен блокироваться при лимите 5"
+
+    @pytest.mark.asyncio
     async def test_redis_down_fail_open(self):
         from redis.exceptions import ConnectionError as RedisConnectionError
 

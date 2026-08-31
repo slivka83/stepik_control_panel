@@ -396,21 +396,87 @@ class TestSyncSubmissions:
         )
         assert r.scalar() == "2", "author pass должен запомнить последнюю страницу 2"
 
-        # Второй синк: на странице 3 появилась новая авторская запись.
-        # Должен стартовать с page=3, а НЕ перекачивать page=1..2 заново.
+        # Второй синк: новая авторская запись появилась на ТОЙ ЖЕ странице 2
+        # (страница 2 была неполной — 1 запись; API отдаёт oldest-first, новые
+        # записи сначала дозаполняют хвост последней скачанной страницы).
+        # Синк должен перечитать page=2 и увидеть новую запись, а не стартовать
+        # с page=3 и потерять её навсегда.
         requested_course_pages.clear()
         pages = {
-            3: [{"id": 3, "status": "correct", "attempt": 12}],
+            2: [{"id": 2, "status": "wrong", "attempt": 11}, {"id": 3, "status": "correct", "attempt": 12}],
         }
         with patch("app.services.raw_sync._request", side_effect=make_side_effect(pages)):
             await sync_submissions(db_session, "fake_token")
 
-        assert requested_course_pages == [3], f"ожидался запрос только page=3, получено {requested_course_pages}"
+        assert requested_course_pages == [2], (
+            f"ожидался запрос page=2 (дочитка хвоста последней страницы), получено {requested_course_pages}"
+        )
         assert await _count_rows(db_session, "raw_submission") == 3
         r = await db_session.execute(
             text("SELECT value FROM raw_sync_state WHERE endpoint_name='submissions' AND key='course_42'")
         )
-        assert r.scalar() == "3"
+        assert r.scalar() == "2"
+
+    @pytest.mark.asyncio
+    async def test_step_pass_incremental_rereads_last_page(self, db_session):
+        """Regression: новые студенческие решения на шаге появляются в хвосте
+        последней скачанной страницы (API oldest-first, страница могла быть
+        неполной). Старт с last_page+1 терял эти записи навсегда — таблица
+        incremental и никогда не перезаливается целиком.
+        """
+        from app.services.raw_sync import sync_submissions
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('submissions', 'id', 'submission_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_step (step_id, lesson, _raw_json)
+            VALUES (500, 10, '{}')
+        """)
+        )
+        await db_session.commit()
+
+        requested_step_pages = []
+
+        def make_side_effect(step_pages):
+            def request_side_effect(method, path, token, params=None):
+                if "submissions" in path and "step" in str(params) and str(params).startswith("{'step'"):
+                    page = params.get("page", 1)
+                    requested_step_pages.append(page)
+                    objs = step_pages.get(page, [])
+                    has_next = page < max(step_pages, default=1)
+                    return {"submissions": objs, "meta": {"has_next": has_next}}
+                if "submissions" in path and "course" in str(params):
+                    return {"submissions": [], "meta": {"has_next": False}}
+                if "attempts" in path:
+                    return {"attempts": [], "meta": {"has_next": False}}
+                return {}
+
+            return request_side_effect
+
+        # Первый синк: страница 1 с одной записью, has_next=False (неполная страница)
+        pages = {1: [{"id": 100, "status": "correct", "attempt": 10}]}
+        with patch("app.services.raw_sync._request", side_effect=make_side_effect(pages)):
+            await sync_submissions(db_session, "fake_token")
+
+        assert await _count_rows(db_session, "raw_submission") == 1
+
+        # Второй синк: новое решение дозаполнило страницу 1 (id=101)
+        requested_step_pages.clear()
+        pages = {1: [{"id": 100, "status": "correct", "attempt": 10}, {"id": 101, "status": "wrong", "attempt": 11}]}
+        with patch("app.services.raw_sync._request", side_effect=make_side_effect(pages)):
+            await sync_submissions(db_session, "fake_token")
+
+        assert requested_step_pages == [1], (
+            f"ожидался перезапрос page=1, получено {requested_step_pages} — старт с page=2 терял id=101"
+        )
+        assert await _count_rows(db_session, "raw_submission") == 2
 
     @pytest.mark.asyncio
     async def test_attempts_incremental_fetches_only_new_ids(self, db_session):
@@ -974,8 +1040,9 @@ class TestSyncCommunityStrBind:
     async def test_course_id_bound_as_str(self, db_session):
         """Regression: live PG падал с asyncpg DataError «expected str, got int».
 
-        raw_course.course_id — TEXT в PG, а sync_community передавал int из API
-        в WHERE course_id = :cid. SQLite это не ловит (динамическая типизация).
+        Раньше sync_community запрашивал review_summary_json по одному курсу за
+        раз с bind int в TEXT-колонку. Теперь сводки читаются одним запросом
+        без параметров (N+1 убран) — тест проверяет, что оба курса обрабатываются.
         """
         from app.services.raw_sync import sync_community
 
@@ -988,31 +1055,26 @@ class TestSyncCommunityStrBind:
         )
         await db_session.commit()
 
-        binds = []
-        real_execute = db_session.execute
+        fetch_calls = []
 
-        async def spy(stmt, params=None):
-            if "review_summary_json" in str(stmt) and params:
-                binds.append(params)
-            return await real_execute(stmt, params)
-
-        db_session.execute = spy
-
-        def request_side_effect(method, path, token, params=None):
+        async def fetch_stub(path, token, key, extra=None, **kwargs):
+            fetch_calls.append((path, dict(extra) if extra else {}))
             if "review-summaries" in path:
-                return {"course-review-summaries": [{"id": 5, "course": 291904}], "meta": {"has_next": False}}
-            return {}
+                return [{"id": 5, "course": 291904}]
+            return []
 
         with (
-            patch("app.services.raw_sync._request", side_effect=request_side_effect),
-            patch("app.services.raw_sync._paginated_fetch", return_value=[]),
+            patch("app.services.raw_sync._request", return_value={}),
+            patch("app.services.raw_sync._paginated_fetch", side_effect=fetch_stub),
         ):
             await sync_community(db_session, "fake_token")
 
-        assert binds, "запрос к review_summary_json не выполнялся"
-        assert all(isinstance(b.get("cid"), str) for b in binds if "cid" in b), (
-            "course_id должен биндиться как str (TEXT-колонка в live PG)"
+        summary_calls = [extra for path, extra in fetch_calls if "review-summaries" in path]
+        assert summary_calls and summary_calls[0].get("ids[]") == [5], (
+            f"ожидались сводки ids[]=[5], получено {fetch_calls}"
         )
+        r = await db_session.execute(text("SELECT count(*) FROM raw_course_review_summary"))
+        assert r.scalar() == 1
 
 
 @needs_pg

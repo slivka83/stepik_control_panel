@@ -13,7 +13,6 @@ Stepik API не возвращает `step` в объекте submission — ш�
 """
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision = "015"

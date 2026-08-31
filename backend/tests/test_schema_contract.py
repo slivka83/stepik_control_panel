@@ -389,16 +389,29 @@ def test_raw_queries_bind_params_as_str():
 
 
 def _pg_url() -> str | None:
+    import socket
+    from urllib.parse import urlparse
+
     env_path = REPO_ROOT / ".env"
     if not env_path.exists():
         return None
+    url = None
     for line in env_path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line.startswith("DATABASE_URL="):
             url = line.split("=", 1)[1].strip().strip('"').strip("'")
-            if url.startswith("postgresql"):
-                return url
-    return None
+            break
+    if not url or not url.startswith("postgresql"):
+        return None
+    parsed = urlparse(url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 5432
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            pass
+    except OSError:
+        return None
+    return url
 
 
 PG_URL = _pg_url()

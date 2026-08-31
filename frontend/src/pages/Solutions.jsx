@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useTabState } from '../hooks/useTabState';
 import { useSync } from '../contexts/SyncContext';
 import KpiCard from '../components/KpiCard';
 import ErrorBanner from '../components/ErrorBanner';
@@ -7,7 +7,8 @@ import DataTable from '../components/DataTable';
 import Tabs from '../components/Tabs';
 import MetricBarChart from '../components/MetricBarChart';
 import ChartToggle from '../components/ChartToggle';
-import { parseMonthLabel, makeMonthsTick } from '../utils/monthWindow';
+import { parseMonthLabel, monthComposite, makeMonthsTick } from '../utils/monthWindow';
+import { numCell } from '../components/NumericCell';
 import { yearMonthLabel } from '../utils/format';
 import { STEPIK_URLS } from '../constants.jsx';
 import api from '../api';
@@ -69,15 +70,8 @@ function calcPct(m) {
   return m.total > 0 ? ((m.correct || 0) / m.total) * 100 : 0;
 }
 
-function monthComposite(m) {
-  const p = parseMonthLabel(m.month);
-  return p ? p.year * 100 + p.month : 0;
-}
 
-const numCell = (value) => (
-  <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1">{value.toLocaleString('ru-RU')}</td>
-);
-const num = (row, key) => numCell(row[key] || 0);
+const num = (row, key) => numCell((row[key] || 0).toLocaleString('ru-RU'));
 const successCell = (pct) => (
   <td className="text-right font-mono text-xs pl-1 pr-1" style={{ color: successColor(pct) }}>
     {pct.toFixed(1)}%
@@ -360,8 +354,7 @@ const TAB_COLUMNS = {
 
 export default function Solutions() {
   const { data, error, refresh, selectedCourseIds } = useSync();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'months');
+  const [activeTab, handleTabChange] = useTabState();
   const [sorts, setSorts] = useState(SORT_INIT);
   const [viewMode, setViewMode] = useState('table');
   const [chartMetric, setChartMetric] = useState('correct_wrong');
@@ -370,10 +363,6 @@ export default function Solutions() {
   const [hardestLoading, setHardestLoading] = useState(false);
   const [hardestError, setHardestError] = useState(null);
 
-  const handleTabChange = (tab) => {
-    setActiveTab(tab);
-    setSearchParams({ tab });
-  };
 
   const onSort = (tab) => (key) => {
     setSorts((prev) => {
@@ -409,7 +398,7 @@ export default function Solutions() {
   const totalSubmissions = months.reduce((s, m) => s + (m.total || 0), 0);
   const totalCorrect = months.reduce((s, m) => s + (m.correct || 0), 0);
   const totalWrong = totalSubmissions - totalCorrect;
-  const totalPublished = months.reduce((s, m) => s + Math.min(m.published || 0, m.correct || 0), 0);
+  const totalPublished = months.reduce((s, m) => s + (m.published || 0), 0);
   const avgSuccess = totalSubmissions > 0 ? Math.round((totalCorrect / totalSubmissions) * 100) : 0;
 
   return (

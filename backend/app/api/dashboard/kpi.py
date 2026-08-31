@@ -7,7 +7,7 @@ from sqlalchemy import extract, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
-from app.api.dashboard.common import get_courses_for_user
+from app.api.dashboard.common import get_courses_for_user, in_clause
 from app.api.dashboard.course_filter import (
     filter_community,
     filter_financials,
@@ -27,22 +27,20 @@ async def _count_mart_month(db, table, year, month, course_ids=None) -> int:
     the transform). With course_ids (stepik course ids) restricts to those.
     """
     if course_ids is not None:
-        ids = sorted(course_ids)
-        placeholders = ", ".join(f":cid{i}" for i in range(len(ids)))
-        params = {f"cid{i}": cid for i, cid in enumerate(ids)}
+        placeholders, params = in_clause(course_ids, "cid")
         rows = await db.execute(
             text(
-                f"SELECT id FROM {table} WHERE year = :year AND month = :month "
+                f"SELECT count(*) FROM {table} WHERE year = :year AND month = :month "
                 f"AND stepik_course_id IN ({placeholders})"
             ),
             {**params, "year": year, "month": month},
         )
     else:
         rows = await db.execute(
-            text(f"SELECT id FROM {table} WHERE year = :year AND month = :month"),
+            text(f"SELECT count(*) FROM {table} WHERE year = :year AND month = :month"),
             {"year": year, "month": month},
         )
-    return len(rows.all())
+    return rows.scalar() or 0
 
 
 async def _steps_average_grade(db) -> float:
@@ -63,11 +61,16 @@ def _pct(cur, prev):
     return 0 if cur == 0 else None
 
 
-def _month_income(months, year, month):
-    """Income of a specific calendar month from the months series (0 if absent)."""
+def _month_stat(months, year, month, key):
+    """Статистика конкретного КАЛЕНДАРНОГО месяца из months-серии (0 если месяца нет).
+
+    Regression: раньше «текущий месяц» брали позиционно (months[-1]) — в начале
+    месяца до первой продажи это показывало цифры прошлого месяца, а «прошлый»
+    (months[-2]) при пропуске месяцев перескакивал через них.
+    """
     for m in months:
         if m.get("year") == year and m.get("month_num") == month:
-            return m.get("income", 0)
+            return m.get(key, 0)
     return 0
 
 
@@ -169,28 +172,25 @@ async def get_kpi(
         prev_year, prev_month = cur_year, cur_month - 1
     if snapshot:
         current = summary.get("current_month_income", 0)
-        if months:
-            last = months[-1]
-            current_month_payments = last.get("payments_count", 0)
-            current_month_refunds_count = last.get("refunds", 0)
-            current_month_refunds_pcs = last.get("refunds_count", 0)
-            prev_income = _month_income(months, prev_year, prev_month)
-            revenue_change_pct = _pct(current, prev_income)
-            if revenue_change_pct is not None:
-                revenue_change_detail = {"current": current, "previous": prev_income}
-        if len(months) >= 2:
-            prev_payments = months[-2].get("payments_count", 0)
-            payments_change_pct = _pct(current_month_payments, prev_payments)
-            if payments_change_pct is not None:
-                payments_change_detail = {"current": current_month_payments, "previous": prev_payments}
-            prev_refunds = months[-2].get("refunds", 0)
-            refunds_change_pct = _pct(current_month_refunds_count, prev_refunds)
-            if refunds_change_pct is not None:
-                refunds_change_detail = {"current": current_month_refunds_count, "previous": prev_refunds}
-            prev_refunds_pcs = months[-2].get("refunds_count", 0)
-            refunds_pcs_change_pct = _pct(current_month_refunds_pcs, prev_refunds_pcs)
-            if refunds_pcs_change_pct is not None:
-                refunds_pcs_change_detail = {"current": current_month_refunds_pcs, "previous": prev_refunds_pcs}
+        current_month_payments = _month_stat(months, cur_year, cur_month, "payments_count")
+        current_month_refunds_count = _month_stat(months, cur_year, cur_month, "refunds")
+        current_month_refunds_pcs = _month_stat(months, cur_year, cur_month, "refunds_count")
+        prev_income = _month_stat(months, prev_year, prev_month, "income")
+        revenue_change_pct = _pct(current, prev_income)
+        if revenue_change_pct is not None:
+            revenue_change_detail = {"current": current, "previous": prev_income}
+        prev_payments = _month_stat(months, prev_year, prev_month, "payments_count")
+        payments_change_pct = _pct(current_month_payments, prev_payments)
+        if payments_change_pct is not None:
+            payments_change_detail = {"current": current_month_payments, "previous": prev_payments}
+        prev_refunds = _month_stat(months, prev_year, prev_month, "refunds")
+        refunds_change_pct = _pct(current_month_refunds_count, prev_refunds)
+        if refunds_change_pct is not None:
+            refunds_change_detail = {"current": current_month_refunds_count, "previous": prev_refunds}
+        prev_refunds_pcs = _month_stat(months, prev_year, prev_month, "refunds_count")
+        refunds_pcs_change_pct = _pct(current_month_refunds_pcs, prev_refunds_pcs)
+        if refunds_pcs_change_pct is not None:
+            refunds_pcs_change_detail = {"current": current_month_refunds_pcs, "previous": prev_refunds_pcs}
 
     sub_result = await db.execute(
         select(

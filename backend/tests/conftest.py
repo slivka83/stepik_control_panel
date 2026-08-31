@@ -8,11 +8,23 @@ os.environ["REDIS_URL"] = "redis://localhost:6379/1"
 os.environ["STEPIK_CLIENT_ID"] = "test_client_id"
 os.environ["STEPIK_CLIENT_SECRET"] = "test_client_secret"
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import text
 
 from app.database import async_session, engine
 from app.models import Base, Course, FinancialSnapshot, StudentEnrollment, Submission, User  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def reset_stepik_http_client():
+    """Общий httpx-клиент — модульный синглтон; сбрасываем его вокруг каждого
+    теста, чтобы моки httpx.AsyncClient в тестах не зависели от порядка."""
+    from app.services import stepik_api
+
+    stepik_api._client = None
+    yield
+    stepik_api._client = None
 
 RAW_TABLES = {
     # NOTE: column names AND types mirror the real PostgreSQL schema

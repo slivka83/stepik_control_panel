@@ -61,6 +61,7 @@ export default function Dashboard() {
           title="Средняя оценка шагов"
           value={kpi?.steps_average_grade || 0}
           ratingColor
+          noZero
           fractionDigits={2}
           minimumFractionDigits={2}
         />
@@ -68,6 +69,7 @@ export default function Dashboard() {
           title="Средний рейтинг курсов"
           value={kpi?.average_rating || 0}
           ratingColor
+          noZero
           fractionDigits={2}
           minimumFractionDigits={2}
         />

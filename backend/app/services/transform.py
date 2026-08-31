@@ -244,7 +244,7 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
                     "t": title,
                     "s": status,
                     "p": pub_dt,
-                    "now": datetime.utcnow(),
+                    "now": datetime.now(UTC),
                 },
             )
         upserted += 1
@@ -321,9 +321,9 @@ async def transform_enrollments(session: AsyncSession):
                     "cohort_status": calculate_cohort_status(lv, dj),
                     "points_earned": score,
                     "certificate_issued": student_id in cert_users,
-                    "last_viewed_at": lv.replace(tzinfo=None) if lv else None,
+                    "last_viewed_at": lv,
                     "date_joined": dj,
-                    "created_at": datetime.now(UTC).replace(tzinfo=None),
+                    "created_at": datetime.now(UTC),
                 }
             )
 
@@ -442,7 +442,10 @@ async def transform_submissions(session: AsyncSession):
         except (TypeError, ValueError):
             uid = None
         sub_user = sub.get("user")
-        is_author = bool(sub_user and int(sub_user) == author_uid) or bool(uid and uid == author_uid)
+        # int() без защиты: одна мусорная запись (не-числовой user из API)
+        # поднимала ValueError и убивала весь этап трансформа
+        sub_user_int = _to_int(sub_user)
+        is_author = bool(sub_user_int is not None and sub_user_int == author_uid) or bool(uid and uid == author_uid)
         score = float(sub.get("score") or 0)
         eta_val = int(sub.get("eta") or 0)
 
@@ -460,7 +463,7 @@ async def transform_submissions(session: AsyncSession):
                 "eta": eta_val,
                 "stime": sub_time,
                 "author": is_author,
-                "now": datetime.now(UTC).replace(tzinfo=None),
+                "now": datetime.now(UTC),
             }
         )
 
@@ -643,6 +646,7 @@ async def transform_financials(session: AsyncSession):
         payment_amount = float(b.get("payment_amount", 0) or 0)
         if b.get("status") == "refunded":
             ps["refunds"] += abs(amount)
+            ps["turnover"] -= payment_amount
             ps["income"] += amount
         else:
             ps["turnover"] += payment_amount
@@ -672,6 +676,7 @@ async def transform_financials(session: AsyncSession):
         payment_amount = float(b.get("payment_amount", 0) or 0)
         if b.get("status") == "refunded":
             us["refunds"] += abs(amount)
+            us["turnover"] -= payment_amount
             us["income"] += amount
         else:
             us["turnover"] += payment_amount
@@ -749,7 +754,7 @@ async def transform_financials(session: AsyncSession):
         {
             "id": str(uuid.uuid4()),
             "data": _serialize_data(snapshot_data, session),
-            "now": datetime.now(UTC).replace(tzinfo=None),
+                "now": datetime.now(UTC),
         },
     )
 
@@ -826,14 +831,20 @@ async def transform_community(session: AsyncSession):
         thread = cm.get("thread", "")
         is_solution = "solution" in thread if thread else False
 
-        # Only comments whose step is attributable to one of the user's courses
-        # count towards the global/per-course totals. This keeps the snapshot
+        # Only comments attributable to one of the user's courses count towards
+        # the global/per-course totals. Prefer step→course mapping; fall back to
+        # the course id reported by the comment itself. This keeps the snapshot
         # consistent with mart_comments and with the filtered (course selection)
         # community stats — otherwise "all courses" would not equal "no filter".
         target = cm.get("target")
-        step_cid = step_course.get(int(target)) if (target and step_course) else None
+        step_cid = step_course.get(_to_int(target)) if (target and step_course) else None
         if not step_cid:
-            continue
+            course_raw = cm.get("course")
+            course_raw_int = _to_int(course_raw)
+            if course_raw_int is not None and course_raw_int in course_map:
+                step_cid = course_raw_int
+            else:
+                continue
 
         if is_solution:
             total_solutions += 1
@@ -875,7 +886,7 @@ async def transform_community(session: AsyncSession):
         data["community"] = community
         await session.execute(
             text("UPDATE financial_snapshots SET data = :data, updated_at = :now WHERE id = :id"),
-            {"data": _serialize_data(data, session), "now": datetime.now(UTC).replace(tzinfo=None), "id": snap_id},
+            {"data": _serialize_data(data, session), "now": datetime.now(UTC), "id": snap_id},
         )
     else:
         await session.execute(
@@ -883,7 +894,7 @@ async def transform_community(session: AsyncSession):
             {
                 "id": str(uuid.uuid4()),
                 "data": _serialize_data({"community": community}, session),
-                "now": datetime.now(UTC).replace(tzinfo=None),
+                "now": datetime.now(UTC),
             },
         )
 
@@ -987,7 +998,7 @@ async def transform_students(session: AsyncSession):
                 "comments_count": comments_by_user.get(sid, 0),
                 "published_solutions": solutions_by_user.get(sid, 0),
                 "last_activity": r.last_activity,
-                "updated_at": datetime.now(UTC).replace(tzinfo=None),
+                "updated_at": datetime.now(UTC),
             }
         )
 

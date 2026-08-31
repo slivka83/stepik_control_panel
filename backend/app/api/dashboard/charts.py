@@ -8,6 +8,7 @@ from app.api.auth import get_user
 from app.api.dashboard.common import (
     format_month_label,
     get_courses_for_user,
+    in_clause,
     weighted_success_pct,
     wilson_success_pct,
 )
@@ -338,9 +339,8 @@ async def get_certificates(
         stepik_ids = sorted(c.stepik_course_id for c in courses)
         if not stepik_ids:
             return {"months": []}
-        placeholders = ", ".join(f":cid{i}" for i in range(len(stepik_ids)))
+        placeholders, params = in_clause(stepik_ids, "cid")
         stmt += f" WHERE stepik_course_id IN ({placeholders})"
-        params = {f"cid{i}": cid for i, cid in enumerate(stepik_ids)}
 
     rows = (await db.execute(text(stmt), params)).all()
     monthly: dict[str, int] = {}

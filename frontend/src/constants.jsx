@@ -6,7 +6,6 @@ export const CHART_COLORS = {
   panelBg: '#162032',
 };
 
-export const APP_VERSION = '0.2.0';
 
 export const COHORT_COLORS = {
   active: { text: 'text-neon-green', bg: 'bg-neon-green', hex: '#4ade80' },
@@ -27,24 +26,13 @@ export const COHORT_LABELS = {
 };
 
 export const COHORT_DAYS = {
-  zombie: 'Никогда не открывали курс',
+  zombie: 'Спящие, которые открыли курс в первые дни после записи и пропали',
   active: 'Активность ≤ 7 дней назад',
   passive: 'Активность 8–30 дней назад',
   fading: 'Активность 30–90 дней назад',
   sleeping: 'Активность > 90 дней назад',
 };
 
-export const STATUS_LABELS = {
-  debited: 'Зачислен',
-  refunded: 'Возврат',
-  pending: 'Ожидание',
-};
-
-export const STATUS_COLORS = {
-  debited: 'text-neon-green',
-  refunded: 'text-crimson-alert',
-  pending: 'text-amber-alert',
-};
 
 export const NAV_GROUPS = [
   {

@@ -15,13 +15,11 @@ export function SyncProvider({ children }) {
     kpi: null,
     cohorts: {},
     revenue: { months: [] },
-    alerts: [],
     courses: [],
     financials: null,
     submissions: null,
     comments: null,
     activeStudents: { months: [] },
-    activeEnrolled: { months: [] },
     certificates: { months: [] },
     certificatesStats: null,
     reviewsStats: null,
@@ -29,10 +27,12 @@ export function SyncProvider({ children }) {
   const abortRef = useRef(null);
   const pollIntervalRef = useRef(30000);
   const filterRef = useRef(null);
+  const fetchIdRef = useRef(0);
 
   const SYNC_POLL_INTERVAL_MS = 2000;
 
   const fetchAll = useCallback(async (signal) => {
+    const myId = ++fetchIdRef.current;
     try {
       const courseIds = filterRef.current;
       const courseParams = courseIds === null ? {} : { params: { course_ids: courseIds.join(',') } };
@@ -40,13 +40,11 @@ export function SyncProvider({ children }) {
         kpiRes,
         cohortsRes,
         revenueRes,
-        alertsRes,
         coursesRes,
         financialsRes,
         submissionsRes,
         commentsRes,
         activeStudentsRes,
-        activeEnrolledRes,
         certificatesRes,
         certificatesStatsRes,
         reviewsStatsRes,
@@ -54,17 +52,17 @@ export function SyncProvider({ children }) {
         api.get('/dashboard/kpi', { signal, ...courseParams }),
         api.get('/dashboard/cohorts', { signal, ...courseParams }),
         api.get('/dashboard/revenue', { signal, ...courseParams }),
-        api.get('/dashboard/alerts', { signal, ...courseParams }),
         api.get('/courses', { signal }),
         api.get('/financials', { signal, ...courseParams }),
         api.get('/dashboard/submissions', { signal, ...courseParams }),
         api.get('/dashboard/comments', { signal, ...courseParams }),
         api.get('/dashboard/active-students', { signal, ...courseParams }),
-        api.get('/dashboard/active-enrolled-students', { signal, ...courseParams }),
         api.get('/dashboard/certificates', { signal, ...courseParams }),
         api.get('/dashboard/certificates/stats', { signal, ...courseParams }),
         api.get('/dashboard/reviews/stats', { signal, ...courseParams }),
       ]);
+
+      if (myId !== fetchIdRef.current) return;
 
       setData((prev) => {
         const next = {
@@ -72,19 +70,16 @@ export function SyncProvider({ children }) {
           kpi: kpiRes.status === 'fulfilled' ? kpiRes.value.data : prev.kpi,
           cohorts: cohortsRes.status === 'fulfilled' ? cohortsRes.value.data : prev.cohorts,
           revenue: revenueRes.status === 'fulfilled' ? revenueRes.value.data : prev.revenue,
-          alerts: alertsRes.status === 'fulfilled' ? alertsRes.value.data.alerts || [] : prev.alerts,
           courses: coursesRes.status === 'fulfilled' ? coursesRes.value.data.courses || [] : prev.courses,
           financials: financialsRes.status === 'fulfilled' ? financialsRes.value.data : prev.financials,
           submissions: submissionsRes.status === 'fulfilled' ? submissionsRes.value.data : prev.submissions,
           comments: commentsRes.status === 'fulfilled' ? commentsRes.value.data : prev.comments,
           activeStudents: activeStudentsRes.status === 'fulfilled' ? activeStudentsRes.value.data : prev.activeStudents,
-          activeEnrolled: activeEnrolledRes.status === 'fulfilled' ? activeEnrolledRes.value.data : prev.activeEnrolled,
           certificates: certificatesRes.status === 'fulfilled' ? certificatesRes.value.data : prev.certificates,
           certificatesStats:
             certificatesStatsRes.status === 'fulfilled' ? certificatesStatsRes.value.data : prev.certificatesStats,
           reviewsStats: reviewsStatsRes.status === 'fulfilled' ? reviewsStatsRes.value.data : prev.reviewsStats,
         };
-        if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
         return next;
       });
 
@@ -92,13 +87,11 @@ export function SyncProvider({ children }) {
         kpiRes,
         cohortsRes,
         revenueRes,
-        alertsRes,
         coursesRes,
         financialsRes,
         submissionsRes,
         commentsRes,
         activeStudentsRes,
-        activeEnrolledRes,
         certificatesRes,
         certificatesStatsRes,
         reviewsStatsRes,
@@ -120,16 +113,25 @@ export function SyncProvider({ children }) {
   }, []);
 
   const updateSyncStatus = useCallback((status) => {
+    const next = {
+      in_progress: status?.in_progress ?? false,
+      last_sync: status?.last_sync ?? null,
+      last_error: status?.last_error ?? null,
+      progress: status?.progress ?? 0,
+      step: status?.step ?? null,
+      cooldown_remaining_seconds: status?.cooldown_remaining_seconds ?? 0,
+    };
     setSyncStatus((prev) => {
       if (
-        prev.in_progress === status.in_progress &&
-        prev.last_sync === status.last_sync &&
-        prev.last_error === status.last_error &&
-        prev.progress === status.progress &&
-        prev.step === status.step
+        prev.in_progress === next.in_progress &&
+        prev.last_sync === next.last_sync &&
+        prev.last_error === next.last_error &&
+        prev.progress === next.progress &&
+        prev.step === next.step &&
+        prev.cooldown_remaining_seconds === next.cooldown_remaining_seconds
       )
         return prev;
-      return status;
+      return next;
     });
   }, []);
 
@@ -180,6 +182,14 @@ export function SyncProvider({ children }) {
 
   useEffect(() => {
     if (authLoading || !user) {
+      if (!authLoading && !user) {
+        setData({
+          kpi: null, cohorts: {}, revenue: { months: [] },
+          courses: [], financials: null, submissions: null, comments: null,
+          activeStudents: { months: [] },
+          certificates: { months: [] }, certificatesStats: null, reviewsStats: null,
+        });
+      }
       setLoading(false);
       return;
     }
@@ -217,7 +227,7 @@ export function SyncProvider({ children }) {
       data,
       loading,
       error,
-      refresh: () => fetchAll(),
+      refresh: () => fetchAll(abortRef.current?.signal),
       updateSyncStatus,
       selectedCourseIds,
       isFilterActive: selectedCourseIds !== null,

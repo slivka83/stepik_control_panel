@@ -174,6 +174,15 @@ class TestKpiEdgeCases:
         )
         await db_session.commit()
 
+        # Фиксируем «сейчас» = январь 2026: данные января в серии — текущие,
+        # декабря — прошлый месяц. Без фикса тест зависел от реальной даты.
+        fixed = datetime(2026, 1, 15, 12, 0, 0, tzinfo=UTC)
+
+        class _FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed
+
         async def override_db():
             yield db_session
 
@@ -183,7 +192,8 @@ class TestKpiEdgeCases:
         app.dependency_overrides[get_db] = override_db
         app.dependency_overrides[get_user] = override_user
         try:
-            response = client.get("/api/dashboard/kpi")
+            with patch.object(kpi_module, "datetime", _FixedDateTime):
+                response = client.get("/api/dashboard/kpi")
             assert response.status_code == 200
             data = response.json()
             assert data["revenue_change_pct"] is None
@@ -374,5 +384,74 @@ class TestKpiEdgeCases:
             # The buggy version compared against months[-2] = June (500) → -60%.
             assert data["revenue_change_pct"] == -80
             assert data["revenue_change_detail"] == {"current": 200, "previous": 1000}
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_month_kpis_use_calendar_month_not_last_row(self, db_session):
+        """Regression: «Покупки/Возвраты за месяц» брались позиционно из
+        months[-1] — в начале месяца до первой продажи показывались цифры
+        ПРОШЛОГО месяца. Должно быть 0 (текущий месяц в серии отсутствует),
+        а «прошлый месяц» = July по календарю, не months[-2]."""
+        user = await _seed_user(db_session)
+        await _owned_course(db_session, user, 100)
+        db_session.add(
+            FinancialSnapshot(
+                id=uuid.uuid4(),
+                data={
+                    "summary": {
+                        "current_month_income": 0,
+                        "total_income": 1000,
+                        "total_turnover": 1200,
+                        "total_refunds": 100,
+                        "total_payments": 10,
+                    },
+                    "months": [
+                        {"month": "Июнь 2026", "year": 2026, "month_num": 6, "income": 500, "turnover": 600,
+                         "refunds": 0, "payments_count": 5, "refunds_count": 0},
+                        {"month": "Июль 2026", "year": 2026, "month_num": 7, "income": 500, "turnover": 600,
+                         "refunds": 100, "payments_count": 5, "refunds_count": 2},
+                    ],
+                    "courses": [],
+                    "recent_payments": [],
+                    "community": {"total_comments": 0},
+                },
+                updated_at=datetime.now(UTC).replace(tzinfo=None),
+            )
+        )
+        await db_session.commit()
+
+        # 3 августа 2026: в августе ещё нет ни одной продажи
+        fixed = datetime(2026, 8, 3, 9, 0, 0, tzinfo=UTC)
+
+        class _FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed
+
+        async def override_db():
+            yield db_session
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
+        try:
+            with patch.object(kpi_module, "datetime", _FixedDateTime):
+                response = client.get("/api/dashboard/kpi")
+            assert response.status_code == 200
+            data = response.json()
+            # Текущий месяц (август) в серии отсутствует → нули, а не июльские 5/100/2
+            assert data["current_month_payments"] == 0
+            assert data["current_month_refunds_count"] == 0
+            assert data["current_month_refunds_pcs"] == 0
+            # Прошлый календарный месяц = июль (500) → тренд дохода -100%
+            assert data["revenue_change_pct"] == -100
+            assert data["revenue_change_detail"] == {"current": 0, "previous": 500}
+            # Тренд покупок: 0 в августе против 5 в июле (позиционная версия
+            # сравнивала бы months[-1]=июль с months[-2]=июнь)
+            assert data["payments_change_pct"] == -100
+            assert data["payments_change_detail"] == {"current": 0, "previous": 5}
+            assert data["refunds_pcs_change_detail"] == {"current": 0, "previous": 2}
         finally:
             app.dependency_overrides.clear()

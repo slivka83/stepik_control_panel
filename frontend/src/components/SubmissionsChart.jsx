@@ -72,13 +72,13 @@ export default function SubmissionsChart({
 
   const chartData = months.map((d) => {
     const correct = d.correct || 0;
-    const published = Math.min(d.published ?? 0, correct);
+    const published = d.published ?? 0;
     return {
       ...d,
       published,
-      correct: correct - published,
+      correct: Math.max(correct - published, 0),
       correctTotal: correct,
-      publishedTotal: d.published ?? 0,
+      publishedTotal: published,
       wrong: Math.max((d.total || 0) - correct, 0),
     };
   });

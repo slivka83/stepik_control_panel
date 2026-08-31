@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useTabState } from '../hooks/useTabState';
 import { useSync } from '../contexts/SyncContext';
 import KpiCard from '../components/KpiCard';
 import ErrorBanner from '../components/ErrorBanner';
@@ -7,7 +7,8 @@ import DataTable, { useRowsPerPage, useSortState } from '../components/DataTable
 import Tabs from '../components/Tabs';
 import MetricBarChart from '../components/MetricBarChart';
 import ChartToggle from '../components/ChartToggle';
-import { parseMonthLabel, makeMonthsTick } from '../utils/monthWindow';
+import { parseMonthLabel, monthComposite, makeMonthsTick } from '../utils/monthWindow';
+import { numCell } from '../components/NumericCell';
 import { yearMonthLabel, fmtDate } from '../utils/format';
 import { STEPIK_URLS } from '../constants.jsx';
 import api from '../api';
@@ -59,12 +60,8 @@ const CHART_METRICS = {
   },
 };
 
-function monthComposite(m) {
-  const p = parseMonthLabel(m.month);
-  return p ? p.year * 100 + p.month : 0;
-}
 
-const num = (row, key) => <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1">{row[key] || 0}</td>;
+const num = (row, key) => numCell(row[key] || 0);
 const likesCell = (row) => (
   <td className="text-right font-mono text-xs pl-1 pr-1" style={{ color: '#4ade80' }}>
     {row.likes || 0}
@@ -319,8 +316,7 @@ const TAB_COLUMNS = {
 
 export default function Comments() {
   const { data, error, refresh, selectedCourseIds, syncStatus } = useSync();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'months');
+  const [activeTab, handleTabChange] = useTabState();
   const [sorts, setSorts] = useState(SORT_INIT);
   const [viewMode, setViewMode] = useState('table');
   const [chartMetric, setChartMetric] = useState('likes_dislikes');
@@ -335,10 +331,6 @@ export default function Comments() {
   const firstRenderRef = useRef(true);
   const prevLastSyncRef = useRef(null);
 
-  const handleTabChange = (tab) => {
-    setActiveTab(tab);
-    setSearchParams({ tab });
-  };
 
   const onSort = (tab) => (key) => {
     setSorts((prev) => {
@@ -377,8 +369,8 @@ export default function Comments() {
         },
       });
       if (listReqIdRef.current !== id) return;
-      setListRows(res.data.comments);
-      setListTotal(res.data.total);
+      setListRows(res.data.comments || []);
+      setListTotal(res.data.total || 0);
       setListError(null);
     } catch (e) {
       if (listReqIdRef.current !== id) return;
@@ -405,6 +397,7 @@ export default function Comments() {
       prevLastSyncRef.current !== null &&
       syncStatus.last_sync !== prevLastSyncRef.current
     ) {
+      setListPage(1);
       fetchList();
     }
     prevLastSyncRef.current = syncStatus.last_sync;

@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import auth, courses, dashboard, financials, sync
 from app.config import get_settings
+from app.services.stepik_api import close_client
 from app.services.token_refresh import refresh_user_tokens
 
 settings = get_settings()
@@ -36,6 +37,7 @@ async def lifespan(app):
     yield
 
     scheduler.shutdown()
+    await close_client()
 
 
 app = FastAPI(

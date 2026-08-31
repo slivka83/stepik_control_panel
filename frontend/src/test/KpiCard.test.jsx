@@ -51,9 +51,9 @@ describe('KpiCard', () => {
 
   it.each([
     [5, 'text-neon-green'],
-    [0, 'text-crimson-alert'],
+    [0, 'text-neon-green'],
     [-5, 'text-crimson-alert'],
-  ])('default trend %s: above zero green, zero and below red', (trend, expectedClass) => {
+  ])('default trend %s: above zero green, zero green, below zero red', (trend, expectedClass) => {
     const { container } = render(<KpiCard title="T" value={100} trend={trend} />);
     expect(container.querySelector('span.text-xs.font-mono')).toHaveClass(expectedClass);
   });

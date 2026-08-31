@@ -1,6 +1,5 @@
 """Shared helpers for dashboard endpoints."""
 
-import json
 import uuid
 from math import sqrt
 
@@ -34,16 +33,16 @@ def format_month_label(month: int, year: int) -> str:
     return f"{MONTH_NAMES.get(month, str(month))} {year}"
 
 
-def json_field(val, field):
-    """Extract a field from a raw `_raw_json` value (dict/list/JSON string)."""
-    if isinstance(val, (dict, list)):
-        return val.get(field) if isinstance(val, dict) else None
-    if isinstance(val, (str, bytes, bytearray)):
-        try:
-            return json.loads(val).get(field)
-        except (json.JSONDecodeError, TypeError):
-            return None
-    return None
+def in_clause(values, prefix: str = "id") -> tuple[str, dict]:
+    """SQL IN-плейсхолдеры для безопасного bind списка значений.
+
+    Возвращает ("(:id0, :id1, ...)", {":id0": v0, ...}) — единая реализация
+    для всех dashboard-эндпоинтов (раньше копипастилась 8 раз).
+    """
+    vals = sorted(values)
+    placeholders = ", ".join(f":{prefix}{i}" for i in range(len(vals)))
+    params = {f"{prefix}{i}": v for i, v in enumerate(vals)}
+    return placeholders, params
 
 
 def wilson_success_pct(correct: int, total: int, z: float = 1.96) -> float:
@@ -87,8 +86,7 @@ async def build_step_path_maps(db: AsyncSession, step_ids: list[int]) -> dict[in
     if not step_ids:
         return {}
 
-    params = {f"id{i}": int(sid) for i, sid in enumerate(step_ids)}
-    placeholders = ", ".join(f":id{i}" for i in range(len(step_ids)))
+    placeholders, params = in_clause(step_ids, "id")
     res = await db.execute(
         text(
             "SELECT step_id, lesson_id, step_number, module_number, lesson_number, "

@@ -7,7 +7,8 @@ import Tabs from '../components/Tabs';
 import CourseStructureMatrix, { STEP_METRICS } from '../components/CourseStructureMatrix';
 import CourseFunnel from '../components/CourseFunnel';
 import { STEPIK_URLS } from '../constants.jsx';
-import { fmtDate, getRatingColor } from '../utils/format';
+import { yearMonthLabel, fmtDate, getRatingColor } from '../utils/format';
+import { numCell } from '../components/NumericCell';
 import api from '../api';
 
 const TABS = [
@@ -60,7 +61,7 @@ const FUNNEL_VIEWS = {
   },
 };
 
-const numCell = (row, key) => <td className="text-right font-mono text-xs text-gray-300 pl-1 pr-1">{row[key] || 0}</td>;
+const numCellLocal = (row, key) => numCell(row[key] || 0);
 
 const COURSE_COLUMNS = [
   {
@@ -107,7 +108,7 @@ const COURSE_COLUMNS = [
     align: 'right',
     width: 'w-[7%]',
     numeric: true,
-    render: (c) => numCell(c, 'enrollment_count'),
+    render: (c) => numCellLocal(c, 'enrollment_count'),
   },
   {
     key: 'certificates_count',
@@ -115,7 +116,7 @@ const COURSE_COLUMNS = [
     align: 'right',
     width: 'w-[10%]',
     numeric: true,
-    render: (c) => numCell(c, 'certificates_count'),
+    render: (c) => numCellLocal(c, 'certificates_count'),
   },
   {
     key: 'comments_count',
@@ -123,7 +124,7 @@ const COURSE_COLUMNS = [
     align: 'right',
     width: 'w-[9%]',
     numeric: true,
-    render: (c) => numCell(c, 'comments_count'),
+    render: (c) => numCellLocal(c, 'comments_count'),
   },
   {
     key: 'reviews_count',
@@ -131,7 +132,7 @@ const COURSE_COLUMNS = [
     align: 'right',
     width: 'w-[6%]',
     numeric: true,
-    render: (c) => numCell(c, 'reviews_count'),
+    render: (c) => numCellLocal(c, 'reviews_count'),
   },
   {
     key: 'average_rating',
@@ -195,9 +196,15 @@ export default function Courses() {
   const { data, error, refresh } = useSync();
   const courses = data.courses || [];
   const [activeTab, setActiveTab] = useState('courses');
-  const [courseId, setCourseId] = useState(courses[0]?.id || null);
+  const [courseId, setCourseId] = useState(null);
   const [metric, setMetric] = useState('grade');
   const [funnelView, setFunnelView] = useState('modules');
+
+  useEffect(() => {
+    if (courseId == null && courses.length > 0) {
+      setCourseId(courses[0].id);
+    }
+  }, [courses, courseId]);
 
   const publishedCount = courses.filter((c) => c.status?.toLowerCase() === 'published').length;
   const totalStudents = courses.reduce((s, c) => s + (c.enrollment_count || 0), 0);

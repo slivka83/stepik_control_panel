@@ -168,6 +168,11 @@ class TestRawSyncErrors:
 
     @pytest.mark.asyncio
     async def test_grades_and_certs_unknown_course(self, db_session):
+        """Regression: неизвестный курс не должен валить sync (пустой ответ API)."""
         from app.services.raw_sync import sync_course_grades_and_certs
 
-        await sync_course_grades_and_certs(db_session, "tok", [99999])
+        async def empty(*args, **kwargs):
+            return {"course-grades": [], "certificates": [], "meta": {"has_next": False}}
+
+        with patch("app.services.raw_sync._request", side_effect=empty):
+            await sync_course_grades_and_certs(db_session, "tok", [99999])

@@ -18,7 +18,7 @@ known-first-party = ["app"]
 # nested patch contexts and suppressible assertions are idiomatic in tests.
 "tests/*.py" = ["E501", "F841", "B007", "SIM117", "SIM105", "SIM108"]
 # Migrations are historical artifacts; tolerant try/except is intentional there.
-"alembic/versions/*.py" = ["SIM105", "E501"]
+"migrations/versions/*.py" = ["SIM105", "E501"]
 
 [tool.mypy]
 python_version = "3.12"

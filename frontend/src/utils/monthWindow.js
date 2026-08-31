@@ -24,6 +24,11 @@ export function parseMonthLabel(label) {
   return { year: Number(match[2]), month: monthNum };
 }
 
+export function monthComposite(m) {
+  const p = parseMonthLabel(m.month);
+  return p ? p.year * 100 + p.month : 0;
+}
+
 export function formatMonthLabel(month, year) {
   return `${MONTH_NAMES[month]} ${year}`;
 }

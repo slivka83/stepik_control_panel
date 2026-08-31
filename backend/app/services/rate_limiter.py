@@ -101,6 +101,9 @@ async def check_auth_rate_limit(ip: str, max_requests: int = 5, window_seconds: 
         results = await pipe.execute()
         count = results[2]
 
+        # Текущий запрос уже учтён в count (zadd выше): при лимите 5
+        # пятый запрос видит count=5 и должен проходить, шестой (6) — нет.
+        # Раньше сравнение было >= и реально допускало только 4 запроса.
         if count > max_requests:
             oldest_in_window = await redis_client.zrange(key, 0, 0, withscores=True)
             if oldest_in_window:

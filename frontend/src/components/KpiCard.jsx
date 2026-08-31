@@ -28,6 +28,7 @@ function KpiCard({
   fractionDigits = 0,
   minimumFractionDigits = 0,
   noAnimate = false,
+  noZero = false,
   secondValue = null,
   secondSuffix = '',
   secondHighlight = false,
@@ -39,6 +40,7 @@ function KpiCard({
   const fmt = (val) => formatNumber(val, { minimumFractionDigits, maximumFractionDigits: fractionDigits });
   const textColor = ratingColor ? undefined : COLOR_CLASSES[color]?.split(' ')[0] || 'text-cyber-blue';
   const effTrend = trend === null ? 1 : trend;
+  const showDash = noZero && (!value || value === 0);
 
   const getRatingStyle = () => {
     if (!ratingColor) return {};
@@ -52,7 +54,7 @@ function KpiCard({
         {(trend !== null || (trendBadge && secondValue !== null && secondValue > 0)) && (
           <span
             title={trendTooltip || undefined}
-            className={`text-xs font-mono ${trendInverted ? (effTrend > 0 ? 'text-crimson-alert' : 'text-neon-green') : effTrend > 0 ? 'text-neon-green' : 'text-crimson-alert'}`}
+            className={`text-xs font-mono ${trendInverted ? (effTrend > 0 ? 'text-crimson-alert' : 'text-neon-green') : effTrend >= 0 ? 'text-neon-green' : 'text-crimson-alert'}`}
           >
             {trend !== null ? `${trend >= 0 ? '↑' : '↓'} ${Math.abs(trend)}%` : '↑ --%'}
           </span>
@@ -63,7 +65,9 @@ function KpiCard({
         style={getRatingStyle()}
       >
         {prefix}
-        {noAnimate ? (
+        {showDash ? (
+          <span>—</span>
+        ) : noAnimate ? (
           <span>{fmt(value)}</span>
         ) : (
           <CountUp end={value} duration={1.5} redraw={false} preserveValue decimals={dp} formattingFn={fmt} />
