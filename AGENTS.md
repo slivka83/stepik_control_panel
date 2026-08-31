@@ -192,7 +192,7 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 - Поля: `in_progress`, `progress`, `step`, `last_sync`, `last_error`, `cooldown_remaining_seconds`
 - `last_error` — текст ошибки последнего упавшего sync (`sync._last_sync_error`), `null` при успехе; сбрасывается при старте нового sync
 - **Статус синка персистится** в `raw_sync_state` (`endpoint_name='sync'`, ключи `in_progress`/`progress`/`step`/`last_error`/`last_completed_at`), чтобы переживать перезапуск сервера (`uvicorn --reload`). Загрузка — лениво через `sync.ensure_state_loaded()` (первый запрос `/status` или `/sync`). Если процесс умер во время синка (`in_progress=true` в БД) — после рестарта `last_error` = «Синхронизация прервана перезапуском сервера». Запись best-effort (try/except, не роняет sync)
-- `last_sync` — `financial_snapshots.updated_at`; колонка в PG — `timestamp without time zone`, значение UTC (naive) — **при сериализации обязательно `+00:00`** (иначе фронтенд трактует строку как локальное время — регрессия «дата в тултипе не в локальном TZ»)
+- `last_sync` — `financial_snapshots.updated_at`; колонка в PG — `timestamp with time zone` (миграция `020`)
 - Фронтенд-кнопка синка: синяя «вода» прогресса во время sync, розовая заливка на всю высоту при `last_error`, тултип — дата последней синхронизации (idle) / ошибка / прогресс
 
 ## Фильтр по курсам (глобальный)
@@ -349,6 +349,11 @@ Y-ось графиков:
 
 Все таблицы (Решения ×4, Финансы ×7, Студенты, Курсы) построены на общем компоненте **`frontend/src/components/DataTable.jsx`** — сортировка, пагинация, авто-высота строк и вёрстка живут в одном месте; панель вкладок — **`frontend/src/components/Tabs.jsx`**. Будущие изменения сортировки/пагинации/стилей вносятся один раз и применяются ко всем таблицам.
 
+**Общие хелперы (dedup):**
+- `numCell(value, className)` в `frontend/src/components/NumericCell.jsx` — ячейка для числовых значений (text-right, font-mono, text-xs)
+- `monthComposite(m)` в `frontend/src/utils/monthWindow.js` — композитный ключ `year*100+month` для сортировки по месяцам
+- `useTabState(defaultTab)` в `frontend/src/hooks/useTabState.js` — хук для вкладок с синхронизацией URL (`useSearchParams`)
+
 **Схема колонки** (отличия таблиц задаются конфигурацией):
 ```
 { key, label, width, align: 'left'|'right', numeric?, nullLast?, naturalDir?,
@@ -414,6 +419,7 @@ Y-ось графиков:
 - Колонки списков: `Дата (fmtDate) | Студент (имя из raw_user, fallback «—») | Курс (ссылка) | Комментарий (HTML вырезан `_strip_html`, truncate + title) | Лайки (green) | Дизлайки (red) | Ответы | Шаг (модуль.урок-шаг)`
 - Колонка **«Шаг»** в списках — путь `модуль.урок-шаг` (fallback `step_number`/`comment_id`), tooltip «модуль — урок», ссылка на комментарий: `https://stepik.org/lesson/{lesson_id}?discussion={comment_id}` (`STEPIK_URLS.comment`), `target="_blank"`
 - Пути шагов — единый хелпер **`build_step_path_maps(db, step_ids)`** в `app/api/dashboard/common.py` (модуль/урок/шаг из raw_section/raw_unit/raw_lesson; используется и `steps.py`, и `comments.py`); `_parse_step_positions` тоже в common.py, из `steps.py` re-exportится (тест `test_steps.py` импортирует оттуда)
+- SQL IN-плейсхолдеры — единый хелпер **`in_clause(values, prefix)`** в `app/api/dashboard/common.py` (раньше копипастился 8 раз по dashboard-эндпоинтам)
 - Списки грузятся **lazy** при активации вкладки (серверный режим DataTable по образцу Students.jsx: `useRowsPerPage`/`useSortState`/`reqIdRef`, сброс на стр. 1 при смене фильтра/сортировки, refetch при смене `last_sync`); агрегаты из контекста, 4 KPI-плашки общие
 - `students` в группировке — **distinct авторов** (`_raw_json.user`, не-числовые значения — имена OAuth-клиентов — пропускаются); KPI «Студенты» = distinct по всем комментариям (сумма по месяцам задвоила бы)
 - **Лайки/Дизлайки считаются из `vote_delta`** (Stepik не отдаёт раздельных счётчиков: `/votes?ids[]=` возвращает только собственный голос вызывающего, агрегатных полей в синкаемых данных нет): **Лайки = сумма положительных `vote_delta`**, **Дизлайки = модуль суммы отрицательных** по комментариям в группе. Это «суммарный балл оценок», а не точное число нажатий
@@ -540,10 +546,9 @@ python scripts/rebuild_marts.py
 **COURSE_ENDPOINTS:** course_grades, certificates, comments, course_reviews, enrollments, course_period_statistics, course_total_statistics, course_ranks
 
 **Работа с эндпоинтами (порядок):**
-1. Показать пользователю поля (`docs/fields_*.md`), получить отметку Sync
-2. `explore_endpoint.py --create-table --load` — создаёт таблицу, грузит данные
-3. `rebuild_raw.py` — применяет sync-отметки, убирает неотмеченные колонки
-4. Для `?ids[]=` эндпоинтов — сначала добавить источник в `IDS_SOURCE_MAP`
+1. `explore_endpoint.py --create-table --load` — создаёт таблицу, грузит данные, обновляет `meta_field_mapping`
+2. Для `?ids[]=` эндпоинтов — сначала добавить источник в `IDS_SOURCE_MAP`
+3. Перезапустить `rebuild_marts.py` для пересборки витрин
 
 ## Документация
 
@@ -563,7 +568,7 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-516 тестов, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
+528 тестов, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
 | Файл | Тестов | Что тестирует |
 |---|---|---|
 | `tests/test_stepik_api.py` | 20 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` |
