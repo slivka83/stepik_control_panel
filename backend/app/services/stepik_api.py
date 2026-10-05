@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import time
+import weakref
 from typing import Any
 
 import httpx
@@ -26,31 +27,38 @@ class StepikRateLimitError(StepikAPIError):
         super().__init__(429, detail)
 
 
-# Module-level singleton: ContextVar не подходит — set() внутри корутины
-# меняет только копию контекста текущей задачи, и каждая задача обработки
-# запроса создавала свой AsyncClient, который никто не закрывал (утечка
-# соединений). Один клиент потокобезопасен для конкурентных запросов.
-_client: httpx.AsyncClient | None = None
-_client_lock = asyncio.Lock()
+# ContextVar не подходит — set() внутри корутины меняет только копию контекста
+# текущей задачи, и каждая задача обработки запроса создавала свой AsyncClient,
+# который никто не закрывал (утечка соединений).
+#
+# Клиент хранится НА КАЖДЫЙ event loop: пул соединений httpx/anyio привязан к
+# тому циклу, в котором был создан. sync_all_sync выполняется в отдельном цикле
+# (asyncio.new_event_loop в потоке executor), и клиент, созданный основным циклом
+# (например, при обновлении токена на старте), в цикле синка падал с
+# "Event is bound to a different event loop".
+_clients: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = (
+    weakref.WeakKeyDictionary()
+)
 
 
 async def _get_client() -> httpx.AsyncClient:
-    global _client
-    if _client is None:
-        async with _client_lock:
-            if _client is None:
-                limits = httpx.Limits(max_keepalive_connections=20, max_connections=50)
-                _client = httpx.AsyncClient(limits=limits, timeout=30.0)
-    return _client
+    loop = asyncio.get_running_loop()
+    client = _clients.get(loop)
+    if client is None or client.is_closed:
+        limits = httpx.Limits(max_keepalive_connections=20, max_connections=50)
+        client = httpx.AsyncClient(limits=limits, timeout=30.0)
+        _clients[loop] = client
+    return client
 
 
 async def close_client() -> None:
-    """Закрыть общий httpx-клиент (вызывается при остановке приложения)."""
-    global _client
-    async with _client_lock:
-        if _client is not None:
-            await _client.aclose()
-            _client = None
+    """Закрыть httpx-клиент текущего event loop (вызывается при остановке
+    приложения и в конце потока синка). Клиент чужого цикла закрыть отсюда
+    нельзя — пул соединений привязан к своему циклу."""
+    loop = asyncio.get_running_loop()
+    client = _clients.pop(loop, None)
+    if client is not None:
+        await client.aclose()
 
 
 async def _request(

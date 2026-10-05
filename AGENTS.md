@@ -57,12 +57,21 @@ Stepik API ──► СЛОЙ СЫРЫХ ДАННЫХ ──► СЛОЙ ВИТ�
 ## Запуск
 
 ```bash
-# Linux/Mac
+# Linux/Mac / WSL
 ./start.sh
 
 # Windows
 start.bat
 ```
+
+PostgreSQL + Redis запускаются через **Podman** (`podman-compose` + тот же `docker-compose.yml`), поэтому Docker Desktop не нужен. Docker используется только как запасной вариант:
+
+```bash
+CONTAINER_ENGINE=docker ./start.sh   # запуск через Docker Compose
+CONTAINER_ENGINE=docker ./stop.sh
+```
+
+`start.bat` сам выбирает ветку: если в WSL есть `podman-compose` — запускает всё через WSL/Podman (Docker Desktop не требуется), иначе fallback на Docker. Остановка в этом случае — `./stop.sh` внутри WSL.
 
 Требуется `.env` из `.env.example` (OAuth2 Client ID/Secret, `ENCRYPTION_KEY`, данные БД).
 
@@ -213,7 +222,7 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 
 - Парсинг: `parse_course_ids()` в `app/api/dashboard/course_filter.py` (comma-joined, мусор отбрасывается): параметр отсутствует → `None` = без фильтра; пустая строка/только мусор → `[]` = пустой выбор. Все эндпоинты ветвятся по `parsed is None`, а не по falsy.
 - `get_courses_for_user(db, user, course_ids)` — пересекает запрошенные UUID с курсами пользователя: чужие курсы увидеть нельзя (безопасность); `[]` → ноль курсов.
-- SQL-эндпоинты — `course_id IN (...)` в WHERE: `/dashboard/submissions`, `/active-students`, `/active-enrolled-students`, `/cohorts`, `/alerts`, `/hardest-steps`, KPI-части (студенты/сертификаты/решения), `/dashboard/students` — через `EXISTS (SELECT 1 FROM student_enrollments ...)` (у витрины нет course-колонки).
+- SQL-эндпоинты — `course_id IN (...)` в WHERE: `/dashboard/submissions`, `/active-students`, `/cohorts`, `/alerts`, `/hardest-steps`, KPI-части (студенты/сертификаты/решения), `/dashboard/students` — через `EXISTS (SELECT 1 FROM student_enrollments ...)` (у витрины нет course-колонки).
 - Снапшот-данные пересчитываются на лету (`course_filter.py`), т.к. `months`/`summary`/`comments_monthly` глобальны:
   - `filter_financials()` — из `recent_payments[i].raw` (у каждого платежа есть course + time): `summary`/`months`/`courses`/`promos`/`utms`/`recent_payments`. Месяц — из `time` платежа; возвраты вычитаются из turnover (как в `transform_financials`), поэтому отфильтрованный «все курсы» == глобальный снапшот (инвариант проверен тестом).
   - `filter_community()` — рейтинг/отзывы/комментарии из `community.per_course` + помесячные `comments_monthly`/`solutions_monthly` пересобираются из `raw_comment` через step→course map (`raw_step JOIN raw_unit JOIN raw_section`).
@@ -450,7 +459,7 @@ Y-ось графиков:
 - Вкладки: **По месяцам / По годам / По дням / По курсам / По промокодам / По UTM / Последние операции** (`frontend/src/pages/Financials.jsx`)
 - Таблицы — тот же сортируемый/пагинируемый паттерн, что и в Решениях: `DataTable` + схема колонок (`naturalDir` для дат `time`/`last_used`) + авто-`rowsPerPage`
 - **Месяцы сортируются по композиту `year*100 + month_num`** (хронология, а не по текстовой метке «Январь 2026»); данные приходят без `.reverse()` — дефолт `{key:'month', dir:'desc'}` даёт «новые сверху»
-- **«По дням»** — агрегация `recent_payments` по календарному дню за последние **30 дней включительно с нулевыми днями** (все 30 строк), новые сверху. Считается **на фронтенде** (`buildDailyStats` в `Financials.jsx`) из `recent_payments` (там есть `time`/`amount`/`payment_amount`/`status`) по **местному дню зрителя** — ровно той же логикой `new Date(p.time)`, что и вкладка «Последние операции», поэтому строка «сегодня» всегда совпадает с самой свежей датой «Последних операций» (регрессия «сегодня пусто в По дням»). Формула как в `filter_financials` (`refunded` → `refunds += abs(amount)`, `turnover -= payment_amount`). Фильтр по курсам работает автоматически — отфильтрованные `recent_payments` уже ограничены на сервере. Даты рендерятся как `dd.mm.yyyy`. Бэкенд по-прежнему отдаёт `days` (`_build_daily_stats`, UTC, 30 дней), но фронтенд его не использует.
+- **«По дням»** — агрегация `recent_payments` по календарному дню за последние **30 дней включительно с нулевыми днями** (все 30 строк), новые сверху. Считается **на фронтенде** (`buildDailyStats` в `Financials.jsx`) из `recent_payments` (там есть `time`/`amount`/`payment_amount`/`status`) по **местному дню зрителя** — ровно той же логикой `new Date(p.time)`, что и вкладка «Последние операции», поэтому строка «сегодня» всегда совпадает с самой свежей датой «Последних операций» (регрессия «сегодня пусто в По дням»). Формула как в `filter_financials` (`refunded` → `refunds += abs(amount)`, `turnover -= payment_amount`). Фильтр по курсам работает автоматически — отфильтрованные `recent_payments` уже ограничены на сервере. Даты рендерятся как `dd.mm.yyyy`. Бэкенд поле `days` **не отдаёт** — вся агрегация только на фронте.
 - `nullLast` для nullable-колонок: `price`, `student`, `channel`, `promo_code`, `is_gift`, `utm_source_label`, `last_used` (всегда внизу, даже при desc)
 - Финансовая семантика цветов сохранена: белый оборот/суммы, `neon-green` доход, `crimson-alert`+`line-through` для refunded, `formatCurrency` (₽), «—» для пустых ячеек
 - `recent`-вкладка: UTM-тултип из `raw.last_course_click_utm` (`formatUtmTooltip`), сортировка «Дата» по raw `time`, «Подарок» (is_gift) — 0/1
@@ -568,32 +577,32 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-528 тестов, 0 skipped, 0 failures (`pytest -v`, требует запущенный docker-compose для live-PG).
+520 тестов, 0 skipped, 0 failures (`pytest -v`, требует запущенный PostgreSQL — любой: Podman или Docker).
 | Файл | Тестов | Что тестирует |
 |---|---|---|
-| `tests/test_stepik_api.py` | 20 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` |
+| `tests/test_stepik_api.py` | 24 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile`, **изоляция event loop** (HTTP-клиент на каждый цикл — иначе sync падал с «bound to a different event loop») |
 | `tests/test_stepik_api_comprehensive.py` | 14 | `get_finance_token`, 5xx retries, constants |
-| `tests/test_raw_sync.py` | 23 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions` (+404-шаги, 400-теоретические-шаги, **text-шаги не опрашиваются**, **step-pass докачивает до лимита 500 страниц**, конфликтные upsert'ы, str-bind для TEXT-колонок), `sync_financials`, `sync_community` (**сами отзывы course-reviews в raw_course_review**, скип упавшего курса, **персистенция при +0 комментариев**), регрессии `became_published_at`, stale sequence, **инкремент author pass (продолжение с сохранённой страницы) и delta попыток** |
+| `tests/test_raw_sync.py` | 24 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions` (+404-шаги, 400-теоретические-шаги, **text-шаги не опрашиваются**, **step-pass докачивает до лимита 500 страниц**, конфликтные upsert'ы, str-bind для TEXT-колонок), `sync_financials`, `sync_community` (**сами отзывы course-reviews в raw_course_review**, скип упавшего курса, **персистенция при +0 комментариев**), регрессии `became_published_at`, stale sequence, **инкремент author pass (продолжение с сохранённой страницы) и delta попыток** |
 | `tests/test_raw_sync_edge_cases.py` | 12 | `_paginated_fetch`, пустые/ошибочные данные transform и raw_sync |
-| `tests/test_transform.py` | 18 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита) |
+| `tests/test_transform.py` | 19 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита) |
 | `tests/test_sync_integration.py` | 18 | `sync_all`, cohort status, интеграция raw_sync → transform, stepwise-коммиты raw_sync внутри sync-этапов |
 | `tests/test_sync_comprehensive.py` | 21 | `sync_all`, `sync_community_stats`, `sync_financials` |
 | `tests/test_sync_edge_cases.py` | 26 | Разрешение конфликтов, отсутствие данных, ошибки API, регрессии `_last_sync_error` (падение → error виден в статусе, успех → очищен), **персистенция статуса синка** (`TestSyncStatePersistence`: in_progress/error/после рестарта сервера) |
 | `tests/test_data_contract.py` | 5 | Глобальные контракты снапшота/API/фронта (price, per_course, поля страниц, recent_payments/utms) |
 | `tests/test_schema_contract.py` | 10 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот), **live-PG свежесть данных** (трансформы на реальных данных производят строки и догоняют raw — регрессия «0 submissions upserted») |
-| `tests/test_architecture.py` | 19 | Архитектурные гарантии: один alembic head (018, merge 017 + 20fc60296db6), нет dead-артефактов (step_sync_state, orphan-скрипты), единый источник констант, дефолты конфига = docker-compose, сплит dashboard-пакета, rebuild_marts.py (все трансформы, без API) |
+| `tests/test_architecture.py` | 21 | Архитектурные гарантии: один alembic head (018, merge 017 + 20fc60296db6), нет dead-артефактов (step_sync_state, orphan-скрипты), единый источник констант, дефолты конфига = docker-compose, сплит dashboard-пакета, rebuild_marts.py (все трансформы, без API) |
 | `tests/test_steps.py` | 35 | hardest-steps (читает `mart_steps`): `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id), `wilson_success_pct` (объём попыток: 1/5 → 3.6%, 200/1000 → 17.6%), `weighted_success_pct` (мусор с малым числом попыток не всплывает в топ), `module_number`/`lesson_number` (сквозная нумерация уроков по курсу), `module_title`/`lesson_title` |
-| `tests/test_course_filter.py` | 25 | Фильтр по курсам: `parse_course_ids` (None/`[]`), безопасность (чужие UUID отбрасываются), SQL-эндпоинты (submissions/active-students/cohorts/alerts/hardest-steps/students), пересчёт снапшота (financials/revenue/kpi/published-solutions/community), `published` в submissions (в т.ч. по курсам, инвариант «фильтр = все курсы» == «без фильтра»), пустой `?course_ids=` = пустой выбор; `filter_financials` пропускает платёж без `raw`/не-dict `raw`/не из выбранных курсов, `filter_community` на пустом сообществе → нули, `filter_steps_average_grade` для выбранных курсов без шагов → 0 |
+| `tests/test_course_filter.py` | 27 | Фильтр по курсам: `parse_course_ids` (None/`[]`), безопасность (чужие UUID отбрасываются), SQL-эндпоинты (submissions/active-students/cohorts/alerts/hardest-steps/students), пересчёт снапшота (financials/revenue/kpi/community), `published` в submissions (в т.ч. по курсам, инвариант «фильтр = все курсы» == «без фильтра»), пустой `?course_ids=` = пустой выбор; `filter_financials` пропускает платёж без `raw`/не-dict `raw`/не из выбранных курсов, `filter_community` на пустом сообществе → нули, `filter_steps_average_grade` для выбранных курсов без шагов → 0 |
 | `tests/test_cohorts.py` | 5 | `/api/dashboard/cohorts`: границы сегментации 7/30/90 дней (ровно на границе), «Зомби» не попадает ни в один сегмент, `last_viewed_at IS NULL` не считается, нет курсов → нули |
 | `tests/test_alerts.py` | 5 | `/api/dashboard/alerts`: `points_earned == 100` → алерт, выданный сертификат исключается, `HAVING count > 10` на границе 10/11 студентов, оба типа алертов одновременно, нет курсов → пусто |
 | `tests/test_students.py` | 4 | `/api/dashboard/students`: неверный `limit` (0/201) и отрицательный `skip` → 422, `skip` за пределами списка → пусто при верном `total` |
-| `tests/test_kpi.py` | 5 | `/api/dashboard/kpi`: январь корректно берёт предыдущий месяц = декабрь прошлого года, тренд при нуле в прошлом месяце = `None`, `max(0,…)` для «предыдущих месяцев», средняя оценка шагов = 0 без голосов, средний рейтинг = 0 без оценок |
-| `tests/test_comments.py` | 12 | `/api/dashboard/comments` (читает `mart_comments`): months/years/by_course группировки, totals, Лайки/Дизлайки из `vote_delta`, distinct-студенты (OAuth-клиенты отбрасываются), атрибуция через mart_steps, инвариант «фильтр = все курсы» == «без фильтра»; `/comments/list`: фильтры `unanswered` (is_staff_replied + teacher + deleted) и `disliked` (vote_delta<0), имена из raw_user, пути шагов, HTML-стрип, фильтр курсов + инвариант, сортировка/пагинация/NULLS LAST, 400 на неверные параметры, пустые данные |
+| `tests/test_kpi.py` | 7 | `/api/dashboard/kpi`: январь корректно берёт предыдущий месяц = декабрь прошлого года, тренд при нуле в прошлом месяце = `None`, `max(0,…)` для «предыдущих месяцев», средняя оценка шагов = 0 без голосов, средний рейтинг = 0 без оценок |
+| `tests/test_comments.py` | 13 | `/api/dashboard/comments` (читает `mart_comments`): months/years/by_course группировки, totals, Лайки/Дизлайки из `vote_delta`, distinct-студенты (OAuth-клиенты отбрасываются), атрибуция через mart_steps, инвариант «фильтр = все курсы» == «без фильтра»; `/comments/list`: фильтры `unanswered` (is_staff_replied + teacher + deleted) и `disliked` (vote_delta<0), имена из raw_user, пути шагов, HTML-стрип, фильтр курсов + инвариант, сортировка/пагинация/NULLS LAST, 400 на неверные параметры, пустые данные |
 | `tests/test_certificates.py` | 5 | `/api/dashboard/certificates/stats` (читает `mart_certificates`): months/years/by_course группировки, distinction/regular, distinct-студенты, фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
 | `tests/test_reviews.py` | 5 | `/api/dashboard/reviews/stats` (читает `mart_reviews`): months/years/by_course группировки, avg_score (score без числа не входит), distinct-студенты (OAuth-клиенты отбрасываются), фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
 | `tests/test_course_structure.py` | 19 | `/api/courses/{id}/structure`: владение курсом (404 чужих/битых ID), порядок модулей/уроков/шагов по position, сквозной `lesson_number`, `lesson_id`/`step_number` у шагов, метрики из `raw_step._raw_json` (dict-jsonb и TEXT-строка), `total`/`correct`/`students` из submissions (ORM, `is_author=False`), пустые уроки; юнит-тесты `_step_grade` (средняя оценка шага из `num_grades`: взвешенное среднее, один голос, без голосов, отсутствие поля, не-список, не-числовые счётчики, короткий список, минимальная оценка) |
 | `tests/test_course_funnel.py` | 18 | `/api/courses/{id}/funnel`: владение курсом (404 чужих/битых ID), пустая структура → «Записались» + «Сертификат», cumulative distinct по модулям (монотонность), порядок по position, сертификаты отдельным этапом, исключение авторских submissions, не-атрибутируемые шаги пропускаются, модуль без шагов остаётся в воронке; `view=lessons` — cumulative по урокам, сквозная нумерация `lesson_number`, урок без шагов остаётся, fallback невалидного `view` на modules |
-| Остальные | 182 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
+| Остальные | 183 | API endpoints, dashboard, financials, crypto, rate limiter, ... |
 
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).
 

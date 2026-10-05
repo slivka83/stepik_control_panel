@@ -165,13 +165,6 @@ async def get_step_ids(engine) -> list[str]:
         return [str(row[0]) for row in r if row[0] is not None]
 
 
-def guess_api_object(api_path: str) -> str:
-    m = re.search(r"/api/([a-z][a-z0-9-]*)", api_path)
-    if m:
-        return m.group(1).replace("-", "_").rstrip("s") + "s"
-    return "objects"
-
-
 def extract_objects(data: dict, api_path: str) -> list[dict]:
     for key in data:
         if key != "meta":

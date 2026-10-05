@@ -6,7 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Removed (Удалён неиспользуемый код)
+- Два эндпоинта API, к которым фронтенд не обращался после рефакторинга: `GET /api/dashboard/active-enrolled-students` и `GET /api/dashboard/published-solutions` (а также покрывающие их тесты и записи в `test_architecture.EXPECTED_ROUTES`). Данные «Опубликованные решения» по-прежнему приходят полем `published` в `/dashboard/submissions`
+- `_build_daily_stats` и поле `days` в ответе `GET /api/financials`: вкладка «По дням» целиком считается на фронтенде (`buildDailyStats` из `recent_payments` по местному дню зрителя), серверное поле не читалось. Итог: `app/api/financials.py` 120 → 54 строки, −11 тестов
+- `guess_api_object` в `scripts/sync_raw.py` — ни разу не вызывалась
+- `backend/uv.lock` — файл-заглушка (52 байта, только заголовок, без пакетов); установка идёт через `uv pip install -r requirements.txt`, лок-файл не использовался
+- Неиспользуемые экспорты и данные: `Pagination`, `SortableTh`, `naturalDirOf` в `DataTable.jsx`, `MONTH_NAMES` в `utils/monthWindow.js`, неиспользуемые ссылки `STEPIK_URLS` (`courseEdit`/`lessonEdit`/`announcements`/`students`), неиспользуемые цвета Tailwind (`space-gray-light`, `cyber-blue-dark`, `neon-green-dark`)
+- Дублирование: `COHORT_COLORS` в `constants.jsx` упрощён до чистых hex-значений (неиспользуемые `text`/`bg` убраны), `Students.jsx` больше не держит свою копию палитры — импортирует общую
+- Мёртвый `import sqlalchemy as sa` в миграции `020`, неотсортированные импорты в `course_filter.py`, кеши `.mypy_cache`/`.ruff_cache`/`.pytest_cache`/`__pycache__`
+
+Тесты: 532 → 520 backend, 399 → 397 frontend (удалены только тесты мёртвого кода)
+
+### Changed (Локальное окружение: Podman вместо Docker)
+- PostgreSQL и Redis поднимаются через **Podman** (`podman-compose`, тот же `docker-compose.yml`, те же порты 5433/6380) — Docker Desktop больше не нужен. Прежнее поведение возвращается через `CONTAINER_ENGINE=docker ./start.sh` / `./stop.sh`
+- `start.bat` сам выбирает ветку: если в WSL есть `podman-compose` — запускает базу, бэкенд и фронтенд через WSL/Podman (даже когда Docker Desktop запущен), иначе fallback на Docker; остановка в этом случае — `./stop.sh` внутри WSL
+- `start.sh`: при `-d` бэкенд и фронтенд стартуют в отдельной сессии (`setsid`) — раньше при запуске из Windows (`start.bat` → `wsl.exe`) процессы умирали вместе с родительской сессией, и панель оставалась без API
+- `start.sh` / `stop.sh`: при остановке освобождаются порты 8000/3000 по всем слушателям — раньше дочерние процессы vite/uvicorn переживали родителя и держали порт, поэтому следующий старт поднимал фронтенд на другом порту
+- Миграция базы из Docker-тома в Podman-том: 7 курсов, 84 815 отправок, 7 446 студентов, 1 669 комментариев — перенесены полностью, старый том Docker сохранён как резервный
+
 ### Fix (Исправления логических/семантических ошибок)
+- Синк падал на первом же запросе к Stepik с `RuntimeError: <asyncio.locks.Event ...> is bound to a different event loop` — общий httpx-клиент создавался в основном event loop (например, при обновлении токена на старте), а `sync_all_sync` работает в отдельном цикле в потоке executor, а пул соединений httpx/anyio привязан к своему циклу. Теперь клиент создаётся на каждый event loop (`stepik_api._clients`, `WeakKeyDictionary`), поток синка закрывает свой клиент в конце (`close_client()` в `sync_all_sync`); регрессионные тесты `TestEventLoopIsolation` в `tests/test_stepik_api.py`
 - Счётчик комментариев в снапшоте (`transform_community`) теперь считает только комментарии, привязанные к курсам пользователя (как `mart_comments`) — устранён разрыв инварианта «фильтр = все курсы» == «без фильтра» (`total_comments`/`comments_monthly`/`total_solutions`/`solutions_monthly`); регрессионный тест `test_community_skips_non_attributable`
 - Средняя оценка шагов (KPI) при фильтре по курсам теперь включает шаги без привязки к курсу (`stepik_course_id IS NULL`), как и в режиме «без фильтра» (`filter_steps_average_grade`); регрессионный тест `test_null_course_step_included_in_average`
 - «Опубликованные решения» в группировках решений теперь ограничены числом правильных (`published = min(published, correct)`) на уровне API (`charts.get_submissions`) — раньше таблицы/KPI могли показать опубликованных больше, чем правильных
@@ -16,7 +35,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Tests (Пограничные тесты — финансы, когорты, алерты, студенты, KPI, фильтр курсов)
 - Добавлено ~37 пограничных тестов для мест, где раньше покрытия не было (граничные даты, пустые/неверные данные, «ровно на границе» условия):
-  - `tests/test_financials.py` (было 2 → стало 14): чистая функция `_build_daily_stats` — окно в 30 дней (ровно сегодня / ровно 30 дней назад попадают, 31-й день и будущее отсекаются), даты с суффиксом `Z`, битая/пустая дата пропускается, возврат с положительной суммой (`abs`), нулевой платёж, пустой список → 30 нулевых дней, несколько платежей в один день склеиваются; эндпоинт: снапшот с пустыми `recent_payments` → 30 нулей, годовая сводка игнорирует месяц без года
+  - `tests/test_financials.py`: снапшот с пустыми `recent_payments`, годовая сводка игнорирует месяц без года
   - `tests/test_cohorts.py` (новый, 5): границы сегментации 7/30/90 дней (ровно на границе), «Зомби» не попадает ни в один сегмент, `last_viewed_at IS NULL` не считается
   - `tests/test_alerts.py` (новый, 5): `points_earned == 100` → алерт, выданный сертификат исключается, `HAVING count > 10` на границе 10/11 студентов, оба типа алертов одновременно
   - `tests/test_students.py` (новый, 4): неверный `limit` (0 / 201) и отрицательный `skip` → 422, `skip` за пределами списка → пусто при верном `total`

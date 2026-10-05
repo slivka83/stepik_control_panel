@@ -8,11 +8,11 @@ export const CHART_COLORS = {
 
 
 export const COHORT_COLORS = {
-  active: { text: 'text-neon-green', bg: 'bg-neon-green', hex: '#4ade80' },
-  passive: { text: 'text-cyber-blue', bg: 'bg-cyber-blue', hex: '#38bdf8' },
-  fading: { text: 'text-amber-alert', bg: 'bg-amber-alert', hex: '#f59e0b' },
-  sleeping: { text: 'text-gray-400', bg: 'bg-gray-400', hex: '#6b7280' },
-  zombie: { text: 'text-gray-400', bg: 'bg-gray-400', hex: '#6b7280' },
+  active: '#4ade80',
+  passive: '#38bdf8',
+  fading: '#f59e0b',
+  sleeping: '#6b7280',
+  zombie: '#6b7280',
 };
 
 export const COHORT_ORDER = ['active', 'passive', 'fading', 'sleeping', 'zombie'];
@@ -133,10 +133,6 @@ export const NAV_GROUPS = [
 export const STEPIK_URLS = {
   course: (id) => `https://stepik.org/course/${id}`,
   step: (lessonId, stepId) => `https://stepik.org/lesson/${lessonId}/step/${stepId}`,
-  courseEdit: (id) => `https://stepik.org/course/${id}/edit`,
-  lessonEdit: (courseId, lessonId) => `https://stepik.org/lesson/${lessonId}/edit`,
-  announcements: (courseId) => `https://stepik.org/course/${courseId}/announcements`,
   certificates: (courseId) => `https://stepik.org/course/${courseId}/certificates`,
-  students: (courseId) => `https://stepik.org/course/${courseId}/students`,
   comment: (lessonId, commentId) => `https://stepik.org/lesson/${lessonId}?discussion=${commentId}`,
 };

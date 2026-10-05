@@ -18,13 +18,13 @@ from app.models import Base, Course, FinancialSnapshot, StudentEnrollment, Submi
 
 @pytest.fixture(autouse=True)
 def reset_stepik_http_client():
-    """Общий httpx-клиент — модульный синглтон; сбрасываем его вокруг каждого
-    теста, чтобы моки httpx.AsyncClient в тестах не зависели от порядка."""
+    """HTTP-клиенты хранятся per event loop; сбрасываем их вокруг каждого теста,
+    чтобы моки httpx.AsyncClient в тестах не зависели от порядка."""
     from app.services import stepik_api
 
-    stepik_api._client = None
+    stepik_api._clients.clear()
     yield
-    stepik_api._client = None
+    stepik_api._clients.clear()
 
 RAW_TABLES = {
     # NOTE: column names AND types mirror the real PostgreSQL schema

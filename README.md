@@ -39,8 +39,15 @@ cp .env.example .env
 # Заполните OAuth2 Client ID/Secret, ENCRYPTION_KEY и данные БД
 
 # 3. Запустите
-./start.sh        # Linux/Mac
+./start.sh        # Linux/Mac/WSL
 start.bat          # Windows
+```
+
+PostgreSQL и Redis поднимаются через **Podman** (`podman-compose`) — Docker Desktop не требуется. В Windows `start.bat` сам запускает всё через WSL/Podman, если `podman-compose` установлен. Если нужен Docker вместо Podman:
+
+```bash
+CONTAINER_ENGINE=docker ./start.sh
+CONTAINER_ENGINE=docker ./stop.sh
 ```
 
 Порты настраиваются в `.env` (корень проекта):
@@ -67,56 +74,64 @@ alembic current
 
 | Модуль | Описание |
 |---|---|
-| Дашборд | KPI-метрики, алерты по сертификатам, здоровье курсов |
-| Курсы | Список курсов, статусы, количество студентов |
-| Финансы | Доходы по месяцам, возвраты, чистая выручка, последние платежи |
-| Когорты | Сегментация студентов (Active/Passive/Fading/Sleeping) |
+| Дашборд | KPI-метрики, алерты, графики активности и когорт |
+| Курсы | Список курсов, тепловая карта шагов, воронка прохождения |
+| Решения | Отправки по месяцам/годам/курсам, самые сложные шаги |
+| Комментарии | Агрегаты по месяцам/годам/курсам, неотвеченные, дизлайки |
+| Финансы | Доходы по месяцам/годам/дням/курсам, промокоды, UTM, последние операции |
+| Студенты | Таблица студентов с серверной пагинацией, сегментация (Active/Passive/Fading/Sleeping/Zombie) |
+| Сертификаты | Выдача по месяцам/годам/курсам, «С отличием» vs обычные |
+| Отзывы | Оценки и тексты отзывов по месяцам/годам/курсам |
 
 ## Структура проекта
 
 ```
 ├── backend/
 │   ├── app/
-│   │   ├── api/          # FastAPI роутеры
-│   │   ├── models/       # SQLAlchemy модели
-│   │   ├── services/     # Бизнес-логика (sync, stepik_api, crypto)
+│   │   ├── api/          # FastAPI роутеры (auth, courses, financials, sync, dashboard/)
+│   │   ├── models/       # SQLAlchemy модели (курсы, mart_*, student_marts)
+│   │   ├── services/     # Бизнес-логика (raw_sync, transform, sync, stepik_api, crypto)
 │   │   └── config.py     # Настройки из .env
 │   ├── migrations/       # Миграции БД (Alembic)
 │   ├── tests/            # Backend тесты (pytest)
 │   │   ├── conftest.py   # Фикстуры, test DB engine
 │   │   └── test_*.py     # Модульные тесты API и бизнес-логики
+│   ├── scripts/         # Скрипты: sync_raw.py (API→raw), rebuild_marts.py (raw→витрины), explore_endpoint.py
 │   ├── pytest.ini        # Конфигурация pytest (asyncio_mode=auto)
 │   ├── requirements.txt  # Python зависимости
 │   └── requirements-test.txt  # Тестовые зависимости
 ├── frontend/
 │   ├── src/
 │   │   ├── components/   # React компоненты
-│   │   ├── pages/        # Страницы (Dashboard, Courses, Financials, Cohorts)
+│   │   ├── pages/        # Страницы (Dashboard, Courses, Solutions, Comments, Financials, Students, Activities, Certificates, Reviews)
 │   │   ├── contexts/     # AuthContext, SyncContext
+│   │   ├── utils/        # format, formatNumber, monthWindow
 │   │   ├── constants.jsx # Цвета (CHART_COLORS), лейблы, навигация, когорты
 │   │   └── test/         # Frontend тесты (vitest + jsdom)
 │   ├── vite.config.js
 │   └── package.json
 ├── docker-compose.yml    # PostgreSQL + Redis
 ├── .env.example          # Шаблон переменных окружения
-├── .dockerignore         # Игнорирование файлов для Docker
-├── start.sh              # Запуск (Linux/Mac)
+├── start.sh              # Запуск (Linux/Mac/WSL, Podman)
+├── stop.sh               # Остановка (Linux/Mac/WSL)
 └── start.bat             # Запуск (Windows)
 ```
 
 ### Тестирование
 
 ```bash
-# Backend — 516 тестов + 7 live-PG (нужен docker-compose)
+# Backend — 520 тестов (нужен запущенный PostgreSQL)
 cd backend
 python -m pytest tests/ -v
 
-# Frontend — 399 тестов
+# Frontend — 397 тестов
 cd frontend
 npx vitest run
 ```
 
 ## База данных
+
+Данные идут в два слоя: сырые ответы Stepik API (`raw_*`) и производные витрины, из которых читает API.
 
 | Таблица | Описание |
 |---|---|
@@ -124,10 +139,15 @@ npx vitest run
 | `courses` | Курсы автора |
 | `student_enrollments` | Прогресс и когортный статус студентов |
 | `submissions` | Отправки решений по шагам (correct/wrong) |
-| `financial_snapshots` | Финансовая сводка по месяцам и курсам (JSONB) |
+| `student_marts` | Витрина студентов: одна строка на студента |
+| `financial_snapshots` | Финансовая сводка по месяцам и курсам + community (JSONB) |
+| `mart_modules` / `mart_lessons` / `mart_steps` | Витрина структуры курса с метриками шагов |
+| `mart_comments` / `mart_reviews` / `mart_certificates` | Витрины комментариев, отзывов и сертификатов |
+| `raw_*` (24 шт.) | Сырые ответы Stepik API — источник для витрин |
 | `raw_sync_state` | Инкрементальное состояние загрузки (PK: endpoint_name, key) |
+| `meta_endpoint` / `meta_field_mapping` | Реестр эндпоинтов и маппинг полей API → колонки |
 
-PK — UUID. Токены шифруются через `cryptography.fernet`, ключ `ENCRYPTION_KEY` из `.env`.
+PK — UUID (кроме `raw_sync_state`). Токены шифруются через `cryptography.fernet`, ключ `ENCRYPTION_KEY` из `.env`. Пересобрать витрины из сырого слоя без обращений к API: `python scripts/rebuild_marts.py`.
 
 ### Миграции
 
@@ -149,5 +169,4 @@ alembic downgrade -1
 | Файл | Описание |
 |---|---|
 | [`docs/api_propose.md`](docs/api_propose.md) | Предложенные эндпоинты Stepik API |
-| `docs/fields_*.md` | Описания полей эндпоинтов |
 | [`AGENTS.md`](AGENTS.md) | Архитектура, синхронизация, тесты |

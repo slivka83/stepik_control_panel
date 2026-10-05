@@ -10,9 +10,45 @@ if not exist "%PROJECT_DIR%.env" (
 )
 
 REM Проверка зависимостей
+REM PostgreSQL + Redis: WSL + Podman by default (no Docker Desktop needed).
+REM Docker is used only when Podman is not installed inside WSL.
+where wsl >nul 2>&1
+if not errorlevel 1 goto :wsl_deps
+goto :docker_deps
+
+:wsl_deps
+wsl -e bash -lc "PATH=$HOME/.local/bin:$PATH ; command -v podman-compose >/dev/null 2>&1"
+if errorlevel 1 goto :docker_deps
+set "PROJ_WIN=%PROJECT_DIR:~0,-1%"
+set "WSL_DIR="
+for /f "usebackq delims=" %%p in (`wsl wslpath -u "%PROJ_WIN%"`) do set "WSL_DIR=%%p"
+if not defined WSL_DIR goto :no_wslpath
+echo.
+echo   Starting PostgreSQL + Redis via WSL ^(Podman^) - Docker Desktop is not needed.
+echo   Backend and frontend also run inside WSL; localhost stays accessible from Windows.
+echo.
+wsl -e bash -lc "cd '!WSL_DIR!' ; ./start.sh -d"
+if errorlevel 1 goto :wsl_failed
+echo.
+echo   Stop: inside WSL, in this folder, run ./stop.sh
+echo.
+pause >nul
+exit /b 0
+
+:no_wslpath
+echo ERROR: could not resolve project path inside WSL.
+exit /b 1
+
+:wsl_failed
+echo ERROR: WSL start failed.
+exit /b 1
+
+:docker_deps
 where docker >nul 2>&1
 if errorlevel 1 (
-    echo Missing dependency: docker. Please install Docker and try again.
+    echo Missing dependency: Podman inside WSL or running Docker.
+    echo Install Podman in WSL: sudo apt install podman podman-compose
+    echo Or start Docker Desktop and try again.
     exit /b 1
 )
 where node >nul 2>&1

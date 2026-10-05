@@ -313,9 +313,11 @@ async def sync_all(force: bool = False, user_id=None):
 def sync_all_sync(force: bool = False, user_id=None) -> dict:
     """Synchronous wrapper for sync_all, runs in its own event loop in a thread.
     Creates a separate DB engine to avoid "attached to a different loop" errors.
+    Creates its own httpx client (per-event-loop in stepik_api) for the same reason.
     Skips Redis rate limiter (sync thread uses its own loop, Redis client is bound to main loop).
     """
     from app.services import rate_limiter
+    from app.services.stepik_api import close_client
 
     rate_limiter._sync_thread_local.skip_rate_limit = True
 
@@ -331,5 +333,6 @@ def sync_all_sync(force: bool = False, user_id=None) -> dict:
     finally:
         _sync_session_factory.reset(token)
         rate_limiter._sync_thread_local.skip_rate_limit = False
+        loop.run_until_complete(close_client())
         loop.run_until_complete(engine.dispose())
         loop.close()

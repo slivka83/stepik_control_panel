@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.services import stepik_api
 from app.services.stepik_api import (
     StepikAPIError,
     _request,
@@ -278,3 +279,67 @@ class TestRefreshAccessToken:
 
             with pytest.raises(StepikAPIError):
                 await refresh_access_token("bad_refresh", "client_id", "client_secret")
+
+
+class TestEventLoopIsolation:
+    """Regression: sync_all_sync выполняется в отдельном event loop (поток executor).
+    Общий httpx-клиент, созданный основным циклом (например, при обновлении токена
+    на старте), в цикле синка падал с
+    RuntimeError: <asyncio.locks.Event ...> is bound to a different event loop —
+    весь sync умирал на первом же запросе к Stepik API.
+    """
+
+    @staticmethod
+    def _client_in_other_loop():
+        """Смоделировать event loop потока синка: отдельный поток + свой цикл."""
+        import asyncio
+        import threading
+
+        box: dict = {}
+
+        def worker():
+            loop = asyncio.new_event_loop()
+            try:
+                box["client"] = loop.run_until_complete(stepik_api._get_client())
+            finally:
+                loop.close()
+
+        thread = threading.Thread(target=worker)
+        thread.start()
+        thread.join()
+        return box.get("client")
+
+    @pytest.mark.asyncio
+    async def test_client_reused_within_same_loop(self):
+        first = await stepik_api._get_client()
+        assert await stepik_api._get_client() is first
+
+    @pytest.mark.asyncio
+    async def test_other_loop_gets_its_own_client(self):
+        main_client = await stepik_api._get_client()
+
+        sync_client = self._client_in_other_loop()
+
+        assert sync_client is not None
+        assert sync_client is not main_client
+
+    @pytest.mark.asyncio
+    async def test_close_client_closes_client_of_current_loop(self):
+        main_client = await stepik_api._get_client()
+
+        await stepik_api.close_client()
+
+        assert main_client.is_closed
+        assert len(stepik_api._clients) == 0
+
+    @pytest.mark.asyncio
+    async def test_close_client_leaves_other_loop_client_untouched(self):
+        """Чужой клиент закрыть нельзя: пул соединений привязан к своему циклу,
+        поэтому каждый поток закрывает свой клиент сам (конец sync_all_sync)."""
+        main_client = await stepik_api._get_client()
+        other_client = self._client_in_other_loop()
+
+        await stepik_api.close_client()
+
+        assert main_client.is_closed
+        assert not other_client.is_closed

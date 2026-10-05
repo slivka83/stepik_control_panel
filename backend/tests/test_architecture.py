@@ -304,8 +304,6 @@ class TestDashboardPackage:
         "/api/dashboard/revenue",
         "/api/dashboard/submissions",
         "/api/dashboard/active-students",
-        "/api/dashboard/active-enrolled-students",
-        "/api/dashboard/published-solutions",
         "/api/dashboard/certificates",
         "/api/dashboard/certificates/stats",
         "/api/dashboard/reviews/stats",

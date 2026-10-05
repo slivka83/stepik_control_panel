@@ -40,7 +40,7 @@ export default function StudentsBar({ data = {} }) {
   const hoveredEntry = hovered !== null ? entries.find(([k]) => k === hovered) : null;
   const hoveredPct = hoveredEntry ? ((hoveredEntry[1] / (visibleTotal || 1)) * 100).toFixed(1) : 0;
 
-  const sleepingHex = COHORT_COLORS.sleeping?.hex || '#6b7280';
+  const sleepingHex = COHORT_COLORS.sleeping;
 
   return (
     <div className="glass-panel p-4 pb-5 relative z-20" style={{ height: '7.25rem' }}>
@@ -57,7 +57,7 @@ export default function StudentsBar({ data = {} }) {
           {visibleEntries.map(([key, value]) => {
             const pct = (value / (visibleTotal || 1)) * 100;
             const isZombie = key === 'zombie';
-            const color = COHORT_COLORS[key]?.hex || '#64748b';
+            const color = COHORT_COLORS[key] || '#64748b';
             return (
               <div
                 key={key}
@@ -101,7 +101,7 @@ export default function StudentsBar({ data = {} }) {
       <div className="flex gap-3 mt-1.5">
         {entries.map(([key, value]) => {
           const isZombie = key === 'zombie';
-          const color = COHORT_COLORS[key]?.hex || '#64748b';
+          const color = COHORT_COLORS[key] || '#64748b';
           const pct = ((value / (visibleTotal || 1)) * 100).toFixed(0);
           const isHidden = hidden.has(key);
           return (

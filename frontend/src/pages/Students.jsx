@@ -3,16 +3,11 @@ import { useSync } from '../contexts/SyncContext';
 import ErrorBanner from '../components/ErrorBanner';
 import StudentsBar from '../components/StudentsBar';
 import DataTable, { useRowsPerPage, useSortState } from '../components/DataTable';
+import { COHORT_COLORS } from '../constants.jsx';
 import { fmtDate } from '../utils/format';
 import api from '../api';
 
-const COHORT_COLORS = {
-  Active: '#4ade80',
-  Passive: '#38bdf8',
-  Fading: '#f59e0b',
-  Sleeping: '#6b7280',
-  Zombie: '#6b7280',
-};
+const cohortHex = (status) => COHORT_COLORS[String(status).toLowerCase()] || '#6b7280';
 
 const STUDENT_COLUMNS = [
   {
@@ -42,8 +37,8 @@ const STUDENT_COLUMNS = [
         <span
           className="inline-block px-2 rounded text-xs font-medium"
           style={{
-            backgroundColor: `${COHORT_COLORS[s.cohort_status] || '#6b7280'}20`,
-            color: COHORT_COLORS[s.cohort_status] || '#6b7280',
+            backgroundColor: `${cohortHex(s.cohort_status)}20`,
+            color: cohortHex(s.cohort_status),
           }}
         >
           {s.cohort_status}

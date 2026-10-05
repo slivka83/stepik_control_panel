@@ -1,4 +1,4 @@
-"""Monthly chart series: revenue, submissions, active students, certificates, published solutions."""
+"""Monthly chart series: revenue, submissions, active students, certificates."""
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import extract, func, select, text
@@ -13,13 +13,12 @@ from app.api.dashboard.common import (
     wilson_success_pct,
 )
 from app.api.dashboard.course_filter import (
-    filter_community,
     filter_financials,
     parse_course_ids,
     published_solutions_stats,
 )
 from app.database import get_db
-from app.models import FinancialSnapshot, StudentEnrollment, Submission, User
+from app.models import FinancialSnapshot, Submission, User
 
 router = APIRouter()
 
@@ -223,101 +222,6 @@ async def get_active_students(
         )
 
     return {"months": months}
-
-
-@router.get("/active-enrolled-students")
-async def get_active_enrolled_students(
-    user: User = Depends(get_user),
-    db: AsyncSession = Depends(get_db),
-    course_ids: str = Query(None),
-):
-    _, course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
-
-    if not course_ids:
-        return {"months": []}
-
-    per_course = await db.execute(
-        select(
-            extract("year", StudentEnrollment.last_viewed_at).label("year"),
-            extract("month", StudentEnrollment.last_viewed_at).label("month"),
-            StudentEnrollment.course_id,
-            func.count(func.distinct(StudentEnrollment.student_id)).label("cnt"),
-        )
-        .where(
-            StudentEnrollment.course_id.in_(course_ids),
-            StudentEnrollment.last_viewed_at.isnot(None),
-        )
-        .group_by("year", "month", StudentEnrollment.course_id)
-        .order_by("year", "month")
-    )
-    per_course_rows = per_course.all()
-
-    monthly: dict[tuple[int, int], int] = {}
-    for row in per_course_rows:
-        y, m = int(row.year), int(row.month)
-        key = (y, m)
-        monthly[key] = monthly.get(key, 0) + row.cnt
-
-    all_unique = await db.execute(
-        select(
-            extract("year", StudentEnrollment.last_viewed_at).label("year"),
-            extract("month", StudentEnrollment.last_viewed_at).label("month"),
-            func.count(func.distinct(StudentEnrollment.student_id)).label("cnt"),
-        )
-        .where(
-            StudentEnrollment.course_id.in_(course_ids),
-            StudentEnrollment.last_viewed_at.isnot(None),
-        )
-        .group_by("year", "month")
-        .order_by("year", "month")
-    )
-    all_unique_rows = all_unique.all()
-    unique_map = {(int(r.year), int(r.month)): r.cnt for r in all_unique_rows}
-
-    months = []
-    for y, m in sorted(monthly.keys()):
-        months.append(
-            {
-                "month": format_month_label(m, y),
-                "dark": monthly[(y, m)],
-                "light": unique_map.get((y, m), 0),
-            }
-        )
-
-    return {"months": months}
-
-
-@router.get("/published-solutions")
-async def get_published_solutions(
-    user: User = Depends(get_user),
-    db: AsyncSession = Depends(get_db),
-    course_ids: str = Query(None),
-):
-    parsed = parse_course_ids(course_ids)
-    result = await db.execute(select(FinancialSnapshot).limit(1))
-    snapshot = result.scalar_one_or_none()
-    if not snapshot:
-        return {"months": []}
-    if parsed is None:
-        community = snapshot.data.get("community", {})
-    else:
-        courses, _ = await get_courses_for_user(db, user, parsed)
-        community = await filter_community(db, snapshot.data, {c.stepik_course_id for c in courses})
-
-    monthly = community.get("solutions_monthly", {})
-    months_res = []
-    for key in sorted(monthly.keys()):
-        y_str, m_str = key.split("-")
-        y, m = int(y_str), int(m_str)
-        val = monthly[key]
-        months_res.append(
-            {
-                "month": format_month_label(m, y),
-                "dark": val,
-                "light": val,
-            }
-        )
-    return {"months": months_res}
 
 
 @router.get("/certificates")

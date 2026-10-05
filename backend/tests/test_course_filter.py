@@ -415,17 +415,6 @@ class TestFilterActiveStudents:
         finally:
             app.dependency_overrides.clear()
 
-    async def test_active_enrolled_filtered(self, db_session):
-        user, u1, u2, u3 = await _seed_scenario(db_session)
-        _override(user, db_session)
-        try:
-            response = client.get(f"/api/dashboard/active-enrolled-students?course_ids={u1.id}")
-            months = response.json()["months"]
-            assert months[0]["dark"] == 2
-            assert months[0]["light"] == 2
-        finally:
-            app.dependency_overrides.clear()
-
 
 class TestFilterCohorts:
     async def test_cohorts_filtered(self, db_session):
@@ -577,18 +566,6 @@ class TestFilterCharts:
             assert len(months) == 1
             assert months[0]["income"] == 800
             assert months[0]["turnover"] == 800
-        finally:
-            app.dependency_overrides.clear()
-
-    async def test_published_solutions_filtered(self, db_session):
-        user, u1, u2, u3 = await _seed_scenario(db_session)
-        _override(user, db_session)
-        try:
-            response = client.get(f"/api/dashboard/published-solutions?course_ids={u1.id}")
-            months = response.json()["months"]
-            assert len(months) == 1
-            assert months[0]["dark"] == 1
-            assert months[0]["light"] == 1
         finally:
             app.dependency_overrides.clear()
 

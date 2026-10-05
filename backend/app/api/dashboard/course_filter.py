@@ -16,8 +16,8 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.constants import MONTH_NAMES, UTM_SOURCE_LABELS
 from app.api.dashboard.common import in_clause
+from app.constants import MONTH_NAMES, UTM_SOURCE_LABELS
 
 
 def parse_course_ids(raw: str | None) -> list[uuid.UUID] | None:

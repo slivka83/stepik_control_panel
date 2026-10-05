@@ -12,7 +12,6 @@ Revision ID: 020
 Revises: 019
 """
 
-import sqlalchemy as sa
 from alembic import op
 
 revision = "020"

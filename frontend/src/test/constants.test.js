@@ -32,12 +32,9 @@ describe('Constants', () => {
       expect(COHORT_COLORS).toHaveProperty('sleeping');
     });
 
-    it('each color has text, bg, and hex', () => {
+    it('all five cohorts have a hex color', () => {
       for (const color of Object.values(COHORT_COLORS)) {
-        expect(color).toHaveProperty('text');
-        expect(color).toHaveProperty('bg');
-        expect(color).toHaveProperty('hex');
-        expect(color.hex).toMatch(/^#[0-9a-f]{6}$/);
+        expect(color).toMatch(/^#[0-9a-f]{6}$/);
       }
     });
   });

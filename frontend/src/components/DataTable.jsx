@@ -11,7 +11,7 @@ function calcRowsPerPage(node) {
   return Math.max(1, Math.floor(avail / rowH));
 }
 
-export function naturalDirOf(column) {
+function naturalDirOf(column) {
   return column.naturalDir != null ? column.naturalDir : column.numeric ? 'asc' : 'desc';
 }
 
@@ -78,7 +78,7 @@ export function useRowsPerPage() {
   return { tableRef, rowsPerPage };
 }
 
-export const SortableTh = memo(function SortableTh({ column, sort, onSort }) {
+const SortableTh = memo(function SortableTh({ column, sort, onSort }) {
   const active = sort.key === column.key;
   const arrow = (
     <span className={`shrink-0 ${active ? 'text-cyber-blue' : 'invisible'}`}>
@@ -101,7 +101,7 @@ export const SortableTh = memo(function SortableTh({ column, sort, onSort }) {
   );
 });
 
-export function Pagination({ page, totalPages, setPage }) {
+function Pagination({ page, totalPages, setPage }) {
   if (totalPages <= 1) return null;
   return (
     <div className="flex items-center justify-between mt-3 pl-1 pr-1 shrink-0">
