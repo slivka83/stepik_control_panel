@@ -88,12 +88,33 @@ async def _request(
         headers["Authorization"] = f"Bearer {token}"
 
     client = await _get_client()
-    response = await client.request(
-        method=method,
-        url=f"{STEPIK_API_BASE}{path}",
-        headers=headers,
-        params=params,
-    )
+    try:
+        response = await client.request(
+            method=method,
+            url=f"{STEPIK_API_BASE}{path}",
+            headers=headers,
+            params=params,
+        )
+    except httpx.TransportError as e:
+        # Долгий sync (десятки тысяч запросов) не должен падать из-за одного
+        # ReadTimeout/обрыва соединения — повторяем с backoff, как для 429/5xx.
+        if retries >= MAX_RETRIES:
+            raise StepikAPIError(
+                0,
+                f"network error after {MAX_RETRIES} retries: {type(e).__name__}: {e}",
+            ) from e
+        wait = 2**retries
+        logger.warning(
+            "Network error on %s (%s: %s), retry %d/%d after %ds",
+            path,
+            type(e).__name__,
+            e,
+            retries + 1,
+            MAX_RETRIES,
+            wait,
+        )
+        await asyncio.sleep(wait)
+        return await _request(method, path, token, params, retries + 1)
 
     if response.status_code == 429:
         if retries >= MAX_RETRIES:

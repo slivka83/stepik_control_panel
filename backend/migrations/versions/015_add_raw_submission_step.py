@@ -21,10 +21,17 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(name: str) -> bool:
+    return name in sa.inspect(op.get_bind()).get_table_names()
+
+
 def upgrade() -> None:
+    if not _has_table("raw_submission"):
+        return
     op.add_column("raw_submission", sa.Column("step", sa.Text(), nullable=True))
     op.execute("UPDATE raw_submission SET step = _raw_json->>'step' WHERE _raw_json ? 'step'")
 
 
 def downgrade() -> None:
-    op.drop_column("raw_submission", "step")
+    if _has_table("raw_submission"):
+        op.drop_column("raw_submission", "step")

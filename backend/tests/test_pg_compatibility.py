@@ -164,7 +164,7 @@ SQLITE_ONLY_EXCEPTIONS = {
 
 def _check_file_for_sqlite_functions(filepath: str) -> list[dict]:
     """Return list of {line, func, sql} for every SQLite-only function found."""
-    with open(filepath) as f:
+    with open(filepath, encoding="utf-8") as f:
         lines = f.readlines()
 
     hits = []

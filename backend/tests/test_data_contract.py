@@ -554,7 +554,7 @@ async def test_frontend_field_references_exist_in_api(db_session):
         for page in PAGES_DIR.glob("*.jsx"):
             if page.name not in PAGE_VAR_TO_PAYLOAD:
                 continue
-            src = page.read_text()
+            src = page.read_text(encoding="utf-8")
             for var, payload_key in PAGE_VAR_TO_PAYLOAD[page.name].items():
                 for m in FIELD_RE.finditer(src):
                     if m.group(1) != var:

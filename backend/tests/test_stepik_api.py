@@ -1,5 +1,6 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from app.services import stepik_api
@@ -115,6 +116,41 @@ class TestRateLimitHandling:
 
                     await _request("GET", "/test")
                     mock_sleep.assert_called_once_with(1)
+
+
+class TestNetworkRetry:
+    """Regression: один ReadTimeout убивал весь многочасовой sync."""
+
+    @pytest.mark.asyncio
+    async def test_transport_error_retries(self):
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep:
+                with patch("httpx.AsyncClient") as mock_client:
+                    mock_response = MagicMock()
+                    mock_response.status_code = 200
+                    mock_response.json.return_value = {"data": "ok"}
+
+                    instance = mock_client.return_value
+                    instance.request = AsyncMock(
+                        side_effect=[httpx.ReadTimeout("timed out"), mock_response]
+                    )
+
+                    result = await _request("GET", "/test")
+                    assert result == {"data": "ok"}
+                    mock_sleep.assert_called_once_with(1)
+
+    @pytest.mark.asyncio
+    async def test_transport_error_exhausted_has_message(self):
+        with patch("app.services.stepik_api.acquire_token", new_callable=AsyncMock, return_value=True):
+            with patch("asyncio.sleep", new_callable=AsyncMock):
+                with patch("httpx.AsyncClient") as mock_client:
+                    instance = mock_client.return_value
+                    instance.request = AsyncMock(side_effect=httpx.ReadTimeout("timed out"))
+
+                    with pytest.raises(StepikAPIError) as exc_info:
+                        await _request("GET", "/test")
+                    assert "timed out" in str(exc_info.value)
+                    assert exc_info.value.status_code == 0
 
 
 class TestErrorHandling:

@@ -175,9 +175,9 @@ class TestAlembicGraph:
         heads = script.get_heads()
         assert len(heads) == 1, f"Expected 1 alembic head, got {heads}"
         head = heads[0]
-        assert head == "020", head
+        assert head == "021", head
         rev = script.get_revision(head)
-        assert rev.down_revision == "019", rev.down_revision
+        assert rev.down_revision == "020", rev.down_revision
         merge = script.get_revision("018")
         assert set(merge.down_revision) == {"017", "20fc60296db6"}, merge.down_revision
 

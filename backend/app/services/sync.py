@@ -299,10 +299,11 @@ async def sync_all(force: bool = False, user_id=None):
         return {"status": "ok"}
     except Exception as e:
         logger.error("Sync failed: %s", e, exc_info=True)
+        error_text = str(e).strip() or f"{type(e).__name__}: {e!r}"
         with _sync_lock:
-            _last_sync_error = str(e)
-        await _persist_sync_state(False, 0, "", str(e), _last_sync_completed_at)
-        return {"status": "error", "detail": str(e)}
+            _last_sync_error = error_text
+        await _persist_sync_state(False, 0, "", error_text, _last_sync_completed_at)
+        return {"status": "error", "detail": error_text}
     finally:
         with _sync_lock:
             _sync_in_progress = False

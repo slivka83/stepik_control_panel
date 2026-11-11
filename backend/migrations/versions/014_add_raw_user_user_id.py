@@ -19,21 +19,29 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(name: str) -> bool:
+    return name in sa.inspect(op.get_bind()).get_table_names()
+
+
 def upgrade() -> None:
-    op.add_column("raw_user", sa.Column("user_id", sa.Text(), nullable=True))
-    op.create_unique_constraint("uq_raw_user_user_id", "raw_user", ["user_id"])
-    op.execute(
-        "UPDATE meta_field_mapping "
-        "SET db_column = 'user_id', is_loaded = TRUE "
-        "WHERE endpoint_name = 'users' AND api_field = 'id'"
-    )
+    if _has_table("raw_user"):
+        op.add_column("raw_user", sa.Column("user_id", sa.Text(), nullable=True))
+        op.create_unique_constraint("uq_raw_user_user_id", "raw_user", ["user_id"])
+    if _has_table("meta_field_mapping"):
+        op.execute(
+            "UPDATE meta_field_mapping "
+            "SET db_column = 'user_id', is_loaded = TRUE "
+            "WHERE endpoint_name = 'users' AND api_field = 'id'"
+        )
 
 
 def downgrade() -> None:
-    op.execute(
-        "UPDATE meta_field_mapping "
-        "SET db_column = 'id', is_loaded = FALSE "
-        "WHERE endpoint_name = 'users' AND api_field = 'id'"
-    )
-    op.drop_constraint("uq_raw_user_user_id", "raw_user")
-    op.drop_column("raw_user", "user_id")
+    if _has_table("meta_field_mapping"):
+        op.execute(
+            "UPDATE meta_field_mapping "
+            "SET db_column = 'id', is_loaded = FALSE "
+            "WHERE endpoint_name = 'users' AND api_field = 'id'"
+        )
+    if _has_table("raw_user"):
+        op.drop_constraint("uq_raw_user_user_id", "raw_user")
+        op.drop_column("raw_user", "user_id")

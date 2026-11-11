@@ -5,6 +5,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 
 from app.constants import MONTH_NAMES
@@ -258,6 +259,26 @@ class TestSyncProgressReset:
 
         assert sync_mod._last_sync_error == "Temporary failure in name resolution"
         assert sync_mod._sync_in_progress is False
+
+    @pytest.mark.asyncio
+    async def test_sync_all_empty_exception_message_is_not_blank(self):
+        """Regression: str(httpx.ReadTimeout()) пуст — статус показывал ошибку без текста."""
+        import app.services.sync as sync_mod
+
+        sync_mod._sync_in_progress = False
+        sync_mod._last_sync_completed_at = 0
+        sync_mod._last_sync_error = None
+
+        with patch(
+            "app.services.sync.sync_courses_and_enrollments",
+            new_callable=AsyncMock,
+            side_effect=httpx.ReadTimeout(""),
+        ):
+            result = await sync_all(force=True)
+
+        assert result["status"] == "error"
+        assert sync_mod._last_sync_error
+        assert "ReadTimeout" in sync_mod._last_sync_error
 
     @pytest.mark.asyncio
     async def test_sync_all_success_clears_last_error(self):

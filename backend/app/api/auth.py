@@ -100,6 +100,23 @@ async def get_user(request: Request, db: AsyncSession = Depends(get_db)) -> User
     return user
 
 
+def _profile_stepik_id(profile: dict) -> int | None:
+    """Stepik /profiles отдаёт id профиля в `id`, а настоящий id пользователя — в `user`.
+
+    Regression: раньше сохранялся profile.id (например, 1), из-за чего
+    stepik_id в users не совпадал с реальным пользователем.
+    """
+    if not isinstance(profile, dict):
+        return None
+    value = profile.get("user")
+    if value is None:
+        value = profile.get("id")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _set_session_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
@@ -201,7 +218,7 @@ async def callback(
     expires_in = token_data.get("expires_in", 3600)
 
     profile = await get_user_profile(access_token)
-    stepik_id = profile.get("id") if isinstance(profile, dict) else None
+    stepik_id = _profile_stepik_id(profile)
     if not stepik_id:
         raise HTTPException(status_code=401, detail="Unable to fetch Stepik profile")
 

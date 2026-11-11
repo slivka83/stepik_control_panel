@@ -10,6 +10,7 @@ comment_id), но в PostgreSQL не было unique-индексов — sync �
 specification" на этапе submissions.
 """
 
+import sqlalchemy as sa
 from alembic import op
 
 revision = "012"
@@ -18,13 +19,23 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(name: str) -> bool:
+    return name in sa.inspect(op.get_bind()).get_table_names()
+
+
 def upgrade() -> None:
-    op.create_unique_constraint("uq_raw_submission_submission_id", "raw_submission", ["submission_id"])
-    op.create_unique_constraint("uq_raw_attempt_attempt_id", "raw_attempt", ["attempt_id"])
-    op.create_unique_constraint("uq_raw_comment_comment_id", "raw_comment", ["comment_id"])
+    if _has_table("raw_submission"):
+        op.create_unique_constraint("uq_raw_submission_submission_id", "raw_submission", ["submission_id"])
+    if _has_table("raw_attempt"):
+        op.create_unique_constraint("uq_raw_attempt_attempt_id", "raw_attempt", ["attempt_id"])
+    if _has_table("raw_comment"):
+        op.create_unique_constraint("uq_raw_comment_comment_id", "raw_comment", ["comment_id"])
 
 
 def downgrade() -> None:
-    op.drop_constraint("uq_raw_comment_comment_id", "raw_comment")
-    op.drop_constraint("uq_raw_attempt_attempt_id", "raw_attempt")
-    op.drop_constraint("uq_raw_submission_submission_id", "raw_submission")
+    if _has_table("raw_comment"):
+        op.drop_constraint("uq_raw_comment_comment_id", "raw_comment")
+    if _has_table("raw_attempt"):
+        op.drop_constraint("uq_raw_attempt_attempt_id", "raw_attempt")
+    if _has_table("raw_submission"):
+        op.drop_constraint("uq_raw_submission_submission_id", "raw_submission")

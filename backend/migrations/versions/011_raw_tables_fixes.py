@@ -20,14 +20,23 @@ branch_labels = None
 depends_on = None
 
 
+def _has_table(name: str) -> bool:
+    """Raw-таблицы на чистой базе создаёт миграция 021 (bootstrap). Пока её
+    нет, ALTER по отсутствующей таблице обрывает всю транзакцию миграции."""
+    return name in sa.inspect(op.get_bind()).get_table_names()
+
+
 def upgrade() -> None:
-    op.add_column("raw_course", sa.Column("cover_url", sa.Text(), nullable=True))
-    op.add_column("raw_course", sa.Column("instructor_ids", sa.Text(), nullable=True))
-    op.add_column("raw_course", sa.Column("intro_text", sa.Text(), nullable=True))
-    op.add_column("raw_lesson", sa.Column("cover_url", sa.Text(), nullable=True))
-    op.add_column("raw_step", sa.Column("block_video_json", sa.Text(), nullable=True))
-    op.add_column("raw_step", sa.Column("block_is_deprecated", sa.Text(), nullable=True))
-    op.add_column("raw_step", sa.Column("block_type", sa.Text(), nullable=True))
+    if _has_table("raw_course"):
+        op.add_column("raw_course", sa.Column("cover_url", sa.Text(), nullable=True))
+        op.add_column("raw_course", sa.Column("instructor_ids", sa.Text(), nullable=True))
+        op.add_column("raw_course", sa.Column("intro_text", sa.Text(), nullable=True))
+    if _has_table("raw_lesson"):
+        op.add_column("raw_lesson", sa.Column("cover_url", sa.Text(), nullable=True))
+    if _has_table("raw_step"):
+        op.add_column("raw_step", sa.Column("block_video_json", sa.Text(), nullable=True))
+        op.add_column("raw_step", sa.Column("block_is_deprecated", sa.Text(), nullable=True))
+        op.add_column("raw_step", sa.Column("block_type", sa.Text(), nullable=True))
     op.create_table(
         "raw_sync_state",
         sa.Column("endpoint_name", sa.Text(), nullable=False),
@@ -39,10 +48,13 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("raw_sync_state")
-    op.drop_column("raw_step", "block_type")
-    op.drop_column("raw_step", "block_is_deprecated")
-    op.drop_column("raw_step", "block_video_json")
-    op.drop_column("raw_lesson", "cover_url")
-    op.drop_column("raw_course", "intro_text")
-    op.drop_column("raw_course", "instructor_ids")
-    op.drop_column("raw_course", "cover_url")
+    if _has_table("raw_step"):
+        op.drop_column("raw_step", "block_type")
+        op.drop_column("raw_step", "block_is_deprecated")
+        op.drop_column("raw_step", "block_video_json")
+    if _has_table("raw_lesson"):
+        op.drop_column("raw_lesson", "cover_url")
+    if _has_table("raw_course"):
+        op.drop_column("raw_course", "intro_text")
+        op.drop_column("raw_course", "instructor_ids")
+        op.drop_column("raw_course", "cover_url")
