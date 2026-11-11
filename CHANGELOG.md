@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Cleanup (Удаление неиспользуемого и временного)
+- Удалён забытый `backend/final.log` и временные каталоги (`__pycache__`, `.pytest_cache`, `.ruff_cache`, `frontend/dist`) — они и раньше были в `.gitignore`, но лежали на диске
+- Убраны неиспользуемые экспорты: внутренние цвета/расчёты матрицы шагов и `successColor`/`calcPct` из колонок Решений больше не выдаются наружу; в фасаде `app.services.raw_sync` оставлены только функции синка и помощники, которые действительно подменяются тестами
+- Удалены лишняя dev-зависимость `eslint-config-prettier` (не была подключена в конфиге ESLint), неиспользуемый `pytest-cov` и нерабочий скрипт `test:coverage` (пакета покрытия в проекте нет); убран пустой маркер `migrations/versions/.gitkeep` (каталог и так содержит миграции)
+- Проверка после чистки: backend 520 passed + 8 skipped, frontend 418 passed, ruff/eslint чистые, `vite build` проходит
+
 ### Refactor (Полный рефакторинг: raw-слой, API курсов, страницы-таблицы)
 - **Backend, raw-слой:** `app/services/raw_sync.py` (710 строк) разбит на пакет `app/services/raw_sync/`: `common.py` (пагинация, replace/upsert, `raw_sync_state`, источники ID), `structure.py`, `submissions.py`, `financials.py`, `community.py`, `users.py`. `__init__.py` остаётся прежней публичной точкой входа — старые импорты и `patch("app.services.raw_sync._request")` работают без изменений. Убраны копии записи sync-state и чтения списка курсов, повторявшиеся в трёх синках
 - **Backend, API курсов:** `app/api/courses.py` (387 строк) разбит на пакет `app/api/courses/`: `catalog.py` (список и карточка), `structure.py` (матрица шагов), `funnel.py` (воронка), `common.py` (проверка владения курсом вместо трёх копий + сборка payload). Воронка по урокам использует словарь индексов вместо `list.index` на каждом шаге

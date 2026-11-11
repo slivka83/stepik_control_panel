@@ -46,7 +46,7 @@ export const SORT_INIT = {
   hardest: { key: 'weighted_success', dir: 'asc' },
 };
 
-export function successColor(pct) {
+function successColor(pct) {
   if (pct < 33) return '#f43f5e';
   if (pct < 66) return '#f59e0b';
   return '#4ade80';
@@ -56,7 +56,7 @@ export function calcWrong(m) {
   return (m.total || 0) - (m.correct || 0);
 }
 
-export function calcPct(m) {
+function calcPct(m) {
   return m.total > 0 ? ((m.correct || 0) / m.total) * 100 : 0;
 }
 

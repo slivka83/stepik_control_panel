@@ -1,7 +1,7 @@
 import { getRatingColor } from '../../utils/format';
 import { STEP_METRICS } from './stepMetrics';
 
-export const BLOCK_COLORS = {
+const BLOCK_COLORS = {
   text: '#38bdf8',
   code: '#4ade80',
   'external-grader': '#f59e0b',
