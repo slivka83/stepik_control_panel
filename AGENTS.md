@@ -24,7 +24,7 @@ Stepik API ──► СЛОЙ СЫРЫХ ДАННЫХ ──► СЛОЙ ВИТ�
 ```
 
 1. **Слой сырых данных** — таблицы `raw_*` (raw_course, raw_comment, raw_certificate, raw_course_review, raw_step, raw_lesson, raw_unit, raw_section, raw_user, ...). Получаются из Stepik API через `raw_sync.py`/`sync_raw.py` и пишутся как есть (JSON в `_raw_json`).
-2. **Слой витрин** — производные таблицы, которые пересобираются из raw-слоя **трансформами** (`transform.py`) в конце синка:
+2. **Слой витрин** — производные таблицы, которые пересобираются из raw-слоя **трансформами** (`app/services/transform/`) в конце синка:
    - `courses`, `student_enrollments`, `submissions` — «низкие» витрины (детальные строки),
    - `financial_snapshots` — JSON-снапшот финансов + community,
    - `student_marts` — витрина студентов,
@@ -34,7 +34,7 @@ Stepik API ──► СЛОЙ СЫРЫХ ДАННЫХ ──► СЛОЙ ВИТ�
 - **API-слой читает ТОЛЬКО витрины.** Ни один эндпоинт в `app/api/` не должен делать `SELECT` из `raw_*` таблиц. Это защищено тестами (`test_architecture.py`, `test_schema_contract.py`).
 - **В витрины данные попадают только из raw-слоя** — через трансформы. Никаких промежуточных кэшей в памяти.
 - **Никакой прямой модификации данных на платформе** (см. Zero-Write Policy).
-- Шаг→курс/модуль/урок и пути шагов (`build_step_path_maps`) — это **трансформ-логика** (в `transform.py`), а не API-логика: пути и атрибуция пресчитываются в `mart_steps`/`mart_lessons`/`mart_modules`/`mart_comments`, API их только читает.
+- Шаг→курс/модуль/урок и пути шагов (`build_step_path_maps`) — это **трансформ-логика** (в `app/services/transform/`), а не API-логика: пути и атрибуция пресчитываются в `mart_steps`/`mart_lessons`/`mart_modules`/`mart_comments`, API их только читает.
 - Группировки по месяцам/годам/курсам на API допустимы **только по витринам** (SQL GROUP BY), не по raw.
 - `mart_steps` хранит и шаги без атрибуции к курсу (`course_id` NULL, только из `raw_step`): они питают среднюю оценку шагов (KPI) и пути в hardest-steps.
 
@@ -173,7 +173,10 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 - Все параметры для TEXT-колонок raw-слоя биндятся как `str()` (asyncpg строгая типизация: int в text-колонку → DataError)
 - Работает с маппингом полей из `meta_field_mapping` (API → raw columns)
 
-### Transform-слой (`app/services/transform.py`)
+### Transform-слой (`app/services/transform/`)
+
+Пакет разбит по предметным областям: `common.py` (общие помощники: разбор `_raw_json`, даты, когорты, карта курсов, вставка строк), `courses.py`, `enrollments.py`, `submissions.py`, `financials.py`, `community.py`, `steps.py`, `comments.py`, `certificates.py`, `reviews.py`, `students.py`. `__init__.py` реэкспортирует публичные функции — `from app.services.transform import transform_courses` работает как раньше.
+
 - `transform_courses()` — raw_course → courses (upsert + delete orphaned)
 - `transform_enrollments()` — raw_course_grade + raw_certificate → student_enrollments
 - `transform_submissions()` — raw_submission + raw_attempt → submissions (upsert)
@@ -352,7 +355,7 @@ Y-ось графиков:
 
 График «Сертификаты» (страница Активности, `ActiveStudentsChart`) — сертификаты по месяцам выдачи, 2 категории: **С отличием** (насыщенный маджента `#B70094`, верх стека) и **Обычные** (светлый пурпур `#DB62C4`, низ). Источник: `GET /api/dashboard/certificates` (в `app/api/dashboard/charts.py`) — читает `raw_certificate._raw_json`, группирует по `issue_date[:7]`, `type == 'distinction'` → «С отличием». Ответ `{months: [{month, dark, light}]}`: `dark` = всего, `light` = обычные — сегмент «С отличием» = `overlap = dark − light` (компонент рисует light снизу, overlap сверху). Фильтр курсов: `WHERE course_id IN (...)` по stepik-курсам. Легенда/тултип через пропы `lightLabel`/`darkLabel`; тултип верхнего сегмента показывает `overlap` при `darkTooltipOverlap` (`darkTooltipValue()`), т.к. `dark` = всего, а не «С отличием».
 
-Графики используют `CHART_COLORS` из `frontend/src/constants.js`.
+Графики используют `CHART_COLORS` из `frontend/src/constants.js`. Общая отрисовка столбиков и всплывающих подсказок — `frontend/src/components/chartKit.jsx` (`ChartBarShape`, `ChartTooltip`, `ChartTooltipTitle`, `ChartTooltipRow`): подсветка активного столбика и позиционирование подсказки живут в одном месте для всех четырёх диаграмм.
 
 ## Единые таблицы (DataTable) и вкладки (Tabs)
 
@@ -362,6 +365,7 @@ Y-ось графиков:
 - `numCell(value, className)` в `frontend/src/components/NumericCell.jsx` — ячейка для числовых значений (text-right, font-mono, text-xs)
 - `monthComposite(m)` в `frontend/src/utils/monthWindow.js` — композитный ключ `year*100+month` для сортировки по месяцам
 - `useTabState(defaultTab)` в `frontend/src/hooks/useTabState.js` — хук для вкладок с синхронизацией URL (`useSearchParams`)
+- `useTabSorts(tabColumns, initialSorts)` в `frontend/src/hooks/useTabSorts.js` — сортировка по вкладкам (первый клик: числовая колонка — по убыванию, текстовая — по возрастанию; повторный клик переворачивает); состояние вкладок независимо. Используется Решениями, Комментариями, Сертификатами, Отзывами и Финансами
 
 **Схема колонки** (отличия таблиц задаются конфигурацией):
 ```
@@ -609,6 +613,6 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).
 
 Schema-contract тесты (`test_schema_contract.py`) — глобальная защита от дрейфа схемы:
-- Статический парсинг всех `text(...)` SQL-блоков в `transform.py`/`raw_sync.py`: каждая `table.column` обязана существовать в фикстуре `RAW_TABLES` и моделях
+- Статический парсинг всех `text(...)` SQL-блоков в пакете `app/services/transform/` и `raw_sync.py`: каждая `table.column` обязана существовать в фикстуре `RAW_TABLES` и моделях
 - Все raw-колонки, читаемые трансформациями, обязаны быть TEXT в фикстуре (реальная PG хранит raw-слой как TEXT)
 - Live PG (skip без `DATABASE_URL` в `.env`): колонки, потребляемые трансформациями, существуют в PG и имеют тип text/jsonb; каждый `meta_field_mapping.db_column` активных эндпоинтов существует в PG; **каждая читаемая трансформациями колонка покрыта is_loaded-строкой mapping'а** (иначе loader молча оставляет NULL — регрессия `became_published_at`); полный пайплайн `transform_*` отрабатывает в транзакции (rollback) без ошибок; снапшот финансов содержит `courses` (с `price`) и `community.per_course`

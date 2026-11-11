@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTabState } from '../hooks/useTabState';
+import { useTabSorts } from '../hooks/useTabSorts';
 import { useSync } from '../contexts/SyncContext';
 import KpiCard from '../components/KpiCard';
 import ErrorBanner from '../components/ErrorBanner';
@@ -177,22 +178,10 @@ const TAB_COLUMNS = {
 export default function Certificates() {
   const { data, error, refresh } = useSync();
   const [activeTab, handleTabChange] = useTabState();
-  const [sorts, setSorts] = useState(SORT_INIT);
+  const { sorts, onSort } = useTabSorts(TAB_COLUMNS, SORT_INIT);
   const [viewMode, setViewMode] = useState('table');
   const [chartMetric, setChartMetric] = useState('type_split');
 
-
-  const onSort = (tab) => (key) => {
-    setSorts((prev) => {
-      const cur = prev[tab];
-      const cfg = TAB_COLUMNS[tab].find((c) => c.key === key);
-      const next =
-        cur.key === key
-          ? { key, dir: cur.dir === 'asc' ? 'desc' : 'asc' }
-          : { key, dir: cfg?.numeric ? 'desc' : 'asc' };
-      return { ...prev, [tab]: next };
-    });
-  };
 
   const stats = data.certificatesStats || {};
   const months = stats.months || [];

@@ -1,9 +1,11 @@
 import { useMemo, useState } from 'react';
 import { useTabState } from '../hooks/useTabState';
+import { useTabSorts } from '../hooks/useTabSorts';
 import { useSync } from '../contexts/SyncContext';
 import { formatCurrency } from '../utils/formatNumber';
 import { yearMonthLabel } from '../utils/format';
 import { makeMonthsTick } from '../utils/monthWindow';
+import { buildDailyStats, chartCommission, formatUtmTooltip, paymentCommission } from '../utils/financials';
 import ErrorBanner from '../components/ErrorBanner';
 import KpiCard from '../components/KpiCard';
 import DataTable from '../components/DataTable';
@@ -65,14 +67,6 @@ function monthCompositeValue(m) {
   return 0;
 }
 
-function formatUtmTooltip(raw) {
-  const utm = raw?.last_course_click_utm;
-  if (!utm || typeof utm !== 'object') return '';
-  return Object.entries(utm)
-    .map(([k, v]) => `${k}: ${v ?? ''}`)
-    .join('\n');
-}
-
 const moneyCell = (key, className) => (row) => (
   <td className={`text-right font-mono text-xs pl-1 pr-1 ${className}`}>{formatCurrency(row[key])}</td>
 );
@@ -89,13 +83,6 @@ const lastUsedCell = (row) => (
     {row.last_used ? new Date(row.last_used).toLocaleDateString('ru-RU') : '—'}
   </td>
 );
-const commissionOf = (p) => {
-  const payment = Number(p.payment_amount);
-  const income = Number(p.amount);
-  if (!Number.isFinite(payment) || payment <= 0) return null;
-  const fee = Math.max(0, payment - Math.abs(Number.isFinite(income) ? income : 0));
-  return { pct: Math.round((fee / payment) * 100), amount: fee };
-};
 
 const MONTHS_COLUMNS = [
   {
@@ -168,65 +155,6 @@ const DAYS_COLUMNS = [
   { key: 'income', label: 'Доход', align: 'right', width: 'w-[20%]', numeric: true, render: greenMoneyCell },
   { key: 'refunds', label: 'Возвраты', align: 'right', width: 'w-[14%]', numeric: true, render: refundsCell },
 ];
-
-// Aggregate recent payments by the viewer's LOCAL calendar day, mirroring the
-// date logic used by the "Последние операции" tab (new Date(p.time)). This
-// guarantees the "today" row matches what the recent-operations tab shows.
-export function buildDailyStats(recent, daysBack = 30) {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const buckets = {};
-  for (const p of recent || []) {
-    const t = new Date(p.time);
-    if (Number.isNaN(t.getTime())) continue;
-    const d = new Date(t.getFullYear(), t.getMonth(), t.getDate());
-    if (d > today) continue;
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    const b =
-      buckets[key] ||
-      (buckets[key] = {
-        day: key,
-        payments_count: 0,
-        turnover: 0,
-        income: 0,
-        refunds: 0,
-        refunds_count: 0,
-      });
-    b.payments_count += 1;
-    const status = p.status || '';
-    const amount = parseFloat(p.amount) || 0;
-    const paymentAmount = parseFloat(p.payment_amount) || 0;
-    if (status === 'refunded') {
-      b.refunds += Math.abs(amount);
-      b.refunds_count += 1;
-      b.turnover -= paymentAmount;
-      b.income += amount;
-    } else {
-      b.turnover += paymentAmount;
-      b.income += amount;
-    }
-  }
-  const out = [];
-  const start = new Date(today);
-  start.setDate(start.getDate() - (daysBack - 1));
-  for (let i = 0; i < daysBack; i++) {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    out.push(
-      buckets[key] || {
-        day: key,
-        payments_count: 0,
-        turnover: 0,
-        income: 0,
-        refunds: 0,
-        refunds_count: 0,
-      },
-    );
-  }
-  out.sort((a, b) => (a.day < b.day ? 1 : -1));
-  return out;
-}
 
 const COURSES_COLUMNS = [
   {
@@ -374,9 +302,9 @@ const RECENT_COLUMNS = [
     width: 'w-[8%]',
     numeric: true,
     nullLast: true,
-    getValue: (p) => commissionOf(p)?.pct ?? null,
+    getValue: (p) => paymentCommission(p)?.pct ?? null,
     render: (p) => {
-      const c = commissionOf(p);
+      const c = paymentCommission(p);
       return (
         <td
           className="text-right font-mono text-xs pl-1 pr-1 text-gray-300 truncate"
@@ -466,30 +394,16 @@ export default function Financials() {
   const { data, error, refresh } = useSync();
   const financials = data.financials;
   const [activeTab, handleTabChange] = useTabState();
-  const [sorts, setSorts] = useState(SORT_INIT);
+  const { sorts, onSort } = useTabSorts(TAB_COLUMNS, SORT_INIT);
   const [viewMode, setViewMode] = useState('table');
   const [chartMetric, setChartMetric] = useState('turnover_income');
-
-
-  const onSort = (tab) => (key) => {
-    setSorts((prev) => {
-      const cur = prev[tab];
-      const cfg = TAB_COLUMNS[tab].find((c) => c.key === key);
-      const next =
-        cur.key === key
-          ? { key, dir: cur.dir === 'asc' ? 'desc' : 'asc' }
-          : { key, dir: cfg?.numeric ? 'desc' : 'asc' };
-      return { ...prev, [tab]: next };
-    });
-  };
 
   const { summary, months, years, courses, promos, utms, recent_payments } = financials || {};
   const dailyRows = useMemo(() => buildDailyStats(recent_payments), [recent_payments]);
   const chartTab = CHARTABLE_TABS.includes(activeTab) ? activeTab : null;
-  const commissionOf = (row) => (row?.turnover || 0) - (row?.income || 0);
   const chartRows = useMemo(() => {
     const base = chartTab === 'months' ? months || [] : dailyRows;
-    return base.map((r) => ({ ...r, commission: commissionOf(r) }));
+    return base.map((r) => ({ ...r, commission: chartCommission(r) }));
   }, [chartTab, months, dailyRows]);
   const chartXKey = chartTab === 'months' ? 'month' : 'day';
   const chartXTick = chartTab === 'months' ? makeMonthsTick(chartRows) : DAYS_TICK;

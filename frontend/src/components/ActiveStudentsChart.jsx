@@ -1,8 +1,8 @@
 import { useState, useId } from 'react';
-import { createPortal } from 'react-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
 import { CHART_COLORS } from '../constants.jsx';
 import { buildMonthWindow } from '../utils/monthWindow.js';
+import { ChartBarShape, ChartTooltip, ChartTooltipRow, ChartTooltipTitle } from './chartKit';
 
 const COLOR_BRIGHT = '#dc2626';
 const COLOR_DIM = '#8b2040';
@@ -10,30 +10,6 @@ const COLOR_DIM = '#8b2040';
 export function darkTooltipValue(entry, useOverlap) {
   if (useOverlap) return Math.max((entry.dark || 0) - (entry.light || 0), 0);
   return entry.dark || 0;
-}
-
-function BarShape({ activeMonth, onBarEnter, onBarLeave, ...props }) {
-  const { x, y, width, height, fill, fillOpacity, payload } = props;
-  if (!height || height <= 0) return null;
-  const isActive = payload && activeMonth === payload.month;
-  return (
-    <rect
-      x={x}
-      y={y}
-      width={width}
-      height={height}
-      rx={2}
-      ry={2}
-      fill={fill}
-      fillOpacity={fillOpacity ?? 1}
-      stroke={isActive ? '#ffffff' : 'none'}
-      strokeWidth={isActive ? 1.5 : 0}
-      onMouseEnter={(e) => payload && onBarEnter(payload.month, e.clientX, e.clientY)}
-      onMouseMove={(e) => onBarEnter(payload.month, e.clientX, e.clientY)}
-      onMouseLeave={onBarLeave}
-      style={{ pointerEvents: 'all' }}
-    />
-  );
 }
 
 export default function ActiveStudentsChart({
@@ -82,6 +58,13 @@ export default function ActiveStudentsChart({
   };
 
   const activeEntry = activeMonth ? chartData.find((d) => d.month === activeMonth) : null;
+
+  const shapeProps = {
+    activeKey: activeMonth,
+    onEnter: handleBarEnter,
+    onLeave: () => setActiveMonth(null),
+    xKey: 'month',
+  };
 
   return (
     <figure role="img" aria-label={`Диаграмма ${title}`} className="glass-panel p-4 flex flex-col min-h-0">
@@ -170,14 +153,7 @@ export default function ActiveStudentsChart({
             <Bar
               dataKey="light"
               stackId="a"
-              shape={(props) => (
-                <BarShape
-                  activeMonth={activeMonth}
-                  onBarEnter={handleBarEnter}
-                  onBarLeave={() => setActiveMonth(null)}
-                  {...props}
-                />
-              )}
+              shape={(props) => <ChartBarShape {...shapeProps} {...props} />}
             >
               {chartData.map((entry, i) => (
                 <Cell
@@ -190,14 +166,7 @@ export default function ActiveStudentsChart({
               dataKey="overlap"
               stackId="a"
               radius={[4, 4, 0, 0]}
-              shape={(props) => (
-                <BarShape
-                  activeMonth={activeMonth}
-                  onBarEnter={handleBarEnter}
-                  onBarLeave={() => setActiveMonth(null)}
-                  {...props}
-                />
-              )}
+              shape={(props) => <ChartBarShape {...shapeProps} {...props} />}
             >
               {chartData.map((entry, i) => (
                 <Cell
@@ -209,32 +178,23 @@ export default function ActiveStudentsChart({
           </BarChart>
         </ResponsiveContainer>
       </div>
-      {activeEntry &&
-        createPortal(
-          <div
-            className="fixed z-[100] whitespace-nowrap px-3 py-2 rounded-lg pointer-events-none"
-            style={{
-              left: tooltipRight ? `${tooltipPos.x + 12}px` : `${tooltipPos.x - 12}px`,
-              top: tooltipRight ? `${tooltipPos.y - 12}px` : `${tooltipPos.y}px`,
-              transform: tooltipRight ? 'translate(0, -100%)' : 'translate(-100%, -100%)',
-              backgroundColor: CHART_COLORS.panelBg,
-              border: '1px solid rgba(56, 189, 248, 0.3)',
-              fontFamily: 'JetBrains Mono',
-            }}
-          >
-            <div style={{ color: '#ffffff', fontSize: 13, marginBottom: 4 }}>{activeEntry.month}</div>
-            {!hideDarkLegend && (
-              <div style={{ color: dim, fontSize: 12 }}>
-                {darkLabel || 'Уникальные по курсам'}:{' '}
-                {darkTooltipValue(activeEntry, darkTooltipOverlap).toLocaleString('ru-RU')}
-              </div>
-            )}
-            <div style={{ color: bright, fontSize: 12 }}>
-              {lightLabel || title || 'Уникальные'}: {(activeEntry.light ?? 0).toLocaleString('ru-RU')}
-            </div>
-          </div>,
-          document.body,
-        )}
+      {activeEntry && (
+        <ChartTooltip x={tooltipPos.x} y={tooltipPos.y} anchor={tooltipRight ? 'right' : 'left'}>
+          <ChartTooltipTitle>{activeEntry.month}</ChartTooltipTitle>
+          {!hideDarkLegend && (
+            <ChartTooltipRow
+              label={darkLabel || 'Уникальные по курсам'}
+              value={darkTooltipValue(activeEntry, darkTooltipOverlap).toLocaleString('ru-RU')}
+              color={dim}
+            />
+          )}
+          <ChartTooltipRow
+            label={lightLabel || title || 'Уникальные'}
+            value={(activeEntry.light ?? 0).toLocaleString('ru-RU')}
+            color={bright}
+          />
+        </ChartTooltip>
+      )}
     </figure>
   );
 }

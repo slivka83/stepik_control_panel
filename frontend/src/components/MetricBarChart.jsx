@@ -1,32 +1,7 @@
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
 import { CHART_COLORS } from '../constants.jsx';
-
-function BarShape({ activeKey, onBarEnter, onBarLeave, xKey, ...props }) {
-  const { x, y, width, height, fill, fillOpacity, payload } = props;
-  if (!height || height <= 0) return null;
-  const key = payload?.[xKey];
-  const isActive = payload && activeKey != null && key != null && activeKey === key;
-  return (
-    <rect
-      x={x}
-      y={y}
-      width={width}
-      height={height}
-      rx={2}
-      ry={2}
-      fill={fill}
-      fillOpacity={fillOpacity ?? 1}
-      stroke={isActive ? '#ffffff' : 'none'}
-      strokeWidth={isActive ? 1.5 : 0}
-      onMouseEnter={(e) => payload && onBarEnter(payload, e.clientX, e.clientY)}
-      onMouseMove={(e) => onBarEnter(payload, e.clientX, e.clientY)}
-      onMouseLeave={onBarLeave}
-      style={{ pointerEvents: 'all' }}
-    />
-  );
-}
+import { ChartBarShape, ChartTooltip, ChartTooltipRow, ChartTooltipTitle } from './chartKit';
 
 function moneyTick(value) {
   if (value === 0) return '0';
@@ -57,7 +32,7 @@ const Y_TICKS = {
 
 export default function MetricBarChart({ rows = [], xKey = 'month', metric, metrics = {}, xTick, periodLabel }) {
   const cfg = metrics[metric] || {};
-  const [active, setActive] = useState(null);
+  const [activeKey, setActiveKey] = useState(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
 
   if (!rows.length) {
@@ -72,15 +47,17 @@ export default function MetricBarChart({ rows = [], xKey = 'month', metric, metr
   const bars = cfg.bars || [];
   const yTick = Y_TICKS[format] || countTick;
 
-  const handleBarEnter = (payload, cx, cy) => {
-    setActive(payload);
+  const handleBarEnter = (key, cx, cy) => {
+    setActiveKey(key);
     setTooltipPos({ x: cx, y: cy });
   };
 
+  const activeEntry = activeKey != null ? rows.find((r) => r[xKey] === activeKey) : null;
+
   const shapeProps = {
-    activeKey: active?.[xKey],
-    onBarEnter: handleBarEnter,
-    onBarLeave: () => setActive(null),
+    activeKey,
+    onEnter: handleBarEnter,
+    onLeave: () => setActiveKey(null),
     xKey,
   };
 
@@ -120,7 +97,7 @@ export default function MetricBarChart({ rows = [], xKey = 'month', metric, metr
                 dataKey={bar.dataKey}
                 stackId="a"
                 radius={i === bars.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                shape={(props) => <BarShape {...shapeProps} {...props} />}
+                shape={(props) => <ChartBarShape {...shapeProps} {...props} />}
               >
                 {rows.map((entry) => (
                   <Cell key={`${bar.dataKey}-${entry[xKey]}`} fill={bar.color} fillOpacity={bar.fillOpacity} />
@@ -130,31 +107,20 @@ export default function MetricBarChart({ rows = [], xKey = 'month', metric, metr
           </BarChart>
         </ResponsiveContainer>
       </div>
-      {active &&
-        cfg.tooltip &&
-        createPortal(
-          <div
-            className="fixed z-[100] whitespace-nowrap px-3 py-2 rounded-lg pointer-events-none"
-            style={{
-              left: `${tooltipPos.x + 12}px`,
-              top: `${tooltipPos.y - 12}px`,
-              transform: 'translateY(-100%)',
-              backgroundColor: CHART_COLORS.panelBg,
-              border: '1px solid rgba(56, 189, 248, 0.3)',
-              fontFamily: 'JetBrains Mono',
-            }}
-          >
-            <div style={{ color: '#ffffff', fontSize: 13, marginBottom: 4 }}>
-              {periodLabel ? periodLabel(active) : active[xKey]}
-            </div>
-            {cfg.tooltip(active).map((line, i) => (
-              <div key={i} style={{ color: line.color || '#ffffff', fontSize: 12, opacity: line.dim ? 0.6 : 1 }}>
-                {line.label}: {fmtValue(line.value, format)}
-              </div>
-            ))}
-          </div>,
-          document.body,
-        )}
+      {activeEntry && cfg.tooltip && (
+        <ChartTooltip x={tooltipPos.x} y={tooltipPos.y} anchor="right">
+          <ChartTooltipTitle>{periodLabel ? periodLabel(activeEntry) : activeEntry[xKey]}</ChartTooltipTitle>
+          {cfg.tooltip(activeEntry).map((line, i) => (
+            <ChartTooltipRow
+              key={i}
+              label={line.label}
+              value={fmtValue(line.value, format)}
+              color={line.color}
+              dim={line.dim}
+            />
+          ))}
+        </ChartTooltip>
+      )}
     </figure>
   );
 }

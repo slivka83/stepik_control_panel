@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Refactor (Структура кода: разбиение больших файлов и дедупликация)
+- **Backend, transform-слой:** `app/services/transform.py` (1421 строка в одном файле) разбит на пакет `app/services/transform/` по предметным областям — `common.py` (разбор `_raw_json`, даты, когорты, карта курсов, вставка строк), `courses.py`, `enrollments.py`, `submissions.py`, `financials.py`, `community.py`, `steps.py`, `comments.py`, `certificates.py`, `reviews.py`, `students.py`. Поведение не изменилось: `__init__.py` реэкспортирует публичные функции, поэтому все прежние импорты и `patch("app.services.transform.transform_*")` работают; статический schema-contract-скан обновлён на весь пакет (число проверяемых SQL-блоков выросло с 18 до 67)
+- **Backend, дедупликация:** запрос «курсы приложения» (`SELECT id, stepik_course_id FROM courses` → словарь) был скопирован в 7 трансформах — теперь один `load_course_map()` в `common.py`
+- **Backend, отчёты:** одинаковая группировка «месяц / год / курс + distinct-студенты» в комментариях, сертификатах и отзывах вынесена в `PeriodAggregator` (`app/api/dashboard/common.py`); три блока по ~60 строк бухгалтерии заменены описанием метрик. Повторяющийся вывод «uuid курса / Unknown» — `course_label()`
+- **Frontend, сортировка вкладок:** 12-строчный обработчик сортировки, продублированный в Решениях, Комментариях, Сертификатах, Отзывах и Финансах, вынесен в `useTabSorts` (`frontend/src/hooks/useTabSorts.js`)
+- **Frontend, графики:** одинаковые «столбик с подсветкой» и всплывающая подсказка (portal, позиционирование, цвета) были скопированы в четырёх диаграммах — теперь `frontend/src/components/chartKit.jsx` (`ChartBarShape`, `ChartTooltip`, `ChartTooltipTitle`, `ChartTooltipRow`)
+- **Frontend, финансы:** чистые расчёты (`buildDailyStats`, комиссия платежа, комиссия графика, UTM-тултип) вынесены из страницы в `frontend/src/utils/financials.js`; убрано затенение имени: внутри страницы `commissionOf` означал «оборот минус доход», а рядом так же называлась комиссия платежа — теперь `chartCommission` и `paymentCommission`
+- Тесты после рефакторинга: backend 520 passed + 8 skipped (live-PG, база не поднята), frontend 413 passed; добавлены `useTabSorts.test.jsx` (6) и `financialsUtils.test.js` (14). Проведена сборка фронтенда (`vite build`)
+
 ### Removed (Удалён неиспользуемый код)
 - Два эндпоинта API, к которым фронтенд не обращался после рефакторинга: `GET /api/dashboard/active-enrolled-students` и `GET /api/dashboard/published-solutions` (а также покрывающие их тесты и записи в `test_architecture.EXPECTED_ROUTES`). Данные «Опубликованные решения» по-прежнему приходят полем `published` в `/dashboard/submissions`
 - `_build_daily_stats` и поле `days` в ответе `GET /api/financials`: вкладка «По дням» целиком считается на фронтенде (`buildDailyStats` из `recent_payments` по местному дню зрителя), серверное поле не читалось. Итог: `app/api/financials.py` 120 → 54 строки, −11 тестов

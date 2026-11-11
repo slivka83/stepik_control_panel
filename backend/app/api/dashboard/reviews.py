@@ -12,7 +12,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
-from app.api.dashboard.common import format_month_label, get_courses_for_user, in_clause
+from app.api.dashboard.common import (
+    PeriodAggregator,
+    course_label,
+    format_month_label,
+    get_courses_for_user,
+    in_clause,
+)
 from app.api.dashboard.course_filter import parse_course_ids
 from app.database import get_db
 from app.models import User
@@ -29,8 +35,8 @@ def _empty() -> dict:
     }
 
 
-def _round2(val: float) -> float:
-    return round(val, 2)
+def _avg_score(score_sum: float, score_count: int) -> float:
+    return round(score_sum / score_count, 2) if score_count else 0
 
 
 @router.get("/reviews/stats")
@@ -53,89 +59,58 @@ async def get_reviews_stats(
         params,
     )
 
-    month_buckets: dict[tuple[int, int], dict] = {}
-    month_students: dict[tuple[int, int], set] = {}
-    year_students: dict[int, set] = {}
-    course_stats: dict[int, dict] = {}
-    course_students: dict[int, set] = {}
-    all_students: set[int] = set()
-
+    agg = PeriodAggregator({"score_sum": 0.0, "score_count": 0})
     for cid, user_id, year, month, score in rows:
-        if year is None or month is None:
-            continue
-        ym = (year, month)
-
-        bucket = month_buckets.setdefault(ym, {"total": 0, "score_sum": 0.0, "score_count": 0})
-        bucket["total"] += 1
-        if score is not None:
-            bucket["score_sum"] += score
-            bucket["score_count"] += 1
-
-        if user_id is not None:
-            month_students.setdefault(ym, set()).add(user_id)
-            year_students.setdefault(year, set()).add(user_id)
-            course_students.setdefault(cid, set()).add(user_id)
-            all_students.add(user_id)
-
-        cstats = course_stats.setdefault(cid, {"stepik_course_id": cid, "total": 0, "score_sum": 0.0, "score_count": 0})
-        cstats["total"] += 1
-        if score is not None:
-            cstats["score_sum"] += score
-            cstats["score_count"] += 1
-
-    months = []
-    for (y, m) in sorted(month_buckets):
-        b = month_buckets[(y, m)]
-        months.append(
-            {
-                "month": format_month_label(m, y),
-                "students": len(month_students.get((y, m), ())),
-                "total": b["total"],
-                "avg_score": _round2(b["score_sum"] / b["score_count"]) if b["score_count"] else 0,
-            }
+        has_score = score is not None
+        agg.add(
+            year=year,
+            month=month,
+            course_id=cid,
+            student_id=user_id,
+            score_sum=score if has_score else 0,
+            score_count=1 if has_score else 0,
         )
 
-    year_aggs: dict[int, dict] = {}
-    for (y, _m), b in month_buckets.items():
-        agg = year_aggs.setdefault(y, {"year": y, "total": 0, "score_sum": 0.0, "score_count": 0})
-        agg["total"] += b["total"]
-        agg["score_sum"] += b["score_sum"]
-        agg["score_count"] += b["score_count"]
-    years = []
-    for y in sorted(year_aggs):
-        agg = year_aggs[y]
-        years.append(
-            {
-                "year": y,
-                "students": len(year_students.get(y, ())),
-                "total": agg["total"],
-                "avg_score": _round2(agg["score_sum"] / agg["score_count"]) if agg["score_count"] else 0,
-            }
-        )
+    months = [
+        {
+            "month": format_month_label(m["month"], m["year"]),
+            "students": m["students"],
+            "total": m["total"],
+            "avg_score": _avg_score(m["score_sum"], m["score_count"]),
+        }
+        for m in agg.months()
+    ]
+
+    years = [
+        {
+            "year": y["year"],
+            "students": y["students"],
+            "total": y["total"],
+            "avg_score": _avg_score(y["score_sum"], y["score_count"]),
+        }
+        for y in agg.years()
+    ]
 
     course_by_stepik = {c.stepik_course_id: c for c in courses}
     by_course = []
-    for cid in sorted(course_stats):
-        st = course_stats[cid]
-        course_obj = course_by_stepik.get(cid)
+    for c in agg.courses():
+        course_uuid, title = course_label(course_by_stepik, c["stepik_course_id"])
         by_course.append(
             {
-                "course_id": str(course_obj.id) if course_obj else "",
-                "stepik_course_id": cid,
-                "title": course_obj.title if course_obj else "Unknown",
-                "students": len(course_students.get(cid, ())),
-                "total": st["total"],
-                "avg_score": _round2(st["score_sum"] / st["score_count"]) if st["score_count"] else 0,
+                "course_id": course_uuid,
+                "stepik_course_id": c["stepik_course_id"],
+                "title": title,
+                "students": c["students"],
+                "total": c["total"],
+                "avg_score": _avg_score(c["score_sum"], c["score_count"]),
             }
         )
 
-    total_scores = sum(b["score_sum"] for b in month_buckets.values())
-    total_score_count = sum(b["score_count"] for b in month_buckets.values())
-
+    t = agg.totals()
     totals = {
-        "reviews": sum(b["total"] for b in month_buckets.values()),
-        "students": len(all_students),
-        "avg_score": _round2(total_scores / total_score_count) if total_score_count else 0,
+        "reviews": t["total"],
+        "students": t["students"],
+        "avg_score": _avg_score(t["score_sum"], t["score_count"]),
     }
 
     return {"months": months, "years": years, "by_course": by_course, "totals": totals}

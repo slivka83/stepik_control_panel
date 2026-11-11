@@ -118,3 +118,117 @@ async def build_step_path_maps(db: AsyncSession, step_ids: list[int]) -> dict[in
             },
         )
     return result
+
+
+def course_label(course_by_stepik: dict, stepik_course_id) -> tuple[str, str]:
+    """(uuid курса, название) для строки витрины; пусто/«Unknown» без курса."""
+    course = course_by_stepik.get(stepik_course_id)
+    if course is None:
+        return "", "Unknown"
+    return str(course.id), course.title
+
+
+class PeriodAggregator:
+    """Копилка «месяц / год / курс» для витрин (комментарии, сертификаты, отзывы).
+
+    Числовые метрики суммируются, студенты считаются distinct в каждой группе:
+    один студент в нескольких месяцах не должен задвоиться в годе и итогах.
+    Строки без года/месяца пропускаются целиком — как и раньше в каждом
+    эндпоинте по отдельности.
+    """
+
+    def __init__(self, metrics: dict[str, int | float]):
+        """metrics: имя метрики → начальное значение (0 для счётчиков, 0.0 для сумм)."""
+        self._metrics = dict(metrics)
+        self._months: dict[tuple[int, int], dict] = {}
+        self._month_students: dict[tuple[int, int], set] = {}
+        self._year_students: dict[int, set] = {}
+        self._courses: dict[int, dict] = {}
+        self._course_students: dict[int, set] = {}
+        self._all_students: set = set()
+
+    def _blank(self) -> dict:
+        return {**self._metrics, "total": 0}
+
+    def add(
+        self,
+        *,
+        year,
+        month,
+        course_id,
+        student_id,
+        **values,
+    ) -> None:
+        if year is None or month is None:
+            return
+
+        ym = (year, month)
+        month_bucket = self._months.setdefault(ym, self._blank())
+        course_bucket = self._courses.setdefault(course_id, self._blank())
+        for key in self._metrics:
+            value = values.get(key) or 0
+            month_bucket[key] += value
+            course_bucket[key] += value
+        month_bucket["total"] += 1
+        course_bucket["total"] += 1
+
+        if student_id is not None:
+            self._month_students.setdefault(ym, set()).add(student_id)
+            self._year_students.setdefault(year, set()).add(student_id)
+            self._course_students.setdefault(course_id, set()).add(student_id)
+            self._all_students.add(student_id)
+
+    def _metrics_of(self, bucket: dict) -> dict:
+        return {key: bucket[key] for key in self._metrics}
+
+    def months(self) -> list[dict]:
+        """Месяцы по возрастанию даты: year, month, students, total + метрики."""
+        return [
+            {
+                "year": year,
+                "month": month,
+                "students": len(self._month_students.get((year, month), ())),
+                **self._metrics_of(bucket),
+                "total": bucket["total"],
+            }
+            for (year, month), bucket in sorted(self._months.items())
+        ]
+
+    def years(self) -> list[dict]:
+        """Годы по возрастанию: year, students, total + метрики."""
+        aggs: dict[int, dict] = {}
+        for (year, _month), bucket in self._months.items():
+            agg = aggs.setdefault(year, self._blank())
+            agg["total"] += bucket["total"]
+            for key in self._metrics:
+                agg[key] += bucket[key]
+        return [
+            {
+                "year": year,
+                "students": len(self._year_students.get(year, ())),
+                **self._metrics_of(agg),
+                "total": agg["total"],
+            }
+            for year, agg in sorted(aggs.items())
+        ]
+
+    def courses(self) -> list[dict]:
+        """Курсы по возрастанию stepik id: stepik_course_id, students, total + метрики."""
+        return [
+            {
+                "stepik_course_id": cid,
+                "students": len(self._course_students.get(cid, ())),
+                **self._metrics_of(bucket),
+                "total": bucket["total"],
+            }
+            for cid, bucket in sorted(self._courses.items())
+        ]
+
+    def totals(self) -> dict:
+        """Итоги по всем месяцам: students, total + метрики."""
+        total = self._blank()
+        for bucket in self._months.values():
+            total["total"] += bucket["total"]
+            for key in self._metrics:
+                total[key] += bucket[key]
+        return {"students": len(self._all_students), **total}

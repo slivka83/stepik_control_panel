@@ -2,8 +2,8 @@
 
 Превентивная защита от класса ошибок "дрейфа схемы":
 1. Каждая таблица.колонка, на которую ссылается SQL-код трансформаций
-   (transform.py, raw_sync.py), обязана существовать в тестовой фикстуре
-   raw-таблиц и в SQLAlchemy-моделях.
+   (пакет `app/services/transform/`, `raw_sync.py`), обязана существовать в
+   тестовой фикстуре raw-таблиц и в SQLAlchemy-моделях.
 2. Все raw-колонки, которые читают трансформации, обязаны быть TEXT —
    реальная PostgreSQL хранит raw-слой как TEXT, и SQLite не должен
    маскировать ошибки типов.
@@ -31,8 +31,8 @@ from tests.conftest import RAW_TABLES
 APP_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = APP_ROOT.parent
 
-SCANNED_FILES = [
-    (APP_ROOT / "app/services/transform.py", "transform"),
+TRANSFORM_DIR = APP_ROOT / "app/services/transform"
+SCANNED_FILES = [(path, "transform") for path in sorted(TRANSFORM_DIR.glob("*.py"))] + [
     (APP_ROOT / "app/services/raw_sync.py", "raw_sync"),
 ]
 

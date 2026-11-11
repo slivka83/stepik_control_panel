@@ -1,34 +1,10 @@
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
 import { CHART_COLORS } from '../constants.jsx';
 import { buildMonthWindow } from '../utils/monthWindow.js';
+import { ChartBarShape, ChartTooltip, ChartTooltipRow, ChartTooltipTitle } from './chartKit';
 
 const COLOR = '#4ade80';
-
-function BarShape({ activeMonth, onBarEnter, onBarLeave, ...props }) {
-  const { x, y, width, height, fill, fillOpacity, payload } = props;
-  if (!height || height <= 0) return null;
-  const isActive = payload && activeMonth === payload.month;
-  return (
-    <rect
-      x={x}
-      y={y}
-      width={width}
-      height={height}
-      rx={2}
-      ry={2}
-      fill={fill}
-      fillOpacity={fillOpacity ?? 1}
-      stroke={isActive ? '#ffffff' : 'none'}
-      strokeWidth={isActive ? 1.5 : 0}
-      onMouseEnter={(e) => payload && onBarEnter(payload.month, e.clientX, e.clientY)}
-      onMouseMove={(e) => onBarEnter(payload.month, e.clientX, e.clientY)}
-      onMouseLeave={onBarLeave}
-      style={{ pointerEvents: 'all' }}
-    />
-  );
-}
 
 export default function RevenueChart({ data = [] }) {
   const [activeMonth, setActiveMonth] = useState(null);
@@ -56,6 +32,13 @@ export default function RevenueChart({ data = [] }) {
   const handleBarEnter = (month, cx, cy) => {
     setActiveMonth(month);
     setTooltipPos({ x: cx, y: cy });
+  };
+
+  const shapeProps = {
+    activeKey: activeMonth,
+    onEnter: handleBarEnter,
+    onLeave: () => setActiveMonth(null),
+    xKey: 'month',
   };
 
   return (
@@ -135,14 +118,7 @@ export default function RevenueChart({ data = [] }) {
             <Bar
               dataKey="income"
               stackId="a"
-              shape={(props) => (
-                <BarShape
-                  activeMonth={activeMonth}
-                  onBarEnter={handleBarEnter}
-                  onBarLeave={() => setActiveMonth(null)}
-                  {...props}
-                />
-              )}
+              shape={(props) => <ChartBarShape {...shapeProps} {...props} />}
             >
               {chartData.map((entry, i) => (
                 <Cell
@@ -155,14 +131,7 @@ export default function RevenueChart({ data = [] }) {
               dataKey="commission"
               stackId="a"
               radius={[4, 4, 0, 0]}
-              shape={(props) => (
-                <BarShape
-                  activeMonth={activeMonth}
-                  onBarEnter={handleBarEnter}
-                  onBarLeave={() => setActiveMonth(null)}
-                  {...props}
-                />
-              )}
+              shape={(props) => <ChartBarShape {...shapeProps} {...props} />}
             >
               {chartData.map((entry, i) => (
                 <Cell
@@ -175,29 +144,18 @@ export default function RevenueChart({ data = [] }) {
           </BarChart>
         </ResponsiveContainer>
       </div>
-      {activeEntry &&
-        createPortal(
-          <div
-            className="fixed z-[100] whitespace-nowrap px-3 py-2 rounded-lg pointer-events-none"
-            style={{
-              left: `${tooltipPos.x + 12}px`,
-              top: `${tooltipPos.y - 12}px`,
-              transform: 'translateY(-100%)',
-              backgroundColor: CHART_COLORS.panelBg,
-              border: '1px solid rgba(56, 189, 248, 0.3)',
-              fontFamily: 'JetBrains Mono',
-            }}
-          >
-            <div style={{ color: '#ffffff', fontSize: 13, marginBottom: 4 }}>{activeEntry.month}</div>
-            <div style={{ color: COLOR, fontSize: 12 }}>
-              Доход: {(activeEntry.income ?? 0).toLocaleString('ru-RU')} ₽
-            </div>
-            <div style={{ color: COLOR, opacity: 0.6, fontSize: 12 }}>
-              Оборот: {(activeEntry.turnover ?? 0).toLocaleString('ru-RU')} ₽
-            </div>
-          </div>,
-          document.body,
-        )}
+      {activeEntry && (
+        <ChartTooltip x={tooltipPos.x} y={tooltipPos.y} anchor="right">
+          <ChartTooltipTitle>{activeEntry.month}</ChartTooltipTitle>
+          <ChartTooltipRow label="Доход" value={`${(activeEntry.income ?? 0).toLocaleString('ru-RU')} ₽`} color={COLOR} />
+          <ChartTooltipRow
+            label="Оборот"
+            value={`${(activeEntry.turnover ?? 0).toLocaleString('ru-RU')} ₽`}
+            color={COLOR}
+            dim
+          />
+        </ChartTooltip>
+      )}
     </figure>
   );
 }

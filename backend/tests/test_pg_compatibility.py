@@ -4,6 +4,7 @@ import json
 import re
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -177,15 +178,21 @@ def _check_file_for_sqlite_functions(filepath: str) -> list[dict]:
     return hits
 
 
-TRANSFORM_PATH = __import__("app.services.transform", fromlist=[""]).__file__ or "app/services/transform.py"
+_TRANSFORM_FILE = Path(__import__("app.services.transform", fromlist=[""]).__file__ or "app/services/transform.py")
+# Пакет: `__file__` указывает на `__init__.py` — сканируем все модули рядом.
+TRANSFORM_PATH = _TRANSFORM_FILE.parent if _TRANSFORM_FILE.name == "__init__.py" else _TRANSFORM_FILE
+TRANSFORM_PATHS = sorted(TRANSFORM_PATH.glob("*.py")) if TRANSFORM_PATH.is_dir() else [TRANSFORM_PATH]
 RAW_SYNC_PATH = __import__("app.services.raw_sync", fromlist=[""]).__file__ or "app/services/raw_sync.py"
 
 
 class TestNoSqliteInTransform:
     def test_no_json_extract_in_transform(self):
-        hits = _check_file_for_sqlite_functions(TRANSFORM_PATH)
-        msg = "\n".join(f"  L{h['line']}: {h['func']} in `{h['sql']}`" for h in hits)
-        assert not hits, f"SQLite-only function(s) found in transform.py:\n{msg}"
+        assert len(TRANSFORM_PATHS) > 1, f"transform package not found: {TRANSFORM_PATH}"
+        hits = []
+        for path in TRANSFORM_PATHS:
+            hits += _check_file_for_sqlite_functions(str(path))
+        msg = "\n".join(f"  {h['func']} in `{h['sql']}`" for h in hits)
+        assert not hits, f"SQLite-only function(s) found in transform package:\n{msg}"
 
     def test_no_json_extract_in_raw_sync(self):
         hits = _check_file_for_sqlite_functions(RAW_SYNC_PATH)

@@ -4,7 +4,8 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { SyncContext } from '../contexts/SyncContext';
 import { AuthProvider } from '../contexts/AuthContext';
-import Financials, { buildDailyStats } from '../pages/Financials';
+import Financials from '../pages/Financials';
+import { buildDailyStats } from '../utils/financials';
 
 const mockFinancials = {
   summary: {

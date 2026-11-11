@@ -17,7 +17,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
-from app.api.dashboard.common import format_month_label, get_courses_for_user, in_clause
+from app.api.dashboard.common import (
+    PeriodAggregator,
+    course_label,
+    format_month_label,
+    get_courses_for_user,
+    in_clause,
+)
 from app.api.dashboard.course_filter import parse_course_ids
 from app.database import get_db
 from app.models import User
@@ -70,87 +76,56 @@ async def get_comments(
         params,
     )
 
-    month_buckets: dict[tuple[int, int], dict] = {}
-    month_students: dict[tuple[int, int], set] = {}
-    year_students: dict[int, set] = {}
-    course_stats: dict[int, dict] = {}
-    course_students: dict[int, set] = {}
-    all_students: set[int] = set()
-
+    agg = PeriodAggregator({"likes": 0, "dislikes": 0, "replies": 0})
     for cid, year, month, user_id, likes, dislikes, replies in rows:
-        if year is None or month is None:
-            continue
-        ym = (year, month)
-
-        bucket = month_buckets.setdefault(ym, {"total": 0, "likes": 0, "dislikes": 0, "replies": 0})
-        bucket["total"] += 1
-        bucket["likes"] += likes
-        bucket["dislikes"] += dislikes
-        bucket["replies"] += replies
-
-        if user_id is not None:
-            month_students.setdefault(ym, set()).add(user_id)
-            year_students.setdefault(year, set()).add(user_id)
-            course_students.setdefault(cid, set()).add(user_id)
-            all_students.add(user_id)
-
-        cstats = course_stats.setdefault(cid, {"stepik_course_id": cid, "total": 0, "likes": 0, "dislikes": 0, "replies": 0})  # noqa: E501
-        cstats["total"] += 1
-        cstats["likes"] += likes
-        cstats["dislikes"] += dislikes
-        cstats["replies"] += replies
-
-    months = []
-    for (y, m) in sorted(month_buckets):
-        b = month_buckets[(y, m)]
-        months.append(
-            {
-                "month": format_month_label(m, y),
-                "students": len(month_students.get((y, m), ())),
-                "total": b["total"],
-                "likes": b["likes"],
-                "dislikes": b["dislikes"],
-                "replies": b["replies"],
-            }
+        agg.add(
+            year=year,
+            month=month,
+            course_id=cid,
+            student_id=user_id,
+            likes=likes,
+            dislikes=dislikes,
+            replies=replies,
         )
 
-    year_aggs: dict[int, dict] = {}
-    for (y, _m), b in month_buckets.items():
-        agg = year_aggs.setdefault(y, {"year": y, "total": 0, "likes": 0, "dislikes": 0, "replies": 0})
-        agg["total"] += b["total"]
-        agg["likes"] += b["likes"]
-        agg["dislikes"] += b["dislikes"]
-        agg["replies"] += b["replies"]
-    years = []
-    for y in sorted(year_aggs):
-        agg = year_aggs[y]
-        agg["students"] = len(year_students.get(y, ()))
-        years.append(agg)
+    months = [
+        {
+            "month": format_month_label(m["month"], m["year"]),
+            "students": m["students"],
+            "total": m["total"],
+            "likes": m["likes"],
+            "dislikes": m["dislikes"],
+            "replies": m["replies"],
+        }
+        for m in agg.months()
+    ]
+
+    years = agg.years()
 
     course_by_stepik = {c.stepik_course_id: c for c in courses}
     by_course = []
-    for cid in sorted(course_stats):
-        st = course_stats[cid]
-        course_obj = course_by_stepik.get(cid)
+    for c in agg.courses():
+        course_uuid, title = course_label(course_by_stepik, c["stepik_course_id"])
         by_course.append(
             {
-                "course_id": str(course_obj.id) if course_obj else "",
-                "stepik_course_id": cid,
-                "title": course_obj.title if course_obj else "Unknown",
-                "students": len(course_students.get(cid, ())),
-                "total": st["total"],
-                "likes": st["likes"],
-                "dislikes": st["dislikes"],
-                "replies": st["replies"],
+                "course_id": course_uuid,
+                "stepik_course_id": c["stepik_course_id"],
+                "title": title,
+                "students": c["students"],
+                "total": c["total"],
+                "likes": c["likes"],
+                "dislikes": c["dislikes"],
+                "replies": c["replies"],
             }
         )
 
+    t = agg.totals()
     totals = {
-        "comments": sum(b["total"] for b in month_buckets.values()),
-        "students": len(all_students),
-        "likes": sum(b["likes"] for b in month_buckets.values()),
-        "dislikes": sum(b["dislikes"] for b in month_buckets.values()),
-        "replies": sum(b["replies"] for b in month_buckets.values()),
+        "comments": t["total"],
+        "students": t["students"],
+        "likes": t["likes"],
+        "dislikes": t["dislikes"],
+        "replies": t["replies"],
     }
 
     return {"months": months, "years": years, "by_course": by_course, "totals": totals}
