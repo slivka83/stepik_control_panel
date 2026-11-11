@@ -1,11 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSync } from '../contexts/SyncContext';
 import ErrorBanner from '../components/ErrorBanner';
 import StudentsBar from '../components/StudentsBar';
-import DataTable, { useRowsPerPage, useSortState } from '../components/DataTable';
+import DataTable from '../components/DataTable';
+import { useServerTable } from '../hooks/useServerTable';
 import { COHORT_COLORS } from '../constants.jsx';
 import { fmtDate } from '../utils/format';
-import api from '../api';
 
 const cohortHex = (status) => COHORT_COLORS[String(status).toLowerCase()] || '#6b7280';
 
@@ -79,73 +78,23 @@ const STUDENT_COLUMNS = [
   },
 ];
 
+const INITIAL_SORT = { key: 'last_activity', dir: 'desc' };
+
 export default function Students() {
-  const { data, error: syncError, refresh, selectedCourseIds, syncStatus } = useSync();
+  const { data, error: syncError, refresh, selectedCourseIds } = useSync();
   const cohorts = data.cohorts;
-  const [students, setStudents] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [error, setError] = useState(null);
-  const [page, setPage] = useState(1);
-  const { tableRef, rowsPerPage } = useRowsPerPage();
-  const { sort, onSort } = useSortState(STUDENT_COLUMNS, { key: 'last_activity', dir: 'desc' });
-  const reqIdRef = useRef(0);
-  const firstRenderRef = useRef(true);
-  const prevLastSyncRef = useRef(null);
+  const table = useServerTable({
+    endpoint: '/dashboard/students',
+    columns: STUDENT_COLUMNS,
+    initialSort: INITIAL_SORT,
+    resultKey: 'students',
+    resetKey: JSON.stringify(selectedCourseIds),
+  });
 
-  const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
-  const safePage = Math.min(page, totalPages);
-
-  const fetchPage = useCallback(async () => {
-    const id = ++reqIdRef.current;
-    const params = {};
-    if (selectedCourseIds !== null) params.course_ids = selectedCourseIds.join(',');
-    try {
-      const res = await api.get('/dashboard/students', {
-        params: {
-          skip: (safePage - 1) * rowsPerPage,
-          limit: rowsPerPage,
-          sort: sort.key,
-          order: sort.dir,
-          ...params,
-        },
-      });
-      if (reqIdRef.current !== id) return;
-      setStudents(res.data.students);
-      setTotal(res.data.total);
-      setError(null);
-    } catch (e) {
-      if (reqIdRef.current !== id) return;
-      setError(e.message);
-    }
-  }, [safePage, rowsPerPage, sort.key, sort.dir, selectedCourseIds]);
-
-  useEffect(() => {
-    fetchPage();
-  }, [fetchPage]);
-
-  useEffect(() => {
-    if (firstRenderRef.current) {
-      firstRenderRef.current = false;
-      return;
-    }
-    setPage(1);
-  }, [selectedCourseIds, sort.key, sort.dir]);
-
-  useEffect(() => {
-    if (prevLastSyncRef.current !== null && syncStatus.last_sync !== prevLastSyncRef.current) {
-      fetchPage();
-    }
-    prevLastSyncRef.current = syncStatus.last_sync;
-  }, [syncStatus.last_sync, fetchPage]);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [page, totalPages]);
-
-  const bannerError = error || syncError;
+  const bannerError = table.error || syncError;
   const retry = () => {
     if (syncError) refresh();
-    fetchPage();
+    table.refetch();
   };
 
   return (
@@ -156,15 +105,15 @@ export default function Students() {
 
       <DataTable
         columns={STUDENT_COLUMNS}
-        rows={students}
-        initialSort={{ key: 'last_activity', dir: 'desc' }}
-        sort={sort}
-        onSort={onSort}
-        page={page}
-        setPage={setPage}
-        rowsPerPage={rowsPerPage}
-        tableRef={tableRef}
-        totalPages={totalPages}
+        rows={table.rows}
+        initialSort={INITIAL_SORT}
+        sort={table.sort}
+        onSort={table.onSort}
+        page={table.page}
+        setPage={table.setPage}
+        rowsPerPage={table.rowsPerPage}
+        tableRef={table.tableRef}
+        totalPages={table.totalPages}
         rowKey={(s) => s.student_id}
         emptyText="Нет данных о студентах"
         panelClassName="glass-panel p-4 flex-1 flex flex-col min-h-0 overflow-hidden"

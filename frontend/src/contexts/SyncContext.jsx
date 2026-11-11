@@ -6,12 +6,29 @@ const SyncContext = createContext();
 
 export { SyncContext };
 
-export function SyncProvider({ children }) {
-  const { user, loading: authLoading } = useAuth();
-  const [syncStatus, setSyncStatus] = useState({ in_progress: false, last_sync: null });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [data, setData] = useState({
+const SYNC_POLL_INTERVAL_MS = 2000;
+const IDLE_POLL_INTERVAL_MS = 30000;
+const MAX_POLL_INTERVAL_MS = 300000;
+
+// Every dashboard endpoint the panel loads. `select` reshapes the response
+// (courses live under `.courses`), `unfiltered` keeps the course filter off
+// (the courses list is the filter's own source).
+const ENDPOINTS = [
+  { key: 'kpi', url: '/dashboard/kpi' },
+  { key: 'cohorts', url: '/dashboard/cohorts' },
+  { key: 'revenue', url: '/dashboard/revenue' },
+  { key: 'courses', url: '/courses', unfiltered: true, select: (data) => data.courses || [] },
+  { key: 'financials', url: '/financials' },
+  { key: 'submissions', url: '/dashboard/submissions' },
+  { key: 'comments', url: '/dashboard/comments' },
+  { key: 'activeStudents', url: '/dashboard/active-students' },
+  { key: 'certificates', url: '/dashboard/certificates' },
+  { key: 'certificatesStats', url: '/dashboard/certificates/stats' },
+  { key: 'reviewsStats', url: '/dashboard/reviews/stats' },
+];
+
+function emptyData() {
+  return {
     kpi: null,
     cohorts: {},
     revenue: { months: [] },
@@ -23,89 +40,62 @@ export function SyncProvider({ children }) {
     certificates: { months: [] },
     certificatesStats: null,
     reviewsStats: null,
-  });
+  };
+}
+
+function normalizeSyncStatus(status) {
+  return {
+    in_progress: status?.in_progress ?? false,
+    last_sync: status?.last_sync ?? null,
+    last_error: status?.last_error ?? null,
+    progress: status?.progress ?? 0,
+    step: status?.step ?? null,
+    cooldown_remaining_seconds: status?.cooldown_remaining_seconds ?? 0,
+  };
+}
+
+export function SyncProvider({ children }) {
+  const { user, loading: authLoading } = useAuth();
+  const [syncStatus, setSyncStatus] = useState({ in_progress: false, last_sync: null });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [data, setData] = useState(emptyData);
   const abortRef = useRef(null);
-  const pollIntervalRef = useRef(30000);
+  const pollIntervalRef = useRef(IDLE_POLL_INTERVAL_MS);
   const filterRef = useRef(null);
   const fetchIdRef = useRef(0);
-
-  const SYNC_POLL_INTERVAL_MS = 2000;
 
   const fetchAll = useCallback(async (signal) => {
     const myId = ++fetchIdRef.current;
     try {
       const courseIds = filterRef.current;
       const courseParams = courseIds === null ? {} : { params: { course_ids: courseIds.join(',') } };
-      const [
-        kpiRes,
-        cohortsRes,
-        revenueRes,
-        coursesRes,
-        financialsRes,
-        submissionsRes,
-        commentsRes,
-        activeStudentsRes,
-        certificatesRes,
-        certificatesStatsRes,
-        reviewsStatsRes,
-      ] = await Promise.allSettled([
-        api.get('/dashboard/kpi', { signal, ...courseParams }),
-        api.get('/dashboard/cohorts', { signal, ...courseParams }),
-        api.get('/dashboard/revenue', { signal, ...courseParams }),
-        api.get('/courses', { signal }),
-        api.get('/financials', { signal, ...courseParams }),
-        api.get('/dashboard/submissions', { signal, ...courseParams }),
-        api.get('/dashboard/comments', { signal, ...courseParams }),
-        api.get('/dashboard/active-students', { signal, ...courseParams }),
-        api.get('/dashboard/certificates', { signal, ...courseParams }),
-        api.get('/dashboard/certificates/stats', { signal, ...courseParams }),
-        api.get('/dashboard/reviews/stats', { signal, ...courseParams }),
-      ]);
+      const results = await Promise.allSettled(
+        ENDPOINTS.map((ep) =>
+          api.get(ep.url, ep.unfiltered ? { signal } : { signal, ...courseParams }),
+        ),
+      );
 
       if (myId !== fetchIdRef.current) return;
 
       setData((prev) => {
-        const next = {
-          ...prev,
-          kpi: kpiRes.status === 'fulfilled' ? kpiRes.value.data : prev.kpi,
-          cohorts: cohortsRes.status === 'fulfilled' ? cohortsRes.value.data : prev.cohorts,
-          revenue: revenueRes.status === 'fulfilled' ? revenueRes.value.data : prev.revenue,
-          courses: coursesRes.status === 'fulfilled' ? coursesRes.value.data.courses || [] : prev.courses,
-          financials: financialsRes.status === 'fulfilled' ? financialsRes.value.data : prev.financials,
-          submissions: submissionsRes.status === 'fulfilled' ? submissionsRes.value.data : prev.submissions,
-          comments: commentsRes.status === 'fulfilled' ? commentsRes.value.data : prev.comments,
-          activeStudents: activeStudentsRes.status === 'fulfilled' ? activeStudentsRes.value.data : prev.activeStudents,
-          certificates: certificatesRes.status === 'fulfilled' ? certificatesRes.value.data : prev.certificates,
-          certificatesStats:
-            certificatesStatsRes.status === 'fulfilled' ? certificatesStatsRes.value.data : prev.certificatesStats,
-          reviewsStats: reviewsStatsRes.status === 'fulfilled' ? reviewsStatsRes.value.data : prev.reviewsStats,
-        };
+        const next = { ...prev };
+        ENDPOINTS.forEach((ep, i) => {
+          const result = results[i];
+          if (result.status === 'fulfilled') {
+            next[ep.key] = ep.select ? ep.select(result.value.data) : result.value.data;
+          }
+        });
         return next;
       });
 
-      const failures = [
-        kpiRes,
-        cohortsRes,
-        revenueRes,
-        coursesRes,
-        financialsRes,
-        submissionsRes,
-        commentsRes,
-        activeStudentsRes,
-        certificatesRes,
-        certificatesStatsRes,
-        reviewsStatsRes,
-      ].filter((r) => r.status === 'rejected');
-      if (failures.length > 0) {
-        setError(`${failures.length} endpoint(s) failed to load`);
-      } else {
-        setError(null);
-      }
-      pollIntervalRef.current = 30000;
+      const failures = results.filter((r) => r.status === 'rejected').length;
+      setError(failures > 0 ? `${failures} endpoint(s) failed to load` : null);
+      pollIntervalRef.current = IDLE_POLL_INTERVAL_MS;
     } catch (err) {
       if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
         setError(err.message);
-        pollIntervalRef.current = Math.min(pollIntervalRef.current * 2, 300000);
+        pollIntervalRef.current = Math.min(pollIntervalRef.current * 2, MAX_POLL_INTERVAL_MS);
       }
     } finally {
       setLoading(false);
@@ -113,25 +103,10 @@ export function SyncProvider({ children }) {
   }, []);
 
   const updateSyncStatus = useCallback((status) => {
-    const next = {
-      in_progress: status?.in_progress ?? false,
-      last_sync: status?.last_sync ?? null,
-      last_error: status?.last_error ?? null,
-      progress: status?.progress ?? 0,
-      step: status?.step ?? null,
-      cooldown_remaining_seconds: status?.cooldown_remaining_seconds ?? 0,
-    };
+    const next = normalizeSyncStatus(status);
     setSyncStatus((prev) => {
-      if (
-        prev.in_progress === next.in_progress &&
-        prev.last_sync === next.last_sync &&
-        prev.last_error === next.last_error &&
-        prev.progress === next.progress &&
-        prev.step === next.step &&
-        prev.cooldown_remaining_seconds === next.cooldown_remaining_seconds
-      )
-        return prev;
-      return next;
+      const unchanged = Object.keys(next).every((key) => prev[key] === next[key]);
+      return unchanged ? prev : next;
     });
   }, []);
 
@@ -183,12 +158,7 @@ export function SyncProvider({ children }) {
   useEffect(() => {
     if (authLoading || !user) {
       if (!authLoading && !user) {
-        setData({
-          kpi: null, cohorts: {}, revenue: { months: [] },
-          courses: [], financials: null, submissions: null, comments: null,
-          activeStudents: { months: [] },
-          certificates: { months: [] }, certificatesStats: null, reviewsStats: null,
-        });
+        setData(emptyData());
       }
       setLoading(false);
       return;
@@ -219,7 +189,7 @@ export function SyncProvider({ children }) {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [user, authLoading, fetchAll]);
+  }, [user, authLoading, fetchAll, updateSyncStatus]);
 
   const contextValue = useMemo(
     () => ({

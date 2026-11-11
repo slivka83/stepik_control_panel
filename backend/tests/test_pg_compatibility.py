@@ -182,7 +182,9 @@ _TRANSFORM_FILE = Path(__import__("app.services.transform", fromlist=[""]).__fil
 # Пакет: `__file__` указывает на `__init__.py` — сканируем все модули рядом.
 TRANSFORM_PATH = _TRANSFORM_FILE.parent if _TRANSFORM_FILE.name == "__init__.py" else _TRANSFORM_FILE
 TRANSFORM_PATHS = sorted(TRANSFORM_PATH.glob("*.py")) if TRANSFORM_PATH.is_dir() else [TRANSFORM_PATH]
-RAW_SYNC_PATH = __import__("app.services.raw_sync", fromlist=[""]).__file__ or "app/services/raw_sync.py"
+RAW_SYNC_FILE = Path(__import__("app.services.raw_sync", fromlist=[""]).__file__ or "app/services/raw_sync.py")
+RAW_SYNC_PATH = RAW_SYNC_FILE.parent if RAW_SYNC_FILE.name == "__init__.py" else RAW_SYNC_FILE
+RAW_SYNC_PATHS = sorted(RAW_SYNC_PATH.glob("*.py")) if RAW_SYNC_PATH.is_dir() else [RAW_SYNC_PATH]
 
 
 class TestNoSqliteInTransform:
@@ -195,9 +197,12 @@ class TestNoSqliteInTransform:
         assert not hits, f"SQLite-only function(s) found in transform package:\n{msg}"
 
     def test_no_json_extract_in_raw_sync(self):
-        hits = _check_file_for_sqlite_functions(RAW_SYNC_PATH)
+        assert len(RAW_SYNC_PATHS) > 1, f"raw_sync package not found: {RAW_SYNC_PATH}"
+        hits = []
+        for path in RAW_SYNC_PATHS:
+            hits += _check_file_for_sqlite_functions(str(path))
         msg = "\n".join(f"  L{h['line']}: {h['func']} in `{h['sql']}`" for h in hits)
-        assert not hits, f"SQLite-only function(s) found in raw_sync.py:\n{msg}"
+        assert not hits, f"SQLite-only function(s) found in raw_sync package:\n{msg}"
 
 
 # ─── transform helpers work with both str and dict _raw_json ──────────────

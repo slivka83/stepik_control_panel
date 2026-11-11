@@ -57,6 +57,31 @@ def _month_tuple(time_raw) -> tuple[int, int] | None:
     return dt.year, dt.month
 
 
+def _apply_payment(
+    bucket: dict,
+    status: str,
+    amount: float,
+    payment_amount: float,
+    count_key: str = "payments",
+    refund_count_key: str | None = None,
+) -> None:
+    """Accumulate one payment into an aggregate bucket (course/month/promo/utm).
+
+    Refunds increase `refunds` (positive), decrease turnover by the paid amount
+    and add the refunded amount back to income — same as transform_financials.
+    """
+    bucket[count_key] += 1
+    if status == "refunded":
+        bucket["refunds"] += abs(amount)
+        if refund_count_key:
+            bucket[refund_count_key] += 1
+        bucket["turnover"] -= payment_amount
+        bucket["income"] += amount
+    else:
+        bucket["turnover"] += payment_amount
+        bucket["income"] += amount
+
+
 def _filtered_payments(data: dict, selected_stepik_ids: set[int]) -> list[dict]:
     """raw_course_benefit objects restricted to the selected courses."""
     payments = []
@@ -92,14 +117,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
             cid,
             {"course_id": cid, "payments": 0, "turnover": 0.0, "income": 0.0, "refunds": 0.0},
         )
-        cs["payments"] += 1
-        if status == "refunded":
-            cs["refunds"] += abs(amount)
-            cs["turnover"] -= payment_amount
-            cs["income"] += amount
-        else:
-            cs["turnover"] += payment_amount
-            cs["income"] += amount
+        _apply_payment(cs, status, amount, payment_amount)
 
         ym = _month_tuple(time_raw)
         if ym:
@@ -115,15 +133,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
                     "refunds_count": 0,
                 },
             )
-            ms["payments_count"] += 1
-            if status == "refunded":
-                ms["refunds"] += abs(amount)
-                ms["refunds_count"] += 1
-                ms["turnover"] -= payment_amount
-                ms["income"] += amount
-            else:
-                ms["turnover"] += payment_amount
-                ms["income"] += amount
+            _apply_payment(ms, status, amount, payment_amount, "payments_count", "refunds_count")
 
         code = b.get("promo_code")
         if code is not None:
@@ -138,14 +148,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
                     "last_used": "",
                 },
             )
-            ps["payments"] += 1
-            if status == "refunded":
-                ps["refunds"] += abs(amount)
-                ps["turnover"] -= payment_amount
-                ps["income"] += amount
-            else:
-                ps["turnover"] += payment_amount
-                ps["income"] += amount
+            _apply_payment(ps, status, amount, payment_amount)
             if time_raw > ps["last_used"]:
                 ps["last_used"] = time_raw
 
@@ -164,14 +167,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
                     "last_used": "",
                 },
             )
-            us["payments"] += 1
-            if status == "refunded":
-                us["refunds"] += abs(amount)
-                us["turnover"] -= payment_amount
-                us["income"] += amount
-            else:
-                us["turnover"] += payment_amount
-                us["income"] += amount
+            _apply_payment(us, status, amount, payment_amount)
             if time_raw > us["last_used"]:
                 us["last_used"] = time_raw
 

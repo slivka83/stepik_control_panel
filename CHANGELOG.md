@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Refactor (Полный рефакторинг: raw-слой, API курсов, страницы-таблицы)
+- **Backend, raw-слой:** `app/services/raw_sync.py` (710 строк) разбит на пакет `app/services/raw_sync/`: `common.py` (пагинация, replace/upsert, `raw_sync_state`, источники ID), `structure.py`, `submissions.py`, `financials.py`, `community.py`, `users.py`. `__init__.py` остаётся прежней публичной точкой входа — старые импорты и `patch("app.services.raw_sync._request")` работают без изменений. Убраны копии записи sync-state и чтения списка курсов, повторявшиеся в трёх синках
+- **Backend, API курсов:** `app/api/courses.py` (387 строк) разбит на пакет `app/api/courses/`: `catalog.py` (список и карточка), `structure.py` (матрица шагов), `funnel.py` (воронка), `common.py` (проверка владения курсом вместо трёх копий + сборка payload). Воронка по урокам использует словарь индексов вместо `list.index` на каждом шаге
+- **Backend, KPI и финансы:** повторяющийся расчёт «процент + числа для тултипа» сведён в `_trend()`, пустой ответ KPI — в константу `_EMPTY_KPI`; в `course_filter.py` четыре одинаковых блока начисления платежа (курс/месяц/промокод/UTM) заменены `_apply_payment()`
+- **Frontend, страницы:** конфигурации колонок и метрик вынесены из страниц в `pages/<раздел>/columns.jsx` (Финансы, Комментарии, Решения, Курсы, Сертификаты, Отзывы). `Courses.jsx` дополнительно разделён на `CourseStepsTab` и `EmptyCourses`, `CourseStructureMatrix` — на метрики, визуальные расчёты и компонент тултипа
+- **Frontend, серверные таблицы:** почти одинаковая логика пагинации/сортировки/перезагрузки у Студентов и списков комментариев сведена в `useServerTable` (защита от гонки ответов, сброс страницы, реакция на новый синк)
+- **Frontend, загрузка данных:** `SyncContext` больше не хранит три копии списка эндпоинтов — один массив описаний задаёт URL, ключ данных, фильтрацию и разбор ответа
+- Проверка после рефакторинга: backend 520 passed + 8 skipped (live-PG, база не поднята), frontend 418 passed (добавлены 5 тестов `useServerTable`), eslint и ruff чистые, `vite build` успешен
+
 ### Refactor (Структура кода: разбиение больших файлов и дедупликация)
 - **Backend, transform-слой:** `app/services/transform.py` (1421 строка в одном файле) разбит на пакет `app/services/transform/` по предметным областям — `common.py` (разбор `_raw_json`, даты, когорты, карта курсов, вставка строк), `courses.py`, `enrollments.py`, `submissions.py`, `financials.py`, `community.py`, `steps.py`, `comments.py`, `certificates.py`, `reviews.py`, `students.py`. Поведение не изменилось: `__init__.py` реэкспортирует публичные функции, поэтому все прежние импорты и `patch("app.services.transform.transform_*")` работают; статический schema-contract-скан обновлён на весь пакет (число проверяемых SQL-блоков выросло с 18 до 67)
 - **Backend, дедупликация:** запрос «курсы приложения» (`SELECT id, stepik_course_id FROM courses` → словарь) был скопирован в 7 трансформах — теперь один `load_course_map()` в `common.py`

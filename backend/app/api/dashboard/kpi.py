@@ -61,6 +61,52 @@ def _pct(cur, prev):
     return 0 if cur == 0 else None
 
 
+def _trend(cur, prev) -> tuple[int | None, dict | None]:
+    """KPI trend: percent plus the numbers behind it (None when percent is None)."""
+    pct = _pct(cur, prev)
+    detail = {"current": cur, "previous": prev} if pct is not None else None
+    return pct, detail
+
+
+_EMPTY_KPI = {
+    "total_revenue": 0,
+    "total_students": 0,
+    "certificates_issued": 0,
+    "courses_count": 0,
+    "courses_published": 0,
+    "courses_unpublished": 0,
+    "total_income": 0,
+    "total_turnover": 0,
+    "total_refunds": 0,
+    "total_payments": 0,
+    "current_month_turnover": 0,
+    "total_comments": 0,
+    "total_reviews": 0,
+    "average_rating": 0,
+    "students_prev_months": 0,
+    "certificates_prev_months": 0,
+    "certificates_current_month": 0,
+    "comments_prev_months": 0,
+    "reviews_prev_months": 0,
+    "reviews_current_month": 0,
+    "certificates_change_pct": None,
+    "reviews_change_pct": None,
+    "published_solutions_prev_months": 0,
+    "published_solutions_current_month": 0,
+    "published_solutions_change_pct": None,
+    "steps_average_grade": 0,
+    "revenue_change_detail": None,
+    "payments_change_detail": None,
+    "refunds_change_detail": None,
+    "refunds_pcs_change_detail": None,
+    "students_change_detail": None,
+    "certificates_change_detail": None,
+    "published_solutions_change_detail": None,
+    "comments_change_detail": None,
+    "reviews_change_detail": None,
+}
+
+
 def _month_stat(months, year, month, key):
     """Статистика конкретного КАЛЕНДАРНОГО месяца из months-серии (0 если месяца нет).
 
@@ -86,43 +132,7 @@ async def get_kpi(
     selected_stepik_ids = {c.stepik_course_id for c in courses}
 
     if not selected_course_ids:
-        return {
-            "total_revenue": 0,
-            "total_students": 0,
-            "certificates_issued": 0,
-            "courses_count": 0,
-            "courses_published": 0,
-            "courses_unpublished": 0,
-            "total_income": 0,
-            "total_turnover": 0,
-            "total_refunds": 0,
-            "total_payments": 0,
-            "current_month_turnover": 0,
-            "total_comments": 0,
-            "total_reviews": 0,
-            "average_rating": 0,
-            "students_prev_months": 0,
-            "certificates_prev_months": 0,
-            "certificates_current_month": 0,
-            "comments_prev_months": 0,
-            "reviews_prev_months": 0,
-            "reviews_current_month": 0,
-            "certificates_change_pct": None,
-            "reviews_change_pct": None,
-            "published_solutions_prev_months": 0,
-            "published_solutions_current_month": 0,
-            "published_solutions_change_pct": None,
-            "steps_average_grade": 0,
-            "revenue_change_detail": None,
-            "payments_change_detail": None,
-            "refunds_change_detail": None,
-            "refunds_pcs_change_detail": None,
-            "students_change_detail": None,
-            "certificates_change_detail": None,
-            "published_solutions_change_detail": None,
-            "comments_change_detail": None,
-            "reviews_change_detail": None,
-        }
+        return dict(_EMPTY_KPI)
 
     students_result = await db.execute(
         select(func.count(StudentEnrollment.id)).where(StudentEnrollment.course_id.in_(selected_course_ids))
@@ -176,21 +186,13 @@ async def get_kpi(
         current_month_refunds_count = _month_stat(months, cur_year, cur_month, "refunds")
         current_month_refunds_pcs = _month_stat(months, cur_year, cur_month, "refunds_count")
         prev_income = _month_stat(months, prev_year, prev_month, "income")
-        revenue_change_pct = _pct(current, prev_income)
-        if revenue_change_pct is not None:
-            revenue_change_detail = {"current": current, "previous": prev_income}
+        revenue_change_pct, revenue_change_detail = _trend(current, prev_income)
         prev_payments = _month_stat(months, prev_year, prev_month, "payments_count")
-        payments_change_pct = _pct(current_month_payments, prev_payments)
-        if payments_change_pct is not None:
-            payments_change_detail = {"current": current_month_payments, "previous": prev_payments}
+        payments_change_pct, payments_change_detail = _trend(current_month_payments, prev_payments)
         prev_refunds = _month_stat(months, prev_year, prev_month, "refunds")
-        refunds_change_pct = _pct(current_month_refunds_count, prev_refunds)
-        if refunds_change_pct is not None:
-            refunds_change_detail = {"current": current_month_refunds_count, "previous": prev_refunds}
+        refunds_change_pct, refunds_change_detail = _trend(current_month_refunds_count, prev_refunds)
         prev_refunds_pcs = _month_stat(months, prev_year, prev_month, "refunds_count")
-        refunds_pcs_change_pct = _pct(current_month_refunds_pcs, prev_refunds_pcs)
-        if refunds_pcs_change_pct is not None:
-            refunds_pcs_change_detail = {"current": current_month_refunds_pcs, "previous": prev_refunds_pcs}
+        refunds_pcs_change_pct, refunds_pcs_change_detail = _trend(current_month_refunds_pcs, prev_refunds_pcs)
 
     sub_result = await db.execute(
         select(
@@ -253,6 +255,12 @@ async def get_kpi(
     else:
         steps_average_grade = await _steps_average_grade(db)
 
+    students_change_pct, students_change_detail = _trend(cur_enroll, prev_enroll)
+    comments_change_pct, comments_change_detail = _trend(cur_comments, prev_comments)
+    certificates_change_pct, certificates_change_detail = _trend(cur_certificates, prev_certificates)
+    reviews_change_pct, reviews_change_detail = _trend(cur_reviews, prev_reviews)
+    solutions_change_pct, solutions_change_detail = _trend(cur_solutions, prev_solutions)
+
     return {
         "total_revenue": summary.get("current_month_income", 0),
         "revenue_change_pct": revenue_change_pct,
@@ -269,28 +277,18 @@ async def get_kpi(
         "current_month_submissions": cur_subs,
         "submissions_change_pct": _pct(cur_subs, prev_subs),
         "current_month_students": cur_enroll,
-        "students_change_pct": _pct(cur_enroll, prev_enroll),
-        "students_change_detail": (
-            {"current": cur_enroll, "previous": prev_enroll} if _pct(cur_enroll, prev_enroll) is not None else None
-        ),
+        "students_change_pct": students_change_pct,
+        "students_change_detail": students_change_detail,
         "current_month_comments": cur_comments,
-        "comments_change_pct": _pct(cur_comments, prev_comments),
-        "comments_change_detail": (
-            {"current": cur_comments, "previous": prev_comments}
-            if _pct(cur_comments, prev_comments) is not None
-            else None
-        ),
+        "comments_change_pct": comments_change_pct,
+        "comments_change_detail": comments_change_detail,
         "total_students": total_students,
         "students_prev_months": max(0, total_students - cur_enroll),
         "certificates_issued": certificates_issued,
         "certificates_prev_months": max(0, certificates_issued - cur_certificates),
         "certificates_current_month": cur_certificates,
-        "certificates_change_pct": _pct(cur_certificates, prev_certificates),
-        "certificates_change_detail": (
-            {"current": cur_certificates, "previous": prev_certificates}
-            if _pct(cur_certificates, prev_certificates) is not None
-            else None
-        ),
+        "certificates_change_pct": certificates_change_pct,
+        "certificates_change_detail": certificates_change_detail,
         "courses_count": len(courses),
         "courses_published": sum(1 for c in courses if c.status == "Published"),
         "courses_unpublished": sum(1 for c in courses if c.status != "Published"),
@@ -305,18 +303,12 @@ async def get_kpi(
         "total_reviews": community.get("total_reviews", 0),
         "reviews_prev_months": max(0, community.get("total_reviews", 0) - cur_reviews),
         "reviews_current_month": cur_reviews,
-        "reviews_change_pct": _pct(cur_reviews, prev_reviews),
-        "reviews_change_detail": (
-            {"current": cur_reviews, "previous": prev_reviews} if _pct(cur_reviews, prev_reviews) is not None else None
-        ),
+        "reviews_change_pct": reviews_change_pct,
+        "reviews_change_detail": reviews_change_detail,
         "published_solutions_prev_months": max(0, community.get("total_solutions", 0) - cur_solutions),
         "published_solutions_current_month": cur_solutions,
-        "published_solutions_change_pct": _pct(cur_solutions, prev_solutions),
-        "published_solutions_change_detail": (
-            {"current": cur_solutions, "previous": prev_solutions}
-            if _pct(cur_solutions, prev_solutions) is not None
-            else None
-        ),
+        "published_solutions_change_pct": solutions_change_pct,
+        "published_solutions_change_detail": solutions_change_detail,
         "average_rating": community.get("average_rating", 0),
         "steps_average_grade": steps_average_grade,
     }

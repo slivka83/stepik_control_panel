@@ -23,7 +23,7 @@ Stepik API ──► СЛОЙ СЫРЫХ ДАННЫХ ──► СЛОЙ ВИТ�
                (24 таблицы raw_*)      (витрины)     (чтение ТОЛЬКО витрин)
 ```
 
-1. **Слой сырых данных** — таблицы `raw_*` (raw_course, raw_comment, raw_certificate, raw_course_review, raw_step, raw_lesson, raw_unit, raw_section, raw_user, ...). Получаются из Stepik API через `raw_sync.py`/`sync_raw.py` и пишутся как есть (JSON в `_raw_json`).
+1. **Слой сырых данных** — таблицы `raw_*` (raw_course, raw_comment, raw_certificate, raw_course_review, raw_step, raw_lesson, raw_unit, raw_section, raw_user, ...). Получаются из Stepik API через `raw_sync`/`sync_raw.py` и пишутся как есть (JSON в `_raw_json`).
 2. **Слой витрин** — производные таблицы, которые пересобираются из raw-слоя **трансформами** (`app/services/transform/`) в конце синка:
    - `courses`, `student_enrollments`, `submissions` — «низкие» витрины (детальные строки),
    - `financial_snapshots` — JSON-снапшот финансов + community,
@@ -155,7 +155,8 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 
 Все синхронизации идут через два слоя:
 
-### Raw-слой (`app/services/raw_sync.py`)
+### Raw-слой (`app/services/raw_sync/`)
+- Пакет по областям: `common.py` (пагинация, replace/upsert, `raw_sync_state`, источники ID), `structure.py` (курсы/секции/юниты/уроки/шаги + оценки/сертификаты), `submissions.py`, `financials.py`, `community.py`, `users.py`. Публичная точка входа — `app.services.raw_sync`: `__init__.py` реэкспортирует функции и помощники, поэтому прежние импорты и `patch("app.services.raw_sync._request")` работают
 - `sync_courses_structure()` — курсы + sections/units/lessons/steps
 - `sync_course_grades_and_certs()` — оценки + сертификаты
 - `sync_submissions()` — отправки + попытки (инкрементально: по шагам, по курсам author pass, попытки — только delta)
@@ -366,6 +367,8 @@ Y-ось графиков:
 - `monthComposite(m)` в `frontend/src/utils/monthWindow.js` — композитный ключ `year*100+month` для сортировки по месяцам
 - `useTabState(defaultTab)` в `frontend/src/hooks/useTabState.js` — хук для вкладок с синхронизацией URL (`useSearchParams`)
 - `useTabSorts(tabColumns, initialSorts)` в `frontend/src/hooks/useTabSorts.js` — сортировка по вкладкам (первый клик: числовая колонка — по убыванию, текстовая — по возрастанию; повторный клик переворачивает); состояние вкладок независимо. Используется Решениями, Комментариями, Сертификатами, Отзывами и Финансами
+- `useServerTable({endpoint, columns, initialSort, resultKey, ...})` в `frontend/src/hooks/useServerTable.js` — серверные страницы: `skip/limit/sort/order` (+ фильтр курсов и доп. параметры вроде `type`), сброс на стр. 1 при смене фильтра/вкладки/сортировки, повторная загрузка после синка, защита от гонки ответов. Используется Студентами и списками комментариев
+- Конфигурации колонок и метрик вкладок лежат рядом со страницами: `pages/financials/columns.jsx`, `pages/comments/columns.jsx`, `pages/solutions/columns.jsx`, `pages/courses/columns.jsx`, `pages/certificates/columns.jsx`, `pages/reviews/columns.jsx` (страница отвечает за данные и разметку, файл колонок — за состав и отрисовку ячеек)
 
 **Схема колонки** (отличия таблиц задаются конфигурацией):
 ```
@@ -377,7 +380,7 @@ Y-ось графиков:
 - `makeComparator(columns)` — единый компаратор (numeric/nullLast/getValue) вместо набора per-page функций
 - Хуки: `useSortState(columns, initialSort)`, `useRowsPerPage()` (ResizeObserver, авто-высота строк)
 - **Клиентский режим** (по умолчанию): `rows` сортируются и нарезаются внутри; состояние сортировки страница передаёт контролируемо (`sort`/`onSort`) для сохранения сортировки по вкладкам (Решения/Финансы), страница — внутри
-- **Серверный режим** (Студенты): передаётся `totalPages` + контролируемые `sort`/`onSort`/`page`/`setPage`/`rowsPerPage`/`tableRef` — `rows` уже отсортированы и нарезаны бэкендом, DataTable только рендерит
+- **Серверный режим** (Студенты, списки комментариев): передаётся `totalPages` + контролируемые `sort`/`onSort`/`page`/`setPage`/`rowsPerPage`/`tableRef` — `rows` уже отсортированы и нарезаны бэкендом, DataTable только рендерит
 - `emptyText` (пустая строка `colSpan = columns.length`), `emptyCentered` (блок по центру — «Нет данных» на hardest), `error` (красный блок — «Не удалось загрузить данные» на hardest), `loading` гасит пустое/ошибочное состояние
 - Хелперы ячеек-заголовков: `yearMonthLabel`/`fmtDate` в `frontend/src/utils/format.js`
 - Юнит-тесты компонента: `frontend/src/test/DataTable.test.jsx`, `frontend/src/test/Tabs.test.jsx`
@@ -400,7 +403,7 @@ Y-ось графиков:
   - Шаги submissions, не атрибутированные в структуру, пропускаются (как не-атрибутируемые комментарии); авторские решения исключены (`is_author=False`)
   - Визуал: recharts `FunnelChart` (градиент cyber-blue → dim-blue, финальный этап neon-green) + таблица «Этап | Студентов | % от записи | Отсев»; конверсия/отсев считаются на фронте из `value`. Сегменты — **прямоугольники** (кастомный `shape={FunnelRectangle}` на `<Funnel>`, рисует `<rect>` из геометрии трапеции; `activeShape` тот же), не скошенные трапеции; цвета/обводка/лейблы/тултип не меняются
   - Тесты: `tests/test_course_funnel.py`, фронт `frontend/src/test/CourseFunnel.test.jsx` + вкладки в `Courses.test.jsx`
-- Источник: **`GET /api/courses/{course_id}/structure`** (в `app/api/courses.py`) — владение курсом (404 иначе), сборка из raw-слоя:
+- Источник: **`GET /api/courses/{course_id}/structure`** (в `app/api/courses/structure.py`) — владение курсом (404 иначе), сборка из raw-слоя:
   - `raw_section` (`course = stepik_course_id`, `ORDER BY position`) → модули; `raw_unit` → уроки модуля (`position`); `raw_lesson` (`title`, `steps[]` → `step_number` через `_parse_step_positions` из `common.py` — работает и с TEXT, и с jsonb)
   - Сквозной `lesson_number` по курсу (смещение = сумма уроков предыдущих модулей)
   - Метрики шага: `viewed_by`/`passed_by`/`correct_ratio`/`grade`/`grade_votes` из `raw_step._raw_json` (агрегаты Stepik API, `_parse_raw` обрабатывает dict-jsonb и TEXT-строку; `grade` — средняя оценка шага пользователями из `num_grades` = `[g1..g5]`, распределение 5 смайликов, `_step_grade` — `Σ(cnt[i]·(i+1))/Σ(cnt)`, без голосов → `None/0`), `total`/`correct`/`students` из `submissions` (**ORM-запрос** — `text()`-биндинг UUID в SQLite не совпадает: там hex без дефисов, а `str(uuid)` с дефисами), `is_author=False`
@@ -613,6 +616,6 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 Live-PG тесты: изменения в БД — **только через явный `await trans.rollback()`**, не `async with session.begin():` + rollback снаружи (begin()-контекст коммитит на выходе, rollback после него — no-op).
 
 Schema-contract тесты (`test_schema_contract.py`) — глобальная защита от дрейфа схемы:
-- Статический парсинг всех `text(...)` SQL-блоков в пакете `app/services/transform/` и `raw_sync.py`: каждая `table.column` обязана существовать в фикстуре `RAW_TABLES` и моделях
+- Статический парсинг всех `text(...)` SQL-блоков в пакетах `app/services/transform/` и `app/services/raw_sync/`: каждая `table.column` обязана существовать в фикстуре `RAW_TABLES` и моделях
 - Все raw-колонки, читаемые трансформациями, обязаны быть TEXT в фикстуре (реальная PG хранит raw-слой как TEXT)
 - Live PG (skip без `DATABASE_URL` в `.env`): колонки, потребляемые трансформациями, существуют в PG и имеют тип text/jsonb; каждый `meta_field_mapping.db_column` активных эндпоинтов существует в PG; **каждая читаемая трансформациями колонка покрыта is_loaded-строкой mapping'а** (иначе loader молча оставляет NULL — регрессия `became_published_at`); полный пайплайн `transform_*` отрабатывает в транзакции (rollback) без ошибок; снапшот финансов содержит `courses` (с `price`) и `community.per_course`
