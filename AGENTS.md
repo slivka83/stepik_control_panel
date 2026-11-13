@@ -88,6 +88,7 @@ FRONTEND_PORT=3000
 - Пакетная загрузка: `?ids[]=1&ids[]=2` (side-loading)
 - Используемые эндпоинты:
   - `GET /courses?teacher=` — курсы автора (`is_public` = опубликован, `is_published` не отдаётся)
+  - `GET /stepics/1` — текущий пользователь (владелец токена) для входа; `user` — настоящий id учётной записи, `id` — id профиля
   - `GET /course-grades?course=` — оценки студентов
   - `GET /certificates?course=` — сертификаты
   - `GET /submissions?step=` — отправки решений (по шагам, все студенты; поле `user` всегда None — норма API)
@@ -109,6 +110,7 @@ FRONTEND_PORT=3000
 - `GET /submissions?step=` не поддерживает параметр `order` — всегда возвращает oldest first
 - Мета-данные submissions (`meta.has_next`) не содержат `total` — нужно страница за страницей пока `has_next=true`
 - `has_next` может возвращать `true` даже на страницах за пределами данных — **обязательно ставить `max_pages` лимит**
+- **`GET /users` без `ids[]` — это общий список всех пользователей, а не «текущий пользователь»**: первая запись имеет `id=1`. Владельца токена отдаёт только `GET /stepics/1`; использовать `users[0]` как запасной вариант нельзя (регрессия: вход создавал пустую вторую учётную запись со `stepik_id=1`)
 
 ## OAuth2 (только read)
 
@@ -584,18 +586,18 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-528 тестов, 0 skipped, 0 failures (`pytest -v`, требует запущенный PostgreSQL — любой: Podman или Docker).
+533 теста, 0 skipped, 0 failures (`pytest -v`, требует запущенный PostgreSQL — любой: Podman или Docker).
 | Файл | Тестов | Что тестирует |
 |---|---|---|
-| `tests/test_stepik_api.py` | 26 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile`, **изоляция event loop** (HTTP-клиент на каждый цикл — иначе sync падал с «bound to a different event loop»), **повтор при сетевом таймауте/обрыве соединения** (ReadTimeout не убивает многочасовой sync) |
+| `tests/test_stepik_api.py` | 26 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` (только `/stepics/1`, **без fallback на общий `/users`** — регрессия фантомной учётной записи), **изоляция event loop** (HTTP-клиент на каждый цикл — иначе sync падал с «bound to a different event loop»), **повтор при сетевом таймауте/обрыве соединения** (ReadTimeout не убивает многочасовой sync) |
 | `tests/test_stepik_api_comprehensive.py` | 14 | `get_finance_token`, 5xx retries, constants |
 | `tests/test_raw_sync.py` | 24 | `sync_courses_structure`, `sync_grades_and_certs`, `sync_submissions` (+404-шаги, 400-теоретические-шаги, **text-шаги не опрашиваются**, **step-pass докачивает до лимита 500 страниц**, конфликтные upsert'ы, str-bind для TEXT-колонок), `sync_financials`, `sync_community` (**сами отзывы course-reviews в raw_course_review**, скип упавшего курса, **персистенция при +0 комментариев**), регрессии `became_published_at`, stale sequence, **инкремент author pass (продолжение с сохранённой страницы) и delta попыток** |
 | `tests/test_raw_sync_edge_cases.py` | 12 | `_paginated_fetch`, пустые/ошибочные данные transform и raw_sync |
-| `tests/test_transform.py` | 19 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита) |
+| `tests/test_transform.py` | 20 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита), **курс, уже принадлежащий другой учётной записи, пропускается без падения sync** |
 | `tests/test_sync_integration.py` | 18 | `sync_all`, cohort status, интеграция raw_sync → transform, stepwise-коммиты raw_sync внутри sync-этапов |
 | `tests/test_sync_comprehensive.py` | 21 | `sync_all`, `sync_community_stats`, `sync_financials` |
 | `tests/test_sync_edge_cases.py` | 27 | Разрешение конфликтов, отсутствие данных, ошибки API, регрессии `_last_sync_error` (падение → error виден в статусе, успех → очищен, **пустой текст исключения не даёт пустой статус**), **персистенция статуса синка** (`TestSyncStatePersistence`: in_progress/error/после рестарта сервера) |
-| `tests/test_auth.py` | 4 | OAuth callback: `stepik_id` берётся из `profile.user`, а не из `profile.id` (иначе в users сохранялся id профиля = 1) |
+| `tests/test_auth.py` | 8 | OAuth callback: `stepik_id` берётся из `profile.user` (настоящий id), а не из `profile.id` (id профиля = 1); **повторный вход переиспользует существующую учётную запись, а не создаёт вторую**; профиль без `user` отклоняется (401); чужой Stepik-аккаунт отклоняется (403), если панель настроена на конкретного автора |
 | `tests/test_fresh_install.py` | 1 | `alembic upgrade head` на **пустой PostgreSQL**: вся схема + 16 raw-таблиц + meta_endpoint/meta_field_mapping + уникальные ключи (регрессия «sync упал: raw_course does not exist») |
 | `tests/test_data_contract.py` | 5 | Глобальные контракты снапшота/API/фронта (price, per_course, поля страниц, recent_payments/utms) |
 | `tests/test_schema_contract.py` | 10 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот), **live-PG свежесть данных** (трансформы на реальных данных производят строки и догоняют raw — регрессия «0 submissions upserted») |

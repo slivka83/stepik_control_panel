@@ -149,14 +149,17 @@ async def _request(
 
 
 async def get_user_profile(token: str) -> dict:
-    """Fetch authenticated user's profile from Stepik."""
-    data = await _request("GET", "/profiles", token)
-    profiles = data.get("profiles", [])
-    if profiles:
-        return profiles[0]
-    users_data = await _request("GET", "/users", token)
-    users = users_data.get("users", [])
-    return users[0] if users else {}
+    """Fetch the authenticated user's own Stepik account.
+
+    Uses ``/stepics/1`` — the canonical "current user" endpoint, which always
+    returns the token owner (``user`` is the real user id, ``id`` is the
+    profile id). Do not fall back to the bare ``/users`` list: it is not
+    filtered by the token and its first row is an arbitrary user (id 1).
+    Regression: that fallback created phantom accounts on login.
+    """
+    data = await _request("GET", "/stepics/1", token)
+    stepics = data.get("stepics", [])
+    return stepics[0] if stepics else {}
 
 
 async def refresh_access_token(refresh_token: str, client_id: str, client_secret: str) -> dict:

@@ -101,18 +101,16 @@ async def get_user(request: Request, db: AsyncSession = Depends(get_db)) -> User
 
 
 def _profile_stepik_id(profile: dict) -> int | None:
-    """Stepik /profiles отдаёт id профиля в `id`, а настоящий id пользователя — в `user`.
+    """Stepik /stepics/1 отдаёт id профиля в `id`, а настоящий id пользователя — в `user`.
 
-    Regression: раньше сохранялся profile.id (например, 1), из-за чего
-    stepik_id в users не совпадал с реальным пользователем.
+    Только `user` является id учётной записи. `id` — это id профиля (обычно 1),
+    поэтому использовать его как запасной вариант нельзя: вход заводил пустую
+    вторую учётную запись с stepik_id=1 (регрессия).
     """
     if not isinstance(profile, dict):
         return None
-    value = profile.get("user")
-    if value is None:
-        value = profile.get("id")
     try:
-        return int(value)
+        return int(profile.get("user"))
     except (TypeError, ValueError):
         return None
 
@@ -221,6 +219,16 @@ async def callback(
     stepik_id = _profile_stepik_id(profile)
     if not stepik_id:
         raise HTTPException(status_code=401, detail="Unable to fetch Stepik profile")
+
+    # Панель настроена на конкретного автора: чужой аккаунт не должен
+    # создавать вторую локальную учётную запись с пустыми данными.
+    if settings.stepik_user_id and stepik_id != settings.stepik_user_id:
+        logger.warning(
+            "Login rejected: Stepik user %s is not the configured panel owner %s",
+            stepik_id,
+            settings.stepik_user_id,
+        )
+        raise HTTPException(status_code=403, detail="This panel belongs to another Stepik account")
 
     encrypted_access = encrypt_token(access_token)
     encrypted_refresh = encrypt_token(refresh_token)

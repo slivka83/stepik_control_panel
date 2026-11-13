@@ -31,6 +31,12 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
         r = await session.execute(text("SELECT id, stepik_course_id FROM courses"))
     existing = {row[1]: str(row[0]) for row in r}
 
+    # stepik_course_id уникален глобально, поэтому нельзя вставлять курс,
+    # который уже принадлежит другой локальной учётной записи: раньше это
+    # падало с UniqueViolation и роняло всю синхронизацию.
+    r = await session.execute(text("SELECT stepik_course_id FROM courses"))
+    taken_ids = {row[0] for row in r}
+
     if uid_param:
         r = await session.execute(
             text("SELECT id FROM users WHERE id = :uid LIMIT 1"),
@@ -46,6 +52,7 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
 
     seen_ids = set()
     upserted = 0
+    skipped = 0
     for rc in raw_courses:
         sid = rc["course_id"]
         if sid is None:
@@ -77,6 +84,9 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
                 """),
                 {"t": title, "s": status, "p": pub_dt, "sid": sid},
             )
+            upserted += 1
+        elif sid in taken_ids:
+            skipped += 1
         else:
             await session.execute(
                 text("""
@@ -93,7 +103,8 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
                     "now": datetime.now(UTC),
                 },
             )
-        upserted += 1
+            taken_ids.add(sid)
+            upserted += 1
 
     deleted = 0
     for sid, cid_str in existing.items():
@@ -104,7 +115,7 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
             )
             deleted += 1
 
-    logger.info("  %d upserted, %d deleted", upserted, deleted)
+    logger.info("  %d upserted, %d deleted, %d skipped (owned by another user)", upserted, deleted, skipped)
 
 
 async def build_step_course_map(session: AsyncSession) -> dict[int, int]:

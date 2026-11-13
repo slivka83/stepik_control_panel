@@ -143,6 +143,44 @@ class TestTransformCourses:
         r = await db_session.execute(text("SELECT id FROM courses"))
         assert len(list(r)) == 0
 
+    @pytest.mark.asyncio
+    async def test_skips_course_owned_by_another_user(self, db_session):
+        """Regression: синхронизация под второй локальной учётной записью падала
+        с UniqueViolation на courses.stepik_course_id и обрывала весь sync."""
+        from app.services.transform import transform_courses
+
+        owner = _make_user(db_session, stepik_id=111)
+        other = _make_user(db_session, stepik_id=222)
+        await _make_course(db_session, owner.id, stepik_course_id=101, title="Owner Course")
+        await db_session.commit()
+        owner_id = owner.id
+
+        await self._populate_raw_courses(
+            db_session,
+            [
+                {
+                    "course_id": 101,
+                    "title": "Sync Attempt",
+                    "is_public": 1,
+                    "became_published_at": "2026-01-15T00:00:00Z",
+                    "begin_date": None,
+                },
+            ],
+        )
+        await db_session.commit()
+
+        await transform_courses(db_session, user_id=str(other.id))
+        await db_session.commit()
+
+        rows = list(
+            await db_session.execute(
+                text("SELECT user_id, title FROM courses WHERE stepik_course_id = 101")
+            )
+        )
+        assert len(rows) == 1
+        assert uuid.UUID(str(rows[0][0])) == owner_id
+        assert rows[0][1] == "Owner Course"
+
 
 # ─── transform_enrollments ─────────────────────────────────────────────
 

@@ -260,30 +260,35 @@ class TestExchangeCodeForToken:
 
 
 class TestGetUserProfile:
-    @pytest.mark.asyncio
-    async def test_returns_profile_from_profiles_endpoint(self):
-        with patch("app.services.stepik_api._request", new_callable=AsyncMock) as mock_req:
-            mock_req.return_value = {"profiles": [{"id": 123, "email": "test@test.com"}]}
-            result = await get_user_profile("my_token")
-            assert result == {"id": 123, "email": "test@test.com"}
-            mock_req.assert_called_once_with("GET", "/profiles", "my_token")
+    """Regression: /profiles может вернуть пустой список, а /users — это общий
+    список пользователей, первый элемент которого (id 1) не является владельцем
+    токена. Раньше такой fallback создавал пустую вторую учётную запись."""
 
     @pytest.mark.asyncio
-    async def test_falls_back_to_users_endpoint(self):
+    async def test_returns_token_owner_from_stepics_endpoint(self):
         with patch("app.services.stepik_api._request", new_callable=AsyncMock) as mock_req:
-            mock_req.side_effect = [
-                {"profiles": []},
-                {"users": [{"id": 456, "first_name": "John"}]},
-            ]
+            mock_req.return_value = {"stepics": [{"id": 1, "user": 64381531, "first_name": "Test"}]}
             result = await get_user_profile("my_token")
-            assert result == {"id": 456, "first_name": "John"}
+            assert result == {"id": 1, "user": 64381531, "first_name": "Test"}
+            mock_req.assert_called_once_with("GET", "/stepics/1", "my_token")
 
     @pytest.mark.asyncio
-    async def test_returns_empty_dict_when_no_data(self):
+    async def test_returns_empty_dict_when_current_user_missing(self):
         with patch("app.services.stepik_api._request", new_callable=AsyncMock) as mock_req:
-            mock_req.side_effect = [{"profiles": []}, {"users": []}]
+            mock_req.return_value = {"stepics": []}
             result = await get_user_profile("my_token")
             assert result == {}
+            mock_req.assert_called_once_with("GET", "/stepics/1", "my_token")
+
+    @pytest.mark.asyncio
+    async def test_never_falls_back_to_generic_users_list(self):
+        """Regression: fallback на /users брал users[0].id (=1) и логинил не того."""
+        with patch("app.services.stepik_api._request", new_callable=AsyncMock) as mock_req:
+            mock_req.return_value = {"stepics": []}
+            await get_user_profile("my_token")
+            called_paths = [call.args[1] for call in mock_req.call_args_list]
+            assert "/users" not in called_paths
+            assert "/profiles" not in called_paths
 
 
 class TestRefreshAccessToken:
