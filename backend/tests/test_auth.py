@@ -48,7 +48,7 @@ def _callback_request() -> Request:
     )
 
 
-def _token_exchange_patches(profile: dict):
+def _token_exchange_patches(profile: dict, panel_owner: int = 0):
     return (
         patch("app.api.auth.check_auth_rate_limit", new_callable=AsyncMock, return_value=(True, 0)),
         patch(
@@ -57,6 +57,7 @@ def _token_exchange_patches(profile: dict):
             return_value={"access_token": "access", "refresh_token": "refresh", "expires_in": 3600},
         ),
         patch("app.api.auth.get_user_profile", new_callable=AsyncMock, return_value=profile),
+        patch.object(auth_settings, "stepik_user_id", panel_owner),
     )
 
 
@@ -65,10 +66,10 @@ class TestAuthCallback:
 
     @pytest.mark.asyncio
     async def test_callback_stores_user_id_from_profile_user_field(self, db_session):
-        rate_limit, exchange, profile = _token_exchange_patches(
+        rate_limit, exchange, profile, panel = _token_exchange_patches(
             {"id": 1, "user": 64381531, "first_name": "Test"}
         )
-        with rate_limit, exchange, profile:
+        with rate_limit, exchange, profile, panel:
             response = await callback("test-code", _callback_request(), Response(), db_session)
 
         assert response.status_code == 302
@@ -90,8 +91,8 @@ class TestAuthCallback:
         await db_session.commit()
         existing_id = existing.id
 
-        rate_limit, exchange, profile = _token_exchange_patches({"id": 1, "user": 64381531})
-        with rate_limit, exchange, profile:
+        rate_limit, exchange, profile, panel = _token_exchange_patches({"id": 1, "user": 64381531})
+        with rate_limit, exchange, profile, panel:
             response = await callback("test-code", _callback_request(), Response(), db_session)
 
         assert response.status_code == 302
@@ -104,8 +105,8 @@ class TestAuthCallback:
     @pytest.mark.asyncio
     async def test_callback_rejects_profile_without_user_id(self, db_session):
         """Regression: профиль без поля `user` не должен превращаться в id=1."""
-        rate_limit, exchange, profile = _token_exchange_patches({"id": 1, "first_name": "Test"})
-        with rate_limit, exchange, profile, pytest.raises(HTTPException) as exc_info:
+        rate_limit, exchange, profile, panel = _token_exchange_patches({"id": 1, "first_name": "Test"})
+        with rate_limit, exchange, profile, panel, pytest.raises(HTTPException) as exc_info:
             await callback("test-code", _callback_request(), Response(), db_session)
 
         assert exc_info.value.status_code == 401
@@ -114,8 +115,8 @@ class TestAuthCallback:
 
     @pytest.mark.asyncio
     async def test_callback_rejects_empty_profile(self, db_session):
-        rate_limit, exchange, profile = _token_exchange_patches({})
-        with rate_limit, exchange, profile, pytest.raises(HTTPException) as exc_info:
+        rate_limit, exchange, profile, panel = _token_exchange_patches({})
+        with rate_limit, exchange, profile, panel, pytest.raises(HTTPException) as exc_info:
             await callback("test-code", _callback_request(), Response(), db_session)
 
         assert exc_info.value.status_code == 401
@@ -124,14 +125,10 @@ class TestAuthCallback:
     @pytest.mark.asyncio
     async def test_callback_rejects_foreign_stepik_account(self, db_session):
         """Панель настроена на одного автора: чужой аккаунт не создаёт запись."""
-        rate_limit, exchange, profile = _token_exchange_patches({"id": 1, "user": 99999999})
-        with (
-            patch.object(auth_settings, "stepik_user_id", 64381531),
-            rate_limit,
-            exchange,
-            profile,
-            pytest.raises(HTTPException) as exc_info,
-        ):
+        rate_limit, exchange, profile, panel = _token_exchange_patches(
+            {"id": 1, "user": 99999999}, panel_owner=64381531
+        )
+        with rate_limit, exchange, profile, panel, pytest.raises(HTTPException) as exc_info:
             await callback("test-code", _callback_request(), Response(), db_session)
 
         assert exc_info.value.status_code == 403
