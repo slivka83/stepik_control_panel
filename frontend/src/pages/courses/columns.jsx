@@ -1,6 +1,6 @@
 import { numCell } from '../../components/NumericCell';
 import { STEPIK_URLS } from '../../constants.jsx';
-import { fmtDate, getRatingColor } from '../../utils/format';
+import { fmtDate, formatRating, getRatingColor } from '../../utils/format';
 
 const numCellLocal = (row, key) => numCell(row[key] || 0);
 
@@ -85,7 +85,7 @@ export const COURSE_COLUMNS = [
       c.average_rating ? (
         <td className="text-right pr-1">
           <span className="font-mono font-bold" style={{ color: getRatingColor(c.average_rating) }}>
-            {c.average_rating.toFixed(2)}
+            {formatRating(c.average_rating)}
           </span>
         </td>
       ) : (

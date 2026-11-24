@@ -594,6 +594,53 @@ async def test_hardest_steps_module_and_lesson_numbers(db_session):
 
 
 @pytest.mark.asyncio
+async def test_lesson_numbers_have_no_gaps_after_removed_unit(db_session):
+    """Regression: после удаления юнита positions идут с дырой (1, 3).
+
+    Старая формула `сумма юнитов прошлых модулей + position` давала уроку
+    второго модуля номер, совпадающий с уроком первого (2 + 1 = 3 при уроке
+    №3 в первом модуле). Нумерация должна быть порядковой и уникальной.
+    """
+    user = _make_user(90)
+    course = _make_course(user.id, 9090)
+    db_session.add(user)
+    db_session.add(course)
+    await db_session.execute(
+        text("""
+        INSERT INTO raw_lesson (lesson_id, steps, title, _raw_json) VALUES
+            (10, '[5000]', 'Урок 1', '{}'),
+            (11, '[5001]', 'Урок 2', '{}'),
+            (12, '[5002]', 'Урок 3', '{}')
+        """)
+    )
+    await db_session.execute(
+        text("""
+        INSERT INTO raw_section (section_id, course, position, units, title, _raw_json) VALUES
+            (100, 9090, '1', '[2010, 2012]', 'Модуль 1', '{}'),
+            (200, 9090, '2', '[2013]', 'Модуль 2', '{}')
+        """)
+    )
+    await db_session.execute(
+        text("""
+        INSERT INTO raw_unit (unit_id, lesson_id, section_id, position, _raw_json) VALUES
+            (2010, 10, 100, '1', '{}'),
+            (2012, 11, 100, '3', '{}'),
+            (2013, 12, 200, '1', '{}')
+        """)
+    )
+    await db_session.commit()
+
+    await build_marts(db_session)
+
+    rows = (
+        await db_session.execute(
+            text("SELECT module_number, lesson_number FROM mart_lessons ORDER BY lesson_number")
+        )
+    ).all()
+    assert [tuple(r) for r in rows] == [(1, 1), (1, 2), (2, 3)]
+
+
+@pytest.mark.asyncio
 async def test_hardest_steps_module_lesson_missing_returns_none(db_session):
     """Шаг без записи в raw_unit/raw_section — module_number/lesson_number None."""
     user = _make_user(13)

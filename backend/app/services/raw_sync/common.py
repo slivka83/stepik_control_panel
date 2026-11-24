@@ -28,12 +28,21 @@ _NATURAL_KEYS = {
     "raw_certificate": "certificate_id",
     "raw_course_review": "review_id",
     "raw_course_review_summary": "review_summary_id",
+    "raw_promo_code": "promo_code_id",
 }
 
 
 def _hub():
     """Return the package module (the stable public facade)."""
     return sys.modules[__package__]
+
+
+def _as_int(value) -> int | None:
+    """int() без исключения: мусор в raw-строке не должен ронять синк."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _query_params(extra: dict | None = None, page: int = 1) -> dict:
@@ -111,62 +120,105 @@ async def _sync_id_sequence(session: AsyncSession, raw_table: str) -> None:
         pass
 
 
+async def _table_columns(session: AsyncSession, raw_table: str) -> set[str]:
+    """Columns of the real table (empty on SQLite/unknown — use all mapped)."""
+    try:
+        rows = await session.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = :t AND table_schema = current_schema()"
+            ),
+            {"t": raw_table},
+        )
+        return {row[0] for row in rows}
+    except Exception:
+        return set()
+
+
+async def _serial_columns(session: AsyncSession, raw_table: str) -> set[str]:
+    """Serial/identity primary keys must not be inserted explicitly."""
+    try:
+        rows = await session.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = :t AND table_schema = current_schema() "
+                "AND column_default LIKE 'nextval(%'"
+            ),
+            {"t": raw_table},
+        )
+        return {row[0] for row in rows}
+    except Exception:
+        return set()
+
+
+def _build_columns(
+    mapping: dict[str, str],
+    table_cols: set[str],
+    serial_cols: set[str],
+    extra_columns: dict[str, object] | None = None,
+) -> list[str]:
+    cols = [c for c in mapping.values() if not table_cols or c in table_cols]
+    if extra_columns:
+        cols += [c for c in extra_columns if c not in cols]
+    cols = [c for c in dict.fromkeys(cols) if c not in serial_cols]
+    if "_raw_json" not in cols:
+        cols.append("_raw_json")
+    return cols
+
+
+def _build_row_values(
+    obj: dict,
+    col_names: list[str],
+    mapping: dict[str, str],
+    extra_columns: dict[str, object] | None = None,
+) -> dict:
+    """One INSERT row: mapped API fields (strings) + the full `_raw_json`."""
+    values: dict[str, object] = {"_raw_json": json.dumps(obj, ensure_ascii=False)}
+    reverse: dict[str, str] = {}
+    for api_field, db_col in mapping.items():
+        # First mapped API field wins (same rule as the old next(...) lookup).
+        reverse.setdefault(db_col, api_field)
+    for col in col_names:
+        if col == "_raw_json":
+            continue
+        if extra_columns and col in extra_columns:
+            values[col] = extra_columns[col]
+            continue
+        val = obj.get(reverse.get(col, col))
+        if val is None:
+            values[col] = None
+        elif isinstance(val, (dict, list)):
+            values[col] = json.dumps(val, ensure_ascii=False)
+        else:
+            values[col] = str(val)
+    return values
+
+
 async def _replace_raw_table(session: AsyncSession, raw_table: str, objects: list[dict], mapping: dict[str, str]):
-    if not objects:
-        return
+    """Full reload: the API answer is the whole truth for the table.
 
-    try:
-        col_r = await session.execute(
-            text("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = :t
-        """),
-            {"t": raw_table},
-        )
-        table_cols = {row[0] for row in col_r}
-    except Exception:
-        table_cols = set()
+    An empty `objects` clears the table instead of silently keeping stale rows:
+    otherwise an entity removed on Stepik (or an empty endpoint) would survive
+    in the raw layer and in every mart built from it, forever.
+    """
+    objects = objects or []
 
-    all_db_cols = [c for c in mapping.values() if not table_cols or c in table_cols]
-
-    try:
-        pk_r = await session.execute(
-            text("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = :t AND column_default LIKE 'nextval(%'
-        """),
-            {"t": raw_table},
-        )
-        serial_pks = {row[0] for row in pk_r}
-    except Exception:
-        serial_pks = set()
-
-    col_names = [c for c in all_db_cols if c not in serial_pks] + ["_raw_json"]
-    if not col_names:
-        return
+    table_cols = await _table_columns(session, raw_table)
+    serial_cols = await _serial_columns(session, raw_table)
+    col_names = _build_columns(mapping, table_cols, serial_cols)
 
     placeholders = ", ".join(f":{c}" for c in col_names)
     cols_str = ", ".join(f'"{c}"' for c in col_names)
 
-    try:
-        await session.execute(text(f'TRUNCATE TABLE "{raw_table}" RESTART IDENTITY CASCADE'))
-    except Exception:
-        await session.execute(text(f'DELETE FROM "{raw_table}"'))
+    # DELETE, а не TRUNCATE: на PostgreSQL неудачный TRUNCATE переводит
+    # транзакцию в aborted, и fallback-DELETE уже не выполнится. Таблицы raw-
+    # слоя небольшие (крупные — incremental и не заменяются целиком).
+    await session.execute(text(f'DELETE FROM "{raw_table}"'))
 
-    for obj in objects:
-        raw_json = json.dumps(obj, ensure_ascii=False)
-        values = {"_raw_json": raw_json}
-        for c in col_names:
-            if c == "_raw_json":
-                continue
-            api_field = next((k for k, v in mapping.items() if v == c), c)
-            val = obj.get(api_field)
-            if val is not None and isinstance(val, (dict, list)):
-                values[c] = json.dumps(val, ensure_ascii=False)
-            elif val is not None:
-                values[c] = str(val)
-            else:
-                values[c] = None
+    if objects:
+        # executemany: одна сетевая операция на всю таблицу вместо INSERT на
+        # каждую строку (raw_user — тысячи профилей, это были тысячи round-trip).
+        values = [_build_row_values(obj, col_names, mapping) for obj in objects]
         await session.execute(
             text(f'INSERT INTO "{raw_table}" ({cols_str}) VALUES ({placeholders})'),
             values,
@@ -190,41 +242,13 @@ async def _upsert_raw_table(
     if not objects:
         return
 
-    try:
-        col_r = await session.execute(
-            text("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = :t
-        """),
-            {"t": raw_table},
-        )
-        table_cols = {row[0] for row in col_r}
-    except Exception:
-        table_cols = set()
-
-    all_db_cols = [c for c in mapping.values() if not table_cols or c in table_cols]
-    if extra_columns:
-        all_db_cols += [c for c in extra_columns if c not in all_db_cols]
-
-    try:
-        pk_r = await session.execute(
-            text("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = :t AND column_default LIKE 'nextval(%'
-        """),
-            {"t": raw_table},
-        )
-        serial_pks = {row[0] for row in pk_r}
-    except Exception:
-        serial_pks = set()
-
-    col_names = [c for c in all_db_cols if c not in serial_pks] + ["_raw_json"]
-    if not col_names:
-        return
+    table_cols = await _table_columns(session, raw_table)
+    serial_cols = await _serial_columns(session, raw_table)
+    col_names = _build_columns(mapping, table_cols, serial_cols, extra_columns)
 
     # Если id исключён (serial PK), новые строки получат nextval — он обязан
     # быть за пределами занятого диапазона (см. регрессию raw_comment_pkey)
-    if serial_pks:
+    if serial_cols:
         await _sync_id_sequence(session, raw_table)
 
     placeholders = ", ".join(f":{c}" for c in col_names)
@@ -235,32 +259,29 @@ async def _upsert_raw_table(
     id_field = _NATURAL_KEYS.get(raw_table)
     if id_field not in col_names:
         id_field = next((c for c in col_names if c.endswith("_id")), None)
-
-    conflict_clause = f' ON CONFLICT ("{id_field}") DO NOTHING' if id_field else ""
-
-    for obj in objects:
-        raw_json = json.dumps(obj, ensure_ascii=False)
-        values = {"_raw_json": raw_json}
-        for c in col_names:
-            if c == "_raw_json":
+    # Do UPDATE, not DO NOTHING: comments and reviews are editable on Stepik
+    # (text, likes/vote_delta, replies, is_staff_replied). DO NOTHING kept the
+    # first copy forever, so the "Не отвеченные"/"Дизлайки" tabs drifted from
+    # the platform. Context columns absent from the API payload (e.g. `step`
+    # for author-pass submissions) keep their stored value via COALESCE.
+    conflict_clause = ""
+    if id_field:
+        assignments = []
+        for col in col_names:
+            if col == id_field:
                 continue
-            if extra_columns and c in extra_columns:
-                values[c] = extra_columns[c]
-                continue
-            api_field = next((k for k, v in mapping.items() if v == c), c)
-            val = obj.get(api_field)
-            if val is not None and isinstance(val, (dict, list)):
-                values[c] = json.dumps(val, ensure_ascii=False)
-            elif val is not None:
-                values[c] = str(val)
+            if extra_columns and col in extra_columns:
+                assignments.append(f'"{col}" = COALESCE(EXCLUDED."{col}", "{raw_table}"."{col}")')
             else:
-                values[c] = None
-        await session.execute(
-            text(f'INSERT INTO "{raw_table}" ({cols_str}) VALUES ({placeholders}){conflict_clause}'),
-            values,
-        )
+                assignments.append(f'"{col}" = EXCLUDED."{col}"')
+        if assignments:
+            conflict_clause = f' ON CONFLICT ("{id_field}") DO UPDATE SET {", ".join(assignments)}'
 
-    await _sync_id_sequence(session, raw_table)
+    values = [_build_row_values(obj, col_names, mapping, extra_columns) for obj in objects]
+    await session.execute(
+        text(f'INSERT INTO "{raw_table}" ({cols_str}) VALUES ({placeholders}){conflict_clause}'),
+        values,
+    )
 
 
 async def _save_sync_state(session: AsyncSession, endpoint: str, key: str, value: str) -> None:
@@ -278,3 +299,32 @@ async def _save_sync_state(session: AsyncSession, endpoint: str, key: str, value
 async def _raw_course_ids(session: AsyncSession) -> list[int]:
     r = await session.execute(text("SELECT course_id FROM raw_course"))
     return [int(row[0]) for row in r if row[0] is not None]
+
+
+async def _previous_raw_objects(
+    session: AsyncSession, raw_table: str, key_column: str, keys
+) -> list[dict]:
+    """Сохранить строки, которые не удалось перезагрузить.
+
+    `_replace_raw_table` работает по принципу «ответ API — вся правда», но при
+    частично упавшем запросе (один курс/батч вернул ошибку) это удаляло бы уже
+    загруженные данные этого курса. Возвращаем их из `_raw_json`, чтобы
+    вставить обратно вместе со свежими строками успешных запросов.
+    """
+    values = sorted({str(k) for k in keys if k is not None})
+    if not values:
+        return []
+    placeholders = ", ".join(f":k{i}" for i in range(len(values)))
+    r = await session.execute(
+        text(f'SELECT _raw_json FROM "{raw_table}" WHERE "{key_column}" IN ({placeholders})'),
+        {f"k{i}": value for i, value in enumerate(values)},
+    )
+    objects = []
+    for (raw,) in r:
+        try:
+            obj = json.loads(raw) if isinstance(raw, (str, bytes, bytearray)) else raw
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(obj, dict):
+            objects.append(obj)
+    return objects

@@ -299,6 +299,4 @@ export const TAB_COLUMNS = {
   months: MONTH_COLUMNS,
   years: YEARS_COLUMNS,
   courses: COURSES_COLUMNS,
-  unanswered: COMMENTS_LIST_COLUMNS,
-  disliked: COMMENTS_LIST_COLUMNS,
 };

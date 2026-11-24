@@ -6,7 +6,15 @@ from fastapi.testclient import TestClient
 from app.api.auth import get_user
 from app.database import get_db
 from app.main import app
-from app.models import StudentMart, User
+from app.models import (
+    Course,
+    MartCertificate,
+    MartComment,
+    StudentEnrollment,
+    StudentMart,
+    Submission,
+    User,
+)
 from app.services.crypto import encrypt_token
 
 client = TestClient(app, raise_server_exceptions=False)
@@ -110,3 +118,126 @@ class TestStudentsPagination:
             assert data["total"] == 3
         finally:
             app.dependency_overrides.clear()
+
+
+class TestStudentsFilteredCounters:
+    async def test_row_counters_are_recomputed_for_selected_course(self, db_session):
+        """Regression: при фильтре по курсам строка показывала account-wide
+        счётчики из student_marts (решения/комментарии/сертификаты всех курсов)."""
+        user = await _seed_user(db_session)
+        c1 = Course(
+            id=uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="A", status="Published"
+        )
+        c2 = Course(
+            id=uuid.uuid4(), user_id=user.id, stepik_course_id=101, title="B", status="Published"
+        )
+        db_session.add_all([c1, c2])
+        db_session.add(
+            StudentMart(
+                id=uuid.uuid4(),
+                student_id=7,
+                name="Иван",
+                cohort_status="Active",
+                courses_count=3,
+                certificates=99,
+                submissions_count=99,
+                submissions_successful=99,
+                comments_count=99,
+                published_solutions=99,
+            )
+        )
+        old = (datetime.now(UTC) - timedelta(days=40)).replace(tzinfo=None)
+        db_session.add_all(
+            [
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=c1.id,
+                    student_id=7,
+                    cohort_status="Passive",
+                    last_viewed_at=old,
+                ),
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=c2.id,
+                    student_id=7,
+                    cohort_status="Active",
+                    last_viewed_at=datetime.now(UTC).replace(tzinfo=None),
+                ),
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=1,
+                    stepik_step_id=10,
+                    course_id=c1.id,
+                    status="correct",
+                    score=1.0,
+                    submission_time=datetime.now(UTC).replace(tzinfo=None),
+                    user_id=7,
+                    is_author=False,
+                ),
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=2,
+                    stepik_step_id=11,
+                    course_id=c2.id,
+                    status="wrong",
+                    score=0.0,
+                    submission_time=datetime.now(UTC).replace(tzinfo=None),
+                    user_id=7,
+                    is_author=False,
+                ),
+                MartCertificate(
+                    id=uuid.uuid4(), course_id=c1.id, stepik_course_id=100, certificate_id=1, user_id=7
+                ),
+                MartCertificate(
+                    id=uuid.uuid4(), course_id=c2.id, stepik_course_id=101, certificate_id=2, user_id=7
+                ),
+                MartComment(
+                    id=uuid.uuid4(),
+                    course_id=c1.id,
+                    stepik_course_id=100,
+                    comment_id=1,
+                    user_id=7,
+                    is_solution=False,
+                ),
+                MartComment(
+                    id=uuid.uuid4(),
+                    course_id=c1.id,
+                    stepik_course_id=100,
+                    comment_id=2,
+                    user_id=7,
+                    is_solution=True,
+                ),
+                MartComment(
+                    id=uuid.uuid4(),
+                    course_id=c2.id,
+                    stepik_course_id=101,
+                    comment_id=3,
+                    user_id=7,
+                    is_solution=False,
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        async def override_db():
+            yield db_session
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
+        try:
+            data = client.get(f"/api/dashboard/students?course_ids={c1.id}").json()
+        finally:
+            app.dependency_overrides.clear()
+
+        assert data["total"] == 1
+        row = data["students"][0]
+        assert row["courses_count"] == 1
+        assert row["certificates"] == 1
+        assert row["submissions_count"] == 1
+        assert row["submissions_successful"] == 1
+        assert row["comments_count"] == 1
+        assert row["published_solutions"] == 1
+        assert row["cohort_status"] == "Passive"

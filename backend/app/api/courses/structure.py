@@ -113,7 +113,10 @@ async def get_course_structure(
         lessons = []
         for _lesson_number, lid in sorted(lessons_by_module.get(module_number, [])):
             steps = []
-            for s in sorted(steps_by_lesson.get(lid, []), key=lambda s: s["step_number"] or 0):
+            for s in sorted(
+                steps_by_lesson.get(lid, []),
+                key=lambda s: (s["step_number"] is None, s["step_number"] or 0),
+            ):
                 st = stats.get(s["step_id"], {})
                 steps.append(
                     {
@@ -139,6 +142,4 @@ async def get_course_structure(
             }
         )
 
-    if not module_rows:
-        return {"course": course_payload_, "modules": []}
     return {"course": course_payload_, "modules": modules}

@@ -170,3 +170,28 @@ class TestSyncModule:
 
     def test_sync_cooldown_constant(self):
         assert sync_mod.SYNC_COOLDOWN_SECONDS == 60
+
+    def test_request_sync_reserves_slot_before_thread_starts(self):
+        """Regression: первый опрос /status после POST видел in_progress=false.
+
+        Слот резервируется синхронно в request_sync, иначе UI перестаёт
+        показывать прогресс, пока поток синка ещё запускается.
+        """
+        sync_mod._sync_in_progress = False
+        sync_mod._sync_pending = False
+        sync_mod._last_sync_completed_at = 0
+        sync_mod._last_sync_error = None
+        try:
+            assert sync_mod.request_sync(force=False)["status"] == "sync_started"
+            assert sync_mod.status_in_progress() is True
+            assert sync_mod.can_sync() is False
+            assert sync_mod.request_sync(force=False)["status"] == "already_in_progress"
+
+            sync_mod.fail_pending("executor failed")
+            assert sync_mod.status_in_progress() is False
+            assert sync_mod._last_sync_error == "executor failed"
+        finally:
+            sync_mod._sync_pending = False
+            sync_mod._sync_in_progress = False
+            sync_mod._last_sync_error = None
+            sync_mod._last_sync_completed_at = 0

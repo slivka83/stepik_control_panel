@@ -40,9 +40,7 @@ async def transform_certificates(session: AsyncSession):
         user_id = _to_int(user_raw)
         if user_id is None:
             user_id = _to_int(data.get("user"))
-        cert_id = _to_int(data.get("id"))
-        if cert_id is None:
-            cert_id = _to_int(cert_id_raw)
+        cert_id = _to_int(data.get("id")) or _to_int(cert_id_raw)
         rows.append(
             {
                 "id": str(uuid.uuid4()),

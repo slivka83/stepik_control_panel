@@ -104,10 +104,12 @@ describe('Reviews', () => {
     expect(screen.getByText('Нет данных')).toBeInTheDocument();
   });
 
-  it('shows 0 KPI values when stats missing', () => {
+  it('shows 0 KPI values and a dash instead of a fake 0 rating', () => {
     renderReviews(null);
     const zeros = screen.getAllByText('0');
-    expect(zeros.length).toBeGreaterThanOrEqual(3);
+    expect(zeros.length).toBeGreaterThanOrEqual(2);
+    // Оценки нет — это «—», а не красный 0,00 (как и в таблице).
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0);
   });
 
   it('shows chart toggle only on months tab', async () => {

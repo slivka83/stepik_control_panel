@@ -3,7 +3,7 @@ import CourseStructureMatrix from '../../components/CourseStructureMatrix';
 import api from '../../api';
 import EmptyCourses from './EmptyCourses';
 
-export default function CourseStepsTab({ courses, courseId, metric }) {
+export default function CourseStepsTab({ courses, courseId, metric, lastSync }) {
   const [structure, setStructure] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -16,6 +16,8 @@ export default function CourseStepsTab({ courses, courseId, metric }) {
       return;
     }
     let cancelled = false;
+    // Не показываем структуру предыдущего курса под названием нового.
+    setStructure(null);
     setLoading(true);
     setLoadError(null);
     api
@@ -32,7 +34,7 @@ export default function CourseStepsTab({ courses, courseId, metric }) {
     return () => {
       cancelled = true;
     };
-  }, [courseId, retryTick]);
+  }, [courseId, retryTick, lastSync]);
 
   if (courses.length === 0) {
     return <EmptyCourses />;

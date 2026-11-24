@@ -31,7 +31,10 @@ export default function CourseStructureMatrix({ modules = [], metric = 'views', 
       }
     }
   }
-  const maxSteps = Math.max(0, ...modules.flatMap((mod) => (mod.lessons || []).map((l) => (l.steps || []).length)));
+  const maxSteps = Math.max(
+    1,
+    ...modules.flatMap((mod) => (mod.lessons || []).map((l) => (l.steps || []).length)),
+  );
 
   const rows = [];
   modules.forEach((mod) => {
@@ -54,7 +57,6 @@ export default function CourseStructureMatrix({ modules = [], metric = 'views', 
 
   return (
     <figure
-      role="img"
       aria-label="Тепловая карта структуры курса"
       className="glass-panel p-4 flex flex-col flex-1 min-h-0 overflow-hidden"
     >
@@ -92,20 +94,31 @@ export default function CourseStructureMatrix({ modules = [], metric = 'views', 
                   if (!step) {
                     return <div key={`e-${ci}`} className="rounded-sm bg-[#0d1524]" style={{ minHeight: 26 }} />;
                   }
-                  return (
+                  const hasLink = step.lesson_id != null && step.step_number != null;
+                  const cellClass =
+                    'flex items-center justify-center rounded-sm font-mono text-[10px] text-space-black transition-shadow';
+                  const cellStyle = { backgroundColor: stepColor(step, metric, maxValue), minHeight: 26 };
+                  const cellHandlers = {
+                    onMouseEnter: (e) => showTooltip(e, mod, lesson, step),
+                    onMouseMove: (e) => setTooltip((t) => (t ? { ...t, x: e.clientX, y: e.clientY } : t)),
+                    onMouseLeave: () => setTooltip(null),
+                  };
+                  return hasLink ? (
                     <a
                       key={`s-${step.step_id}`}
                       href={STEPIK_URLS.step(step.lesson_id, step.step_number)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center justify-center rounded-sm font-mono text-[10px] text-space-black hover:ring-1 hover:ring-white/60 transition-shadow"
-                      style={{ backgroundColor: stepColor(step, metric, maxValue), minHeight: 26 }}
-                      onMouseEnter={(e) => showTooltip(e, mod, lesson, step)}
-                      onMouseMove={(e) => setTooltip((t) => (t ? { ...t, x: e.clientX, y: e.clientY } : t))}
-                      onMouseLeave={() => setTooltip(null)}
+                      className={`${cellClass} hover:ring-1 hover:ring-white/60`}
+                      style={cellStyle}
+                      {...cellHandlers}
                     >
                       {metricCellText(step, metric)}
                     </a>
+                  ) : (
+                    <div key={`s-${step.step_id}`} className={cellClass} style={cellStyle} {...cellHandlers}>
+                      {metricCellText(step, metric)}
+                    </div>
                   );
                 })}
               </div>

@@ -11,11 +11,16 @@ function buildTrendTooltip(label, detail, pct, unit = '') {
   const cur = `${formatNumber(detail.current)}${unit}`;
   const prev = `${formatNumber(detail.previous)}${unit}`;
   const sign = pct >= 0 ? '+' : '−';
-  return [
+  const lines = [
     'Изменение за месяц',
     `${label}: сейчас ${cur}, в прошлом месяце ${prev}`,
-    `Расчёт: (${cur} − ${prev}) ÷ ${prev} × 100 = ${sign}${Math.abs(pct)}%`,
-  ].join('\n');
+  ];
+  // При нуле в прошлом месяце процента нет (backend отдаёт pct=0 для 0→0);
+  // формула с делением на ноль была бы математически неверной.
+  if (detail.previous !== 0) {
+    lines.push(`Расчёт: (${cur} − ${prev}) ÷ ${prev} × 100 = ${sign}${Math.abs(pct)}%`);
+  }
+  return lines.join('\n');
 }
 
 export default function Dashboard() {
@@ -78,18 +83,27 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <KpiCard
           title="Возвраты (₽) /месяц"
-          value={kpi?.current_month_refunds_count || 0}
-          trend={kpi?.refunds_change_pct}
-          trendTooltip={buildTrendTooltip('Возвраты (₽)', kpi?.refunds_change_detail, kpi?.refunds_change_pct, ' ₽')}
+          value={kpi?.current_month_refunds_amount || 0}
+          trend={kpi?.refunds_amount_change_pct}
+          trendTooltip={buildTrendTooltip(
+            'Возвраты (₽)',
+            kpi?.refunds_amount_change_detail,
+            kpi?.refunds_amount_change_pct,
+            ' ₽',
+          )}
           trendInverted
           color="white"
           suffix={'\u200A₽'}
         />
         <KpiCard
           title="Возвраты (шт) /месяц"
-          value={kpi?.current_month_refunds_pcs || 0}
-          trend={kpi?.refunds_pcs_change_pct}
-          trendTooltip={buildTrendTooltip('Возвраты (шт)', kpi?.refunds_pcs_change_detail, kpi?.refunds_pcs_change_pct)}
+          value={kpi?.current_month_refunds_count || 0}
+          trend={kpi?.refunds_count_change_pct}
+          trendTooltip={buildTrendTooltip(
+            'Возвраты (шт)',
+            kpi?.refunds_count_change_detail,
+            kpi?.refunds_count_change_pct,
+          )}
           trendInverted
           color="white"
         />
@@ -101,7 +115,6 @@ export default function Dashboard() {
           trendTooltip={buildTrendTooltip('Сертификаты', kpi?.certificates_change_detail, kpi?.certificates_change_pct)}
           secondHighlight
           color="white"
-          trendBadge
         />
         <KpiCard
           title="Публичные решения"
@@ -115,7 +128,6 @@ export default function Dashboard() {
           )}
           secondHighlight
           color="white"
-          trendBadge
         />
         <KpiCard
           title="Комментарии"
@@ -125,7 +137,6 @@ export default function Dashboard() {
           trendTooltip={buildTrendTooltip('Комментарии', kpi?.comments_change_detail, kpi?.comments_change_pct)}
           secondHighlight
           color="white"
-          trendBadge
         />
         <KpiCard
           title="Отзывы"
@@ -135,7 +146,6 @@ export default function Dashboard() {
           trendTooltip={buildTrendTooltip('Отзывы', kpi?.reviews_change_detail, kpi?.reviews_change_pct)}
           secondHighlight
           color="white"
-          trendBadge
         />
       </div>
 

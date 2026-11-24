@@ -34,12 +34,16 @@ async def get_revenue(
     snapshot = snapshot_result.scalar_one_or_none()
     if not snapshot:
         return {"months": []}
+    snapshot_data = snapshot.data if isinstance(snapshot.data, dict) else {}
     if parsed is None:
-        months = snapshot.data.get("months", [])
+        months = snapshot_data.get("months", [])
+        if not isinstance(months, list):
+            months = []
+        months = [m for m in months if isinstance(m, dict)]
     else:
         courses, _ = await get_courses_for_user(db, user, parsed)
         selected_stepik_ids = {c.stepik_course_id for c in courses}
-        months = filter_financials(snapshot.data, selected_stepik_ids)["months"]
+        months = filter_financials(snapshot_data, selected_stepik_ids)["months"]
     return {"months": months}
 
 
@@ -52,7 +56,7 @@ async def get_submissions(
     courses, course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
 
     if not course_ids:
-        return {"months": [], "by_course": [], "years": []}
+        return {"months": [], "by_course": [], "years": [], "published_total": 0}
 
     selected_stepik_ids = {c.stepik_course_id for c in courses}
     published_monthly, published_yearly, published_per_course = await published_solutions_stats(
@@ -84,6 +88,8 @@ async def get_submissions(
         months.append(
             {
                 "month": format_month_label(m, y),
+                "year": y,
+                "month_num": m,
                 "total": row.total,
                 "correct": row.correct,
                 "students": row.students,
@@ -157,7 +163,12 @@ async def get_submissions(
             }
         )
 
-    return {"months": months, "by_course": by_course, "years": years}
+    return {
+        "months": months,
+        "by_course": by_course,
+        "years": years,
+        "published_total": sum(published_monthly.values()),
+    }
 
 
 @router.get("/active-students")
@@ -216,6 +227,8 @@ async def get_active_students(
         months.append(
             {
                 "month": format_month_label(m, y),
+                "year": y,
+                "month_num": m,
                 "dark": monthly[(y, m)],
                 "light": unique_map.get((y, m), 0),
             }
@@ -236,15 +249,17 @@ async def get_certificates(
     (year/month/type denormalized by transform_certificates).
     """
     parsed = parse_course_ids(course_ids)
-    stmt = "SELECT year, month, type FROM mart_certificates"
-    params: dict = {}
-    if parsed is not None:
-        courses, _ = await get_courses_for_user(db, user, parsed)
-        stepik_ids = sorted(c.stepik_course_id for c in courses)
-        if not stepik_ids:
-            return {"months": []}
-        placeholders, params = in_clause(stepik_ids, "cid")
-        stmt += f" WHERE stepik_course_id IN ({placeholders})"
+    # Всегда ограничиваем курсами пользователя: без этого график показывал
+    # сертификаты любых аккаунтов, чьи курсы лежат в общей витрине.
+    courses, _ = await get_courses_for_user(db, user, parsed)
+    stepik_ids = sorted(c.stepik_course_id for c in courses)
+    if not stepik_ids:
+        return {"months": []}
+    placeholders, params = in_clause(stepik_ids, "cid")
+    stmt = (
+        "SELECT year, month, type FROM mart_certificates "
+        f"WHERE stepik_course_id IN ({placeholders})"
+    )
 
     rows = (await db.execute(text(stmt), params)).all()
     monthly: dict[str, int] = {}
@@ -265,6 +280,8 @@ async def get_certificates(
         months_res.append(
             {
                 "month": format_month_label(m, y),
+                "year": y,
+                "month_num": m,
                 "dark": total,
                 "light": total - distinction_monthly.get(key, 0),
             }

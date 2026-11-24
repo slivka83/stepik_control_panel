@@ -350,6 +350,16 @@ class TestKpiEdgeCases:
                             "payments_count": 6,
                             "refunds_count": 0,
                         },
+                        {
+                            "month": "Август 2026",
+                            "year": 2026,
+                            "month_num": 8,
+                            "income": 200,
+                            "turnover": 300,
+                            "refunds": 0,
+                            "payments_count": 2,
+                            "refunds_count": 0,
+                        },
                     ],
                     "courses": [],
                     "recent_payments": [],
@@ -384,6 +394,66 @@ class TestKpiEdgeCases:
             # The buggy version compared against months[-2] = June (500) → -60%.
             assert data["revenue_change_pct"] == -80
             assert data["revenue_change_detail"] == {"current": 200, "previous": 1000}
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_revenue_does_not_use_stale_summary_after_month_rollover(self, db_session):
+        """Regression: summary.current_month_income записан в прошлом месяце —
+        после смены месяца «Доход /месяц» показывал прошлый месяц."""
+        user = await _seed_user(db_session)
+        await _owned_course(db_session, user, 100)
+        db_session.add(
+            FinancialSnapshot(
+                id=uuid.uuid4(),
+                data={
+                    "summary": {
+                        "current_month_income": 7000,  # доход января, снапшот не обновлялся
+                        "total_income": 7000,
+                        "total_turnover": 8000,
+                        "total_refunds": 0,
+                        "total_payments": 7,
+                    },
+                    "months": [
+                        {
+                            "month": "Январь 2026",
+                            "year": 2026,
+                            "month_num": 1,
+                            "income": 7000,
+                            "turnover": 8000,
+                            "refunds": 0,
+                            "payments_count": 7,
+                            "refunds_count": 0,
+                        },
+                    ],
+                    "courses": [],
+                    "recent_payments": [],
+                    "community": {"total_comments": 0},
+                },
+                updated_at=datetime.now(UTC).replace(tzinfo=None),
+            )
+        )
+        await db_session.commit()
+
+        fixed = datetime(2026, 2, 3, 9, 0, 0, tzinfo=UTC)
+
+        class _FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return fixed
+
+        async def override_db():
+            yield db_session
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
+        try:
+            with patch.object(kpi_module, "datetime", _FixedDateTime):
+                data = client.get("/api/dashboard/kpi").json()
+            assert data["total_revenue"] == 0
+            assert data["revenue_change_detail"] == {"current": 0, "previous": 7000}
         finally:
             app.dependency_overrides.clear()
 
@@ -443,8 +513,8 @@ class TestKpiEdgeCases:
             data = response.json()
             # Текущий месяц (август) в серии отсутствует → нули, а не июльские 5/100/2
             assert data["current_month_payments"] == 0
+            assert data["current_month_refunds_amount"] == 0
             assert data["current_month_refunds_count"] == 0
-            assert data["current_month_refunds_pcs"] == 0
             # Прошлый календарный месяц = июль (500) → тренд дохода -100%
             assert data["revenue_change_pct"] == -100
             assert data["revenue_change_detail"] == {"current": 0, "previous": 500}
@@ -452,6 +522,36 @@ class TestKpiEdgeCases:
             # сравнивала бы months[-1]=июль с months[-2]=июнь)
             assert data["payments_change_pct"] == -100
             assert data["payments_change_detail"] == {"current": 0, "previous": 5}
-            assert data["refunds_pcs_change_detail"] == {"current": 0, "previous": 2}
+            assert data["refunds_count_change_detail"] == {"current": 0, "previous": 2}
         finally:
             app.dependency_overrides.clear()
+
+
+async def test_empty_kpi_has_the_same_keys_as_a_filled_one(db_session):
+    """Regression: пустой выбор курсов отдавал неполный набор полей.
+
+    `_EMPTY_KPI` не содержал current_month_*, total_refunds_count и часть
+    *_change_* — фронтенд получал undefined вместо нулей/null.
+    """
+    user = await _seed_user(db_session)
+    await _owned_course(db_session, user, 100)
+    await db_session.commit()
+
+    async def override_db():
+        yield db_session
+
+    async def override_user():
+        return user
+
+    app.dependency_overrides[get_db] = override_db
+    app.dependency_overrides[get_user] = override_user
+    try:
+        filled = client.get("/api/dashboard/kpi").json()
+        empty = client.get("/api/dashboard/kpi?course_ids=").json()
+    finally:
+        app.dependency_overrides.clear()
+
+    assert set(empty) == set(filled), sorted(set(filled) - set(empty)) + sorted(set(empty) - set(filled))
+    assert empty["total_refunds_count"] == 0
+    assert empty["current_month_refunds_amount"] == 0
+    assert empty["refunds_amount_change_detail"] is None

@@ -10,9 +10,6 @@ const COLOR_CLASSES = {
   'amber-alert': 'text-amber-alert border-amber-alert/20',
   'crimson-alert': 'text-crimson-alert border-crimson-alert/20',
   white: 'text-gray-300 border-gray-300/20',
-  'dim-green': 'text-[#22763d] border-[#22763d]/20',
-  'dim-blue': 'text-[#1a6a9e] border-[#1a6a9e]/20',
-  'dim-crimson': 'text-[#8b2040] border-[#8b2040]/20',
   distinction: 'text-[#DB62C4] border-[#DB62C4]/20',
   regular: 'text-[#B70094] border-[#B70094]/20',
 };
@@ -24,39 +21,36 @@ function KpiCard({
   suffix = '',
   color = 'cyber-blue',
   trend = null,
-  trendBadge = false,
   fractionDigits = 0,
   minimumFractionDigits = 0,
-  noAnimate = false,
   noZero = false,
   secondValue = null,
-  secondSuffix = '',
   secondHighlight = false,
   ratingColor = false,
   trendInverted = false,
   trendTooltip = null,
 }) {
   const dp = Math.max(fractionDigits, minimumFractionDigits);
-  const fmt = (val) => formatNumber(val, { minimumFractionDigits, maximumFractionDigits: fractionDigits });
+  const fmt = (val) => formatNumber(val, { minimumFractionDigits, maximumFractionDigits: dp });
   const textColor = ratingColor ? undefined : COLOR_CLASSES[color]?.split(' ')[0] || 'text-cyber-blue';
   const effTrend = trend === null ? 1 : trend;
   const showDash = noZero && (!value || value === 0);
 
   const getRatingStyle = () => {
     if (!ratingColor) return {};
-    return { color: getRatingColor(value) };
+    return { color: showDash ? '#6b7280' : getRatingColor(value) };
   };
 
   return (
     <div className="glass-panel glass-panel-hover p-4 transition-all duration-300">
       <div className="flex items-end justify-between mb-2">
         <div className="text-gray-400 text-xs">{title}</div>
-        {(trend !== null || (trendBadge && secondValue !== null && secondValue > 0)) && (
+        {trend !== null && (
           <span
             title={trendTooltip || undefined}
             className={`text-xs font-mono ${trendInverted ? (effTrend > 0 ? 'text-crimson-alert' : 'text-neon-green') : effTrend >= 0 ? 'text-neon-green' : 'text-crimson-alert'}`}
           >
-            {trend !== null ? `${trend >= 0 ? '↑' : '↓'} ${Math.abs(trend)}%` : '↑ --%'}
+            {`${trend >= 0 ? '↑' : '↓'} ${Math.abs(trend)}%`}
           </span>
         )}
       </div>
@@ -67,8 +61,6 @@ function KpiCard({
         {prefix}
         {showDash ? (
           <span>—</span>
-        ) : noAnimate ? (
-          <span>{fmt(value)}</span>
         ) : (
           <CountUp end={value} duration={1.5} redraw={false} preserveValue decimals={dp} formattingFn={fmt} />
         )}
@@ -77,20 +69,15 @@ function KpiCard({
           <>
             <span className={`font-mono mx-1 ${secondHighlight ? textColor || '' : '!text-gray-500'}`}>+</span>
             <span className={secondHighlight ? textColor || '' : '!text-gray-500'}>
-              {noAnimate ? (
-                <span>{fmt(secondValue)}</span>
-              ) : (
-                <CountUp
-                  end={secondValue}
-                  duration={1.5}
-                  redraw={false}
-                  preserveValue
-                  decimals={dp}
-                  formattingFn={fmt}
-                />
-              )}
+              <CountUp
+                end={secondValue}
+                duration={1.5}
+                redraw={false}
+                preserveValue
+                decimals={dp}
+                formattingFn={fmt}
+              />
             </span>
-            <span className={`${secondHighlight ? textColor || '' : '!text-gray-500'}`}>{secondSuffix}</span>
           </>
         )}
       </div>
@@ -111,18 +98,13 @@ KpiCard.propTypes = {
     'amber-alert',
     'crimson-alert',
     'white',
-    'dim-green',
-    'dim-blue',
-    'dim-crimson',
     'distinction',
     'regular',
   ]),
   trend: PropTypes.number,
   trendInverted: PropTypes.bool,
-  trendBadge: PropTypes.bool,
   trendTooltip: PropTypes.string,
   fractionDigits: PropTypes.number,
   secondValue: PropTypes.number,
-  secondSuffix: PropTypes.string,
   secondHighlight: PropTypes.bool,
 };

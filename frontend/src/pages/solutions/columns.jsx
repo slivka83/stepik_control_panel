@@ -46,9 +46,12 @@ export const SORT_INIT = {
   hardest: { key: 'weighted_success', dir: 'asc' },
 };
 
-function successColor(pct) {
-  if (pct < 33) return '#f43f5e';
-  if (pct < 66) return '#f59e0b';
+export const SUCCESS_BAD_PCT = 33;
+export const SUCCESS_OK_PCT = 66;
+
+export function successColor(pct) {
+  if (pct < SUCCESS_BAD_PCT) return '#f43f5e';
+  if (pct < SUCCESS_OK_PCT) return '#f59e0b';
   return '#4ade80';
 }
 
@@ -72,7 +75,7 @@ const MONTH_COLUMNS = [
   {
     key: 'month',
     label: 'Месяц',
-    width: 'w-[22%]',
+    width: 'w-[18%]',
     numeric: true,
     getValue: monthComposite,
     render: (m) => <td className="text-gray-300 font-mono text-xs pl-1 truncate">{yearMonthLabel(m.month)}</td>,
@@ -81,16 +84,16 @@ const MONTH_COLUMNS = [
     key: 'students',
     label: 'Студенты',
     align: 'right',
-    width: 'w-[14%]',
+    width: 'w-[12%]',
     numeric: true,
     render: (m) => num(m, 'students'),
   },
-  { key: 'total', label: 'Всего', align: 'right', width: 'w-[16%]', numeric: true, render: (m) => num(m, 'total') },
+  { key: 'total', label: 'Всего', align: 'right', width: 'w-[14%]', numeric: true, render: (m) => num(m, 'total') },
   {
     key: 'correct',
     label: 'Правильно',
     align: 'right',
-    width: 'w-[16%]',
+    width: 'w-[14%]',
     numeric: true,
     render: (m) => num(m, 'correct'),
   },
@@ -106,7 +109,7 @@ const MONTH_COLUMNS = [
     key: 'wrong',
     label: 'Неверно',
     align: 'right',
-    width: 'w-[13%]',
+    width: 'w-[14%]',
     numeric: true,
     getValue: calcWrong,
     render: (m) => numCell(calcWrong(m)),
@@ -115,7 +118,7 @@ const MONTH_COLUMNS = [
     key: 'success',
     label: 'Успех',
     align: 'right',
-    width: 'w-[13%]',
+    width: 'w-[14%]',
     numeric: true,
     getValue: calcPct,
     render: (m) => successCell(calcPct(m)),
@@ -246,7 +249,7 @@ const HARDEST_COLUMNS = [
   {
     key: 'step_id',
     label: 'Шаг',
-    width: 'w-[10%]',
+    width: 'w-[12%]',
     numeric: true,
     getValue: (s) => s.stepik_step_id,
     render: (s) => (
@@ -278,7 +281,7 @@ const HARDEST_COLUMNS = [
   {
     key: 'title',
     label: 'Курс',
-    width: 'w-[30%]',
+    width: 'w-[24%]',
     getValue: (s) => s.course_title,
     render: (s) => <td className="text-gray-300 font-mono text-xs pl-1 truncate">{s.course_title}</td>,
   },
@@ -286,16 +289,16 @@ const HARDEST_COLUMNS = [
     key: 'students',
     label: 'Студенты',
     align: 'right',
-    width: 'w-[12%]',
+    width: 'w-[10%]',
     numeric: true,
     render: (s) => num(s, 'students'),
   },
-  { key: 'total', label: 'Всего', align: 'right', width: 'w-[12%]', numeric: true, render: (s) => num(s, 'total') },
+  { key: 'total', label: 'Всего', align: 'right', width: 'w-[10%]', numeric: true, render: (s) => num(s, 'total') },
   {
     key: 'correct',
     label: 'Правильно',
     align: 'right',
-    width: 'w-[14%]',
+    width: 'w-[12%]',
     numeric: true,
     render: (s) => num(s, 'correct'),
   },
@@ -303,7 +306,7 @@ const HARDEST_COLUMNS = [
     key: 'wrong',
     label: 'Неверно',
     align: 'right',
-    width: 'w-[14%]',
+    width: 'w-[12%]',
     numeric: true,
     getValue: calcWrong,
     render: (s) => numCell(calcWrong(s)),
@@ -312,7 +315,7 @@ const HARDEST_COLUMNS = [
     key: 'success',
     label: 'Успех',
     align: 'right',
-    width: 'w-[14%]',
+    width: 'w-[10%]',
     numeric: true,
     getValue: (s) => calcPct(s),
     render: (s) => successCell(calcPct(s)),
@@ -321,7 +324,7 @@ const HARDEST_COLUMNS = [
     key: 'weighted_success',
     label: 'Взв. успех',
     align: 'right',
-    width: 'w-[14%]',
+    width: 'w-[10%]',
     numeric: true,
     getValue: (s) => (s.weighted_success_pct != null ? s.weighted_success_pct : s.success_pct),
     render: (s) => {

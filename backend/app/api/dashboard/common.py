@@ -15,7 +15,7 @@ async def get_courses_for_user(
     user: User,
     course_ids: list[uuid.UUID] | None = None,
 ) -> tuple[list[Course], list]:
-    """Return (courses, course_ids) for the current user, in title order.
+    """Return (courses, course_ids) for the current user.
 
     With course_ids given, restricts to the intersection with the user's
     courses — a caller can never see courses owned by another user.
@@ -38,11 +38,36 @@ def in_clause(values, prefix: str = "id") -> tuple[str, dict]:
 
     Возвращает ("(:id0, :id1, ...)", {":id0": v0, ...}) — единая реализация
     для всех dashboard-эндпоинтов (раньше копипастилась 8 раз).
+    Пустой список → NULL (никогда не совпадает): «IN ()» — синтаксическая
+    ошибка на всех поддерживаемых БД.
     """
     vals = sorted(values)
+    if not vals:
+        return "NULL", {}
     placeholders = ", ".join(f":{prefix}{i}" for i in range(len(vals)))
     params = {f"{prefix}{i}": v for i, v in enumerate(vals)}
     return placeholders, params
+
+
+def votes_weighted_grade(rows) -> float:
+    """Средняя оценка шагов, взвешенная по числу голосов (`grade_votes`).
+
+    `rows` — пары (grade, votes). Одна формула для KPI и фильтра по курсам:
+    шаги без оценки/голосов пропускаются, деления на ноль нет.
+    """
+    votes_total = 0.0
+    votes_count = 0
+    for grade, votes in rows:
+        try:
+            grade_f = float(grade)
+            votes_i = int(votes)
+        except (TypeError, ValueError):
+            continue
+        if votes_i <= 0:
+            continue
+        votes_total += grade_f * votes_i
+        votes_count += votes_i
+    return round(votes_total / votes_count, 2) if votes_count else 0.0
 
 
 def wilson_success_pct(correct: int, total: int, z: float = 1.96) -> float:

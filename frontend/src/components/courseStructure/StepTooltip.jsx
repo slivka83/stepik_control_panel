@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom';
+import { formatRating } from '../../utils/format';
 import { BLOCK_LABELS, fmtNum } from './stepVisuals';
 
 export default function StepTooltip({ tooltip }) {
@@ -20,7 +21,8 @@ export default function StepTooltip({ tooltip }) {
         Модуль {tooltip.module.position}. {tooltip.module.title} — {tooltip.lesson.title}
       </div>
       <div className="text-cyber-blue text-xs mb-1">
-        Шаг {tooltip.step.step_number} · {BLOCK_LABELS[tooltip.step.block] || tooltip.step.block || '—'}
+        Шаг {tooltip.step.step_number ?? tooltip.step.step_id} ·{' '}
+        {BLOCK_LABELS[tooltip.step.block] || tooltip.step.block || '—'}
       </div>
       <div className="text-gray-300 text-xs">
         <div>Просмотры: {fmtNum(tooltip.step.viewed_by)}</div>
@@ -32,7 +34,7 @@ export default function StepTooltip({ tooltip }) {
         <div>
           Оценка:{' '}
           {tooltip.step.grade != null
-            ? `${tooltip.step.grade.toFixed(2)} · ${fmtNum(tooltip.step.grade_votes)} гол.`
+            ? `${formatRating(tooltip.step.grade)} · ${fmtNum(tooltip.step.grade_votes)} гол.`
             : '—'}
         </div>
       </div>

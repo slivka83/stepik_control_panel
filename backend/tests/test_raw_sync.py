@@ -177,6 +177,26 @@ class TestSyncCoursesStructure:
 # ─── sync_course_grades_and_certs ──────────────────────────────────────
 
 
+class TestReplaceRawTable:
+    @pytest.mark.asyncio
+    async def test_empty_full_reload_clears_stale_rows(self, db_session):
+        """Regression: `_replace_raw_table` возвращался на пустом списке.
+
+        Из-за этого сущность, удалённая на Stepik (или пустой ответ API),
+        навсегда оставалась в raw-слое и во всех витринах, построенных из него.
+        """
+        await db_session.execute(
+            text("INSERT INTO raw_lesson (lesson_id, steps, _raw_json) VALUES ('10', '[]', '{}')")
+        )
+        await db_session.commit()
+
+        await raw_sync._replace_raw_table(
+            db_session, "raw_lesson", [], {"id": "lesson_id", "steps": "steps"}
+        )
+
+        assert await _count_rows(db_session, "raw_lesson") == 0
+
+
 class TestSyncCourseGradesAndCerts:
     @pytest.mark.asyncio
     async def test_writes_grades_and_certs(self, db_session):
@@ -202,6 +222,32 @@ class TestSyncCourseGradesAndCerts:
 
         assert await _count_rows(db_session, "raw_course_grade") == 1
         assert await _count_rows(db_session, "raw_certificate") == 1
+
+    @pytest.mark.asyncio
+    async def test_skips_404_course_without_aborting(self, db_session):
+        """Regression: удалённый между синками курс (404) ронял весь sync."""
+        from app.services.raw_sync import sync_course_grades_and_certs
+        from app.services.stepik_api import StepikAPIError
+
+        _make_user(db_session)
+        await db_session.commit()
+
+        def request_side_effect(method, path, token, params=None):
+            if "course-grades" in path:
+                if params.get("course") == 101:
+                    raise StepikAPIError(404, "Not Found")
+                return {
+                    "course-grades": [{"user": 1001, "course": 102, "score": 50}],
+                    "meta": {"has_next": False},
+                }
+            if "certificates" in path:
+                return {"certificates": [], "meta": {"has_next": False}}
+            return {}
+
+        with patch("app.services.raw_sync._request", side_effect=request_side_effect):
+            await sync_course_grades_and_certs(db_session, "fake_token", [101, 102])
+
+        assert await _count_rows(db_session, "raw_course_grade") == 1
 
 
 # ─── sync_submissions ──────────────────────────────────────────────────
@@ -591,11 +637,13 @@ class TestSyncSubmissions:
         with patch("app.services.raw_sync._request", side_effect=request_side_effect):
             await sync_submissions(db_session, "fake_token")
 
-        assert requested_pages[-1] == 500, (
-            f"step-pass должен докачать до лимита 500 страниц, последняя: {requested_pages[-1]}"
+        from app.services.raw_sync.submissions import MAX_PAGES
+
+        assert requested_pages[-1] == MAX_PAGES, (
+            f"step-pass должен докачать до лимита {MAX_PAGES} страниц, последняя: {requested_pages[-1]}"
         )
-        assert len(requested_pages) == 500
-        assert await _count_rows(db_session, "raw_submission") == 500
+        assert len(requested_pages) == MAX_PAGES
+        assert await _count_rows(db_session, "raw_submission") == MAX_PAGES
 
 
 # ─── sync_financials ───────────────────────────────────────────────────
@@ -607,6 +655,7 @@ class TestSyncFinancials:
         from app.services.raw_sync import sync_financials
 
         _make_user(db_session)
+        await db_session.execute(text("INSERT INTO raw_course (course_id, title) VALUES ('101', 'Course 1')"))
         await db_session.commit()
 
         fake_by_months = [
@@ -633,12 +682,22 @@ class TestSyncFinancials:
                 "currency_code": "RUB",
             },
         ]
+        fake_promos = [
+            {
+                "id": 10,
+                "course": 101,
+                "name": "FIRST",
+                "is_stepik_side": False,
+            },
+        ]
 
         def request_side_effect(method, path, token, params=None):
             if "course-benefit-by-months" in path:
                 return {"course-benefit-by-months": fake_by_months, "meta": {"has_next": False}}
             if "course-benefits" in path:
                 return {"course-benefits": fake_benefits, "meta": {"has_next": False}}
+            if "promo-codes" in path:
+                return {"promo-codes": fake_promos, "meta": {"has_next": False}}
             return {}
 
         with (
@@ -649,6 +708,7 @@ class TestSyncFinancials:
 
         assert await _count_rows(db_session, "raw_course_benefit_by_month") == 1
         assert await _count_rows(db_session, "raw_course_benefit") == 1
+        assert await _count_rows(db_session, "raw_promo_code") == 1
 
     @pytest.mark.asyncio
     async def test_skips_without_token(self, db_session):
@@ -841,6 +901,45 @@ class TestSyncCommunity:
         assert await _count_rows(db_session, "raw_comment") == 1
 
     @pytest.mark.asyncio
+    async def test_all_review_failures_keep_previous_rows(self, db_session):
+        """Если все запросы отзывов упали — старые отзывы не затираются.
+
+        Пустой full reload после серии ошибок не должен обнулять страницу
+        «Отзывы» до следующего успешного синка.
+        """
+        from app.services.raw_sync import sync_community
+        from app.services.stepik_api import StepikAPIError
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course (course_id, review_summary_json, _raw_json)
+            VALUES (101, NULL, '{}')
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course_review (review_id, course, "user", _raw_json)
+            VALUES ('old', '101', '1', '{}')
+        """)
+        )
+        await db_session.commit()
+
+        def request_side_effect(method, path, token, params=None):
+            if "course-review-summaries" in path:
+                return {"course-review-summaries": [], "meta": {"has_next": False}}
+            if "course-reviews" in path:
+                raise StepikAPIError(500, "Internal Server Error")
+            if "comments" in path:
+                return {"comments": [], "meta": {"has_next": False}}
+            return {}
+
+        with patch("app.services.raw_sync._request", side_effect=request_side_effect):
+            await sync_community(db_session, "fake_token")
+
+        assert await _count_rows(db_session, "raw_course_review") == 1
+
+    @pytest.mark.asyncio
     async def test_reviews_persist_without_new_comments(self, db_session):
         """Regression: отзывы и сводки должны сохраняться, даже если новых комментариев нет.
 
@@ -888,6 +987,116 @@ class TestSyncCommunity:
         assert await _count_rows(db_session, "raw_course_review_summary") == 1, (
             "сводки не персистятся при отсутствии новых комментариев"
         )
+
+
+class TestSyncCommentsIncremental:
+    """Regression: комментарии, созданные в одну секунду, терялись навсегда.
+
+    Курсор сохранял время самого нового комментария, а фильтр был строгим
+    `time > last_time`: остальные комментарии той же секунды больше никогда
+    не запрашивались. Правки (лайки, ответы, is_staff_replied) тоже не
+    доезжали, потому что upsert был ON CONFLICT DO NOTHING.
+    """
+
+    @staticmethod
+    def _handler(pages: list[list[dict]], requested_pages: list[int]):
+        def request_side_effect(method, path, token, params=None):
+            if "course-review-summaries" in path:
+                return {"course-review-summaries": [], "meta": {"has_next": False}}
+            if "course-reviews" in path:
+                return {"course-reviews": [], "meta": {"has_next": False}}
+            if "comments" in path:
+                page = int(params.get("page", 1))
+                requested_pages.append(page)
+                objects = pages[page - 1] if page <= len(pages) else []
+                return {"comments": objects, "meta": {"has_next": page < len(pages)}}
+            return {}
+
+        return request_side_effect
+
+    @pytest.mark.asyncio
+    async def test_same_second_comments_and_edits_are_not_lost(self, db_session):
+        from app.services.raw_sync import sync_community
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('comments', 'id', 'comment_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_course (course_id, review_summary_json, _raw_json) VALUES (101, NULL, '{}')")
+        )
+        await db_session.commit()
+
+        def comment(cid, vote_delta=0):
+            return {
+                "id": cid,
+                "user": 1001,
+                "target": 500,
+                "time": "2026-07-15T10:00:00Z",
+                "thread": "",
+                "vote_delta": vote_delta,
+            }
+
+        pages = [[comment(1), comment(2)]]
+        requested_pages: list[int] = []
+        with patch("app.services.raw_sync._request", side_effect=self._handler(pages, requested_pages)):
+            await sync_community(db_session, "fake_token")
+
+        assert await _count_rows(db_session, "raw_comment") == 2
+
+        # Повторный синк: те же два комментария (один с новым vote_delta) плюс
+        # третий в ту же секунду. Строгий `>` пропустил бы их все.
+        pages = [[comment(1, vote_delta=5), comment(2), comment(3)]]
+        requested_pages.clear()
+        with patch("app.services.raw_sync._request", side_effect=self._handler(pages, requested_pages)):
+            await sync_community(db_session, "fake_token")
+
+        assert await _count_rows(db_session, "raw_comment") == 3, "комментарии одной секунды потерялись"
+        r = await db_session.execute(text("SELECT _raw_json FROM raw_comment WHERE comment_id = '1'"))
+        assert json.loads(r.scalar())["vote_delta"] == 5, "правка комментария не обновилась"
+
+    @pytest.mark.asyncio
+    async def test_stops_paging_at_cursor_boundary(self, db_session):
+        """Не нужно качать весь курс, если на первой же странице дошли до
+        уже сохранённого хвоста: курсор стоит, лишние страницы не запрашиваются."""
+        from app.services.raw_sync import sync_community
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('comments', 'id', 'comment_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_course (course_id, review_summary_json, _raw_json) VALUES (101, NULL, '{}')")
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_sync_state (endpoint_name, key, value)
+            VALUES ('comments', 'last_time_course_101', '2026-07-15T10:00:00Z')
+        """)
+        )
+        await db_session.commit()
+
+        pages = [
+            [
+                {"id": 1, "user": 1001, "target": 500, "time": "2026-07-15T11:00:00Z", "thread": ""},
+                {"id": 2, "user": 1001, "target": 500, "time": "2026-07-14T09:00:00Z", "thread": ""},
+            ],
+            [{"id": 3, "user": 1001, "target": 500, "time": "2026-07-13T09:00:00Z", "thread": ""}],
+        ]
+        requested_pages: list[int] = []
+        with patch("app.services.raw_sync._request", side_effect=self._handler(pages, requested_pages)):
+            await sync_community(db_session, "fake_token")
+
+        assert requested_pages == [1], f"лишние страницы: {requested_pages}"
+        assert await _count_rows(db_session, "raw_comment") == 1
 
 
 class TestSyncSubmissionsStep404:

@@ -85,12 +85,21 @@ const SortableTh = memo(function SortableTh({ column, sort, onSort }) {
       {sort.dir === naturalDirOf(column) ? '↓' : '↑'}
     </span>
   );
+  const activate = () => onSort(column.key);
   return (
     <th
       className={`pb-2 pl-1 pr-1 font-normal text-gray-400 cursor-pointer select-none hover:text-gray-300 transition-colors ${
         column.align === 'right' ? 'text-right' : 'text-left'
       } ${column.width || ''} ${column.headerClassName || ''}`}
-      onClick={() => onSort(column.key)}
+      onClick={activate}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          activate();
+        }
+      }}
+      tabIndex={0}
+      aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
       <span className="inline-flex items-center gap-1">
         {column.align === 'right' && arrow}
@@ -179,7 +188,11 @@ export default function DataTable({
   totalPages: totalPagesProp,
 }) {
   const { tableRef: ownRef, rowsPerPage: ownRows } = useRowsPerPage();
-  const { sort: ownSort, onSort: ownOnSort } = useSortState(columns, initialSort);
+  const fallbackSort = useMemo(
+    () => initialSort || { key: columns[0]?.key, dir: 'asc' },
+    [initialSort, columns],
+  );
+  const { sort: ownSort, onSort: ownOnSort } = useSortState(columns, fallbackSort);
   const [ownPage, setOwnPage] = useState(1);
 
   const server = totalPagesProp !== undefined;
@@ -203,6 +216,12 @@ export default function DataTable({
   useEffect(() => {
     if (!server && page > view.totalPages) setPage(view.totalPages);
   }, [server, page, view.totalPages, setPage]);
+
+  // Client tables: a new sort should start from the first page, not keep the
+  // old page number of a completely different ordering.
+  useEffect(() => {
+    if (!server) setPage(1);
+  }, [sort.key, sort.dir, server, setPage]);
 
   const showEmpty = !loading && !error && rows.length === 0 && emptyText;
 

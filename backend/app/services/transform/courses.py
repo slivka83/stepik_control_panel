@@ -7,9 +7,29 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.transform.common import get_course_status, parse_dt
+from app.services.transform.common import _parse_step_positions, get_course_status, parse_dt
 
 logger = logging.getLogger(__name__)
+
+# Дочерние таблицы курса. В миграциях FK созданы без ON DELETE CASCADE
+# (в модели submissions cascade есть, но в БД — нет), поэтому удаление курса,
+# исчезнувшего на Stepik, падало на FK. Чистим явно и в порядке зависимостей.
+_COURSE_CHILD_TABLES = (
+    "mart_steps",
+    "mart_comments",
+    "mart_certificates",
+    "mart_reviews",
+    "mart_lessons",
+    "mart_modules",
+    "student_enrollments",
+    "submissions",
+)
+
+
+async def _delete_course(session: AsyncSession, course_id: str) -> None:
+    for table in _COURSE_CHILD_TABLES:
+        await session.execute(text(f"DELETE FROM {table} WHERE course_id = :cid"), {"cid": course_id})
+    await session.execute(text("DELETE FROM courses WHERE id = :cid"), {"cid": course_id})
 
 
 async def transform_courses(session: AsyncSession, user_id: str | None = None):
@@ -28,7 +48,9 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
             {"uid": uid_param},
         )
     else:
-        r = await session.execute(text("SELECT id, stepik_course_id FROM courses"))
+        r = await session.execute(
+            text("SELECT id, stepik_course_id FROM courses ORDER BY created_at, id")
+        )
     existing = {row[1]: str(row[0]) for row in r}
 
     # stepik_course_id уникален глобально, поэтому нельзя вставлять курс,
@@ -43,7 +65,7 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
             {"uid": uid_param},
         )
     else:
-        r = await session.execute(text("SELECT id FROM users LIMIT 1"))
+        r = await session.execute(text("SELECT id FROM users ORDER BY created_at, id LIMIT 1"))
     user_row = r.fetchone()
     if not user_row:
         logger.warning("No user found")
@@ -73,13 +95,16 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
         if is_pub:
             pub_raw = rc.get("became_published_at")
             pub_dt = parse_dt(pub_raw) if pub_raw else None
-        status = get_course_status(is_pub) if is_pub is not None else "Draft"
+        status = get_course_status(is_pub) if is_pub is not None else None
         title = (rc.get("title") or "Untitled")[:255]
 
         if sid in existing:
             await session.execute(
                 text("""
-                    UPDATE courses SET title = :t, status = :s, published_at = :p
+                    UPDATE courses
+                    SET title = :t,
+                        status = COALESCE(:s, status),
+                        published_at = COALESCE(:p, published_at)
                     WHERE stepik_course_id = :sid
                 """),
                 {"t": title, "s": status, "p": pub_dt, "sid": sid},
@@ -98,7 +123,7 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
                     "uid": user_id_db,
                     "sid": sid,
                     "t": title,
-                    "s": status,
+                    "s": status or "Draft",
                     "p": pub_dt,
                     "now": datetime.now(UTC),
                 },
@@ -109,16 +134,41 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
     deleted = 0
     for sid, cid_str in existing.items():
         if sid not in seen_ids:
-            await session.execute(
-                text("DELETE FROM courses WHERE id = :cid"),
-                {"cid": cid_str},
-            )
+            await _delete_course(session, cid_str)
             deleted += 1
 
     logger.info("  %d upserted, %d deleted, %d skipped (owned by another user)", upserted, deleted, skipped)
 
 
 async def build_step_course_map(session: AsyncSession) -> dict[int, int]:
+    """step_id → stepik course id (первый по возрастанию course id).
+
+    Источник истины — структура (`raw_lesson.steps` → unit → section), как в
+    `transform_steps`. `raw_step.lesson` используется только как fallback для
+    шагов, которых нет в списках уроков: иначе структура, решения и
+    комментарии могли приписать один и тот же шаг разным курсам.
+    """
+    result: dict[int, int] = {}
+
+    r = await session.execute(
+        text("""
+        SELECT l.lesson_id, l.steps, sec.course
+        FROM raw_lesson l
+        JOIN raw_unit u ON u.lesson_id = l.lesson_id
+        JOIN raw_section sec ON sec.section_id = u.section_id
+        WHERE l.lesson_id IS NOT NULL AND sec.course IS NOT NULL
+        ORDER BY sec.course, l.lesson_id
+    """)
+    )
+    for _lesson_id, steps, course in r:
+        try:
+            course_int = int(course)
+        except (TypeError, ValueError):
+            continue
+        for step_id in _parse_step_positions(steps):
+            result.setdefault(step_id, course_int)
+
+    # Fallback: шаг знает свой урок, но урок не попал в списки steps/юниты.
     r = await session.execute(
         text("""
         SELECT DISTINCT s.step_id, sec.course
@@ -126,6 +176,12 @@ async def build_step_course_map(session: AsyncSession) -> dict[int, int]:
         JOIN raw_unit u ON u.lesson_id = s.lesson
         JOIN raw_section sec ON sec.section_id = u.section_id
         WHERE s.step_id IS NOT NULL AND sec.course IS NOT NULL
+        ORDER BY s.step_id, sec.course
     """)
     )
-    return {int(r[0]): int(r[1]) for r in r}
+    for step_id, course in r:
+        try:
+            result.setdefault(int(step_id), int(course))
+        except (TypeError, ValueError):
+            continue
+    return result

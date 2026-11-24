@@ -16,13 +16,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import get_settings
 from app.services.crypto import decrypt_token
-from app.services.stepik_api import STEPIK_API_BASE, STEPIK_OAUTH_TOKEN_URL
+from app.services.raw_sync.common import _NATURAL_KEYS
+from app.services.stepik_api import StepikAPIError, _request, get_finance_token
 
 settings = get_settings()
 
@@ -42,7 +42,9 @@ STEP_COURSE_ENDPOINTS = {"submissions"}  # per-course author submission pass
 async def get_user_token() -> str | None:
     engine = create_async_engine(settings.database_url)
     async with engine.begin() as conn:
-        r = await conn.execute(text("SELECT access_token FROM users ORDER BY created_at DESC LIMIT 1"))
+        r = await conn.execute(
+            text("SELECT access_token FROM users ORDER BY created_at ASC, id ASC LIMIT 1")
+        )
         row = r.fetchone()
     await engine.dispose()
     if row:
@@ -53,27 +55,7 @@ async def get_user_token() -> str | None:
 async def get_client_token() -> str | None:
     if not settings.stepik_finance_client_id:
         return None
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            STEPIK_OAUTH_TOKEN_URL,
-            data={
-                "grant_type": "client_credentials",
-                "client_id": settings.stepik_finance_client_id,
-                "client_secret": settings.stepik_finance_client_secret,
-                "scope": "read",
-            },
-            timeout=30.0,
-        )
-        if resp.status_code < 400:
-            return resp.json()["access_token"]
-    return None
-
-
-def extract_api_name(api_path: str) -> str:
-    m = re.search(r"/api/([a-z][a-z0-9-]*)", api_path)
-    if m:
-        return m.group(1).replace("-", "_")
-    return "unknown"
+    return await get_finance_token(settings.stepik_finance_client_id, settings.stepik_finance_client_secret)
 
 
 def clean_path(api_path: str) -> str:
@@ -84,18 +66,8 @@ def clean_path(api_path: str) -> str:
 
 
 async def fetch_page(path: str, token: str, params: dict | None = None) -> dict:
-    url = f"{STEPIK_API_BASE}{path}"
-    headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        while True:
-            resp = await client.get(url, headers=headers, params=params)
-            if resp.status_code == 429:
-                retry = int(resp.headers.get("Retry-After", 5))
-                print(f"    429 — retrying after {retry}s")
-                await asyncio.sleep(retry)
-                continue
-            resp.raise_for_status()
-            return resp.json()
+    """Shared Stepik GET: retries/429/rate limit and the GET-only guard."""
+    return await _request("GET", path, token, params)
 
 
 async def resolve_ids(engine, endpoint_name: str) -> list[str]:
@@ -196,23 +168,39 @@ async def sync_full_reload(
 
     if mode == "ids":
         ids = await resolve_ids(engine, ep_name)
-        if ids:
-            batch_size = 100
-            all_objects = []
-            for start in range(0, len(ids), batch_size):
-                batch = ids[start : start + batch_size]
-                data = await fetch_page(clean, token, {"ids[]": batch})
-                all_objects.extend(extract_objects(data, api_path))
-                print(f"    ... {len(all_objects)} records")
-                await asyncio.sleep(0.3)
-            if all_objects:
-                await _replace_table(engine, raw_table, all_objects)
-                print(f"  {raw_table}: {len(all_objects)} rows (full_reload, ids[])")
-            else:
-                print(f"  {raw_table}: no data")
+        if not ids:
+            # Bare endpoint для ids[]-эндпоинта вернул бы глобальные объекты
+            # (sections/lessons без фильтра) и затёр бы таблицу ими.
+            print(f"  {raw_table}: no ID source — skip")
             return
-        print("  (no ID source, falling back to bare)")
-        mode = None
+        batch_size = 100
+        all_objects = []
+        capped = False
+        for start in range(0, len(ids), batch_size):
+            batch = ids[start : start + batch_size]
+            page = 1
+            max_pages = 500
+            while page <= max_pages:
+                data = await fetch_page(clean, token, {"ids[]": batch, "page": page})
+                objects = extract_objects(data, api_path)
+                if not objects:
+                    break
+                all_objects.extend(objects)
+                if not data.get("meta", {}).get("has_next"):
+                    break
+                page += 1
+                await asyncio.sleep(0.3)
+            else:
+                capped = True
+            print(f"    ... {len(all_objects)} records")
+        if capped:
+            print(f"  {raw_table}: остановлено на лимите страниц — таблица НЕ перезаписана")
+            return
+        # Empty answer clears the table: full reload means the API is the
+        # whole truth, stale rows must not survive.
+        await _replace_table(engine, raw_table, all_objects)
+        print(f"  {raw_table}: {len(all_objects)} rows (full_reload, ids[])")
+        return
 
     if mode == "course":
         course_ids = await get_course_ids(engine)
@@ -220,10 +208,18 @@ async def sync_full_reload(
             print(f"  {raw_table}: no courses")
             return
         all_objects = []
+        capped = False
+        max_pages = 500
         for cid in course_ids:
             page = 1
-            while True:
-                data = await fetch_page(clean, token, {"course": cid, "page": page})
+            while page <= max_pages:
+                try:
+                    data = await fetch_page(clean, token, {"course": cid, "page": page})
+                except StepikAPIError as e:
+                    if e.status_code == 404:
+                        print(f"    course {cid}: 404 — skip")
+                        break
+                    raise
                 objects = extract_objects(data, api_path)
                 if not objects:
                     break
@@ -233,12 +229,14 @@ async def sync_full_reload(
                     break
                 page += 1
                 await asyncio.sleep(0.3)
+            else:
+                capped = True
             print(f"    course {cid}: {len(all_objects)} total")
-        if all_objects:
-            await _replace_table(engine, raw_table, all_objects)
-            print(f"  {raw_table}: {len(all_objects)} rows (full_reload, course)")
-        else:
-            print(f"  {raw_table}: no data")
+        if capped:
+            print(f"  {raw_table}: остановлено на лимите страниц — таблица НЕ перезаписана")
+            return
+        await _replace_table(engine, raw_table, all_objects)
+        print(f"  {raw_table}: {len(all_objects)} rows (full_reload, course)")
         return
 
     if mode == "step":
@@ -247,9 +245,10 @@ async def sync_full_reload(
             print(f"  {raw_table}: no steps")
             return
         all_objects = []
-        for sid in step_ids[:10]:
+        capped = False
+        for sid in step_ids:
             page = 1
-            max_pages = 50
+            max_pages = 500
             while page <= max_pages:
                 data = await fetch_page(clean, token, {"step": sid, "page": page})
                 objects = extract_objects(data, api_path)
@@ -261,10 +260,14 @@ async def sync_full_reload(
                     break
                 page += 1
                 await asyncio.sleep(0.3)
+            else:
+                capped = True
+        if capped:
+            print(f"  {raw_table}: остановлено на лимите страниц — таблица НЕ перезаписана")
+            return
         print(f"    {len(all_objects)} total")
-        if all_objects:
-            await _replace_table(engine, raw_table, all_objects)
-            print(f"  {raw_table}: {len(all_objects)} rows (full_reload, step)")
+        await _replace_table(engine, raw_table, all_objects)
+        print(f"  {raw_table}: {len(all_objects)} rows (full_reload, step)")
         return
 
     if mode == "teacher":
@@ -275,6 +278,7 @@ async def sync_full_reload(
         all_objects = []
         page = 1
         max_pages = 200
+        capped = False
         while page <= max_pages:
             data = await fetch_page(clean, token, {"teacher": teacher_id, "page": page})
             objects = extract_objects(data, api_path)
@@ -286,17 +290,20 @@ async def sync_full_reload(
                 break
             page += 1
             await asyncio.sleep(0.3)
-        if all_objects:
-            await _replace_table(engine, raw_table, all_objects)
-            print(f"  {raw_table}: {len(all_objects)} rows (full_reload, teacher={teacher_id})")
         else:
-            print(f"  {raw_table}: no data")
+            capped = True
+        if capped:
+            print(f"  {raw_table}: остановлено на лимите страниц — таблица НЕ перезаписана")
+            return
+        await _replace_table(engine, raw_table, all_objects)
+        print(f"  {raw_table}: {len(all_objects)} rows (full_reload, teacher={teacher_id})")
         return
 
     # Bare endpoint — paginate (max 20 pages = ~400 records at 20/page)
     all_objects = []
     page = 1
     max_pages = 20
+    capped = False
     while page <= max_pages:
         data = await fetch_page(clean, token, {"page": page})
         objects = extract_objects(data, api_path)
@@ -308,14 +315,20 @@ async def sync_full_reload(
             break
         page += 1
         await asyncio.sleep(0.3)
-    if all_objects:
-        await _replace_table(engine, raw_table, all_objects)
-        print(f"  {raw_table}: {len(all_objects)} rows (full_reload, bare)")
+    else:
+        capped = True
+    if capped:
+        print(f"  {raw_table}: остановлено на лимите страниц — таблица НЕ перезаписана")
+        return
+    await _replace_table(engine, raw_table, all_objects)
+    print(f"  {raw_table}: {len(all_objects)} rows (full_reload, bare)")
 
 
 async def _replace_table(engine, raw_table: str, objects: list[dict]):
-    """TRUNCATE + INSERT all objects."""
+    """TRUNCATE + INSERT all objects (an empty answer clears the table)."""
     if not objects:
+        async with engine.begin() as conn:
+            await conn.execute(text(f'DELETE FROM "{raw_table}"'))
         return
 
     async with engine.begin() as conn:
@@ -349,7 +362,8 @@ async def _replace_table(engine, raw_table: str, objects: list[dict]):
         pk_r = await conn.execute(
             text("""
             SELECT column_name FROM information_schema.columns
-            WHERE table_name = :t AND column_default LIKE 'nextval(%'
+            WHERE table_name = :t AND table_schema = current_schema()
+            AND column_default LIKE 'nextval(%'
         """),
             {"t": raw_table},
         )
@@ -384,20 +398,6 @@ async def _replace_table(engine, raw_table: str, objects: list[dict]):
             await conn.execute(text(insert_sql), values)
 
 
-async def _ensure_sync_state_table(engine):
-    async with engine.begin() as conn:
-        await conn.execute(
-            text("""
-            CREATE TABLE IF NOT EXISTS raw_sync_state (
-                endpoint_name text NOT NULL,
-                key text NOT NULL,
-                value text NOT NULL,
-                PRIMARY KEY (endpoint_name, key)
-            )
-        """)
-        )
-
-
 async def sync_incremental_page(engine, token, endpoint: dict, raw_table: str, api_path: str):
     """Incremental sync by page number (submissions, attempts).
     Tracks step_id → last_page in raw_sync_state."""
@@ -407,8 +407,6 @@ async def sync_incremental_page(engine, token, endpoint: dict, raw_table: str, a
         print(f"  {raw_table}: no steps")
         return
 
-    await _ensure_sync_state_table(engine)
-
     async with engine.begin() as conn:
         r = await conn.execute(
             text("SELECT key, value FROM raw_sync_state WHERE endpoint_name = :ep AND key LIKE 'step_%'"),
@@ -417,10 +415,9 @@ async def sync_incremental_page(engine, token, endpoint: dict, raw_table: str, a
         state = {int(row[0].split("_", 1)[1]): int(row[1]) for row in r}
 
     total_new = 0
-    max_steps = 50
-    max_pages_per_step = 200
+    max_pages_per_step = 500
 
-    for sid in step_ids[:max_steps]:
+    for sid in step_ids:
         last_page = state.get(int(sid), 0)
         # Продолжаем С последней страницы: новые записи заполняют хвост
         # последней скачанной страницы (API oldest-first); upsert дедуплит повторы
@@ -428,7 +425,14 @@ async def sync_incremental_page(engine, token, endpoint: dict, raw_table: str, a
         step_new = 0
 
         while page <= max_pages_per_step:
-            data = await fetch_page(clean, token, {"step": sid, "page": page})
+            try:
+                data = await fetch_page(clean, token, {"step": sid, "page": page})
+            except StepikAPIError as e:
+                # 404 — шаг удалён, 400 — теоретический шаг без решений.
+                if e.status_code in (400, 404):
+                    print(f"    step {sid}: {e.status_code} — skip")
+                    break
+                raise
             objects = extract_objects(data, api_path)
             if not objects:
                 break
@@ -486,8 +490,14 @@ async def sync_incremental_page(engine, token, endpoint: dict, raw_table: str, a
         for cid in course_ids:
             last_page = course_state.get(int(cid), 0)
             page = last_page if last_page > 0 else 1
-            while page <= 50:
-                data = await fetch_page(clean, token, {"course": cid, "page": page})
+            while page <= 500:
+                try:
+                    data = await fetch_page(clean, token, {"course": cid, "page": page})
+                except StepikAPIError as e:
+                    if e.status_code == 404:
+                        print(f"    course {cid}: 404 — skip")
+                        break
+                    raise
                 objects = extract_objects(data, api_path)
                 if not objects:
                     break
@@ -522,8 +532,6 @@ async def sync_incremental_time(engine, token, endpoint: dict, raw_table: str, a
         print(f"  {raw_table}: no courses")
         return
 
-    await _ensure_sync_state_table(engine)
-
     # Read last sync time per course
     async with engine.begin() as conn:
         r = await conn.execute(
@@ -537,19 +545,32 @@ async def sync_incremental_time(engine, token, endpoint: dict, raw_table: str, a
         last_time = last_times.get(f"last_time_course_{cid}", "")
         course_new = 0
         page = 1
+        max_time_str = last_time
+        reached_boundary = False
 
-        while page <= 50:
-            data = await fetch_page(clean, token, {"course": cid, "page": page})
+        while page <= 500:
+            try:
+                data = await fetch_page(clean, token, {"course": cid, "page": page})
+            except StepikAPIError as e:
+                if e.status_code in (400, 404):
+                    print(f"    course {cid}: {e.status_code} — skip")
+                    break
+                raise
             objects = extract_objects(data, api_path)
             if not objects:
+                reached_boundary = True
                 break
 
-            # Filter: keep records with time > last_time (ISO text comparison)
+            # `>=` (not `>`): не теряем комментарии, созданные в ту же
+            # секунду, что и сохранённый курсор.
             new_objects = []
-            max_time_str = last_time
             for obj in objects:
                 t = obj.get("time", "") or ""
-                if isinstance(t, str) and t > last_time:
+                if not isinstance(t, str):
+                    continue
+                if last_time and t < last_time:
+                    reached_boundary = True
+                if not last_time or t >= last_time:
                     new_objects.append(obj)
                     if t > max_time_str:
                         max_time_str = t
@@ -558,7 +579,16 @@ async def sync_incremental_time(engine, token, endpoint: dict, raw_table: str, a
                 await _upsert_objects(engine, raw_table, api_path, new_objects)
                 course_new += len(new_objects)
 
-                # Update last_time for this course (ISO text comparison is safe)
+            if reached_boundary:
+                break
+            if not data.get("meta", {}).get("has_next"):
+                reached_boundary = True
+                break
+            page += 1
+            await asyncio.sleep(0.3)
+
+        if course_new > 0:
+            if reached_boundary:
                 async with engine.begin() as conn:
                     await conn.execute(
                         text(
@@ -568,14 +598,8 @@ async def sync_incremental_time(engine, token, endpoint: dict, raw_table: str, a
                         ),
                         {"ep": ep_name, "k": f"last_time_course_{cid}", "v": max_time_str, "v2": max_time_str},
                     )
-
-            meta = data.get("meta", {})
-            if not meta.get("has_next"):
-                break
-            page += 1
-            await asyncio.sleep(0.3)
-
-        if course_new > 0:
+            else:
+                print(f"    500-page backlog not fully fetched for course {cid}; cursor kept")
             print(f"    course {cid}: +{course_new} (last_time={last_time})")
         total_new += course_new
 
@@ -585,12 +609,13 @@ async def sync_incremental_time(engine, token, endpoint: dict, raw_table: str, a
 async def _upsert_objects(
     engine, raw_table: str, api_path: str, objects: list[dict], extra_columns: dict | None = None
 ):
-    """INSERT objects for incremental sync. ON CONFLICT DO NOTHING — повторная
-    загрузка уже существующих строк (инкремент перечитывает последнюю страницу)
-    не должна ронять скрипт на unique-констрейнтах.
+    """INSERT objects for incremental sync.
 
-    extra_columns — контекстные значения, которых нет в ответе API (например,
-    step для submissions из ?step=)."""
+    ON CONFLICT DO UPDATE (not DO NOTHING): повторная загрузка последней
+    страницы не должна ронять скрипт на unique-констрейнтах, но обязана
+    обновлять изменяемые объекты (комментарии: текст, лайки, ответы).
+    Контекстные extra_columns (step для submissions) не затираются пустым
+    значением — COALESCE сохраняет уже записанный шаг."""
     if not objects:
         return
     sample = objects[0]
@@ -623,18 +648,35 @@ async def _upsert_objects(
         pk_r = await conn.execute(
             text("""
             SELECT column_name FROM information_schema.columns
-            WHERE table_name = :t AND column_default LIKE 'nextval(%'
+            WHERE table_name = :t AND table_schema = current_schema()
+            AND column_default LIKE 'nextval(%'
         """),
             {"t": raw_table},
         )
         serial_pks = {row[0] for row in pk_r}
 
-        col_names = [c for c in all_db_cols if c not in serial_pks] + ["_raw_json"]
-        if not col_names:
-            return
+        col_names = [c for c in dict.fromkeys(all_db_cols) if c not in serial_pks]
+        if "_raw_json" not in col_names:
+            col_names.append("_raw_json")
         placeholders = ", ".join(f":{c}" for c in col_names)
         cols_str = ", ".join(f'"{c}"' for c in col_names)
-        insert_sql = f'INSERT INTO "{raw_table}" ({cols_str}) VALUES ({placeholders}) ON CONFLICT DO NOTHING'
+
+        id_field = _NATURAL_KEYS.get(raw_table) or next(
+            (c for c in col_names if c.endswith("_id")), None
+        )
+        conflict = ""
+        if id_field:
+            assignments = []
+            for col in col_names:
+                if col == id_field:
+                    continue
+                if extra_columns and col in extra_columns:
+                    assignments.append(f'"{col}" = COALESCE(EXCLUDED."{col}", "{raw_table}"."{col}")')
+                else:
+                    assignments.append(f'"{col}" = EXCLUDED."{col}"')
+            if assignments:
+                conflict = f' ON CONFLICT ("{id_field}") DO UPDATE SET {", ".join(assignments)}'
+        insert_sql = f'INSERT INTO "{raw_table}" ({cols_str}) VALUES ({placeholders}){conflict}'
 
         for obj in objects:
             raw_json = json.dumps(obj, ensure_ascii=False)

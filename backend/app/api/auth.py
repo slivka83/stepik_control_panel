@@ -1,5 +1,6 @@
 import logging
 import secrets
+import uuid
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlencode
 
@@ -93,7 +94,12 @@ async def get_user(request: Request, db: AsyncSession = Depends(get_db)) -> User
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid or expired session") from None
+
+    result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
@@ -142,9 +148,9 @@ def _generate_state() -> str:
 
 
 def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # X-Forwarded-For подделывается любым прямым клиентом, поэтому для
+    # rate-limit используем реальный адрес соединения. Панель однопользовательская;
+    # за обратным прокси все запросы и так приходят с одного адреса.
     return request.client.host if request.client else "unknown"
 
 
@@ -211,9 +217,16 @@ async def callback(
         redirect_uri=settings.stepik_redirect_uri,
     )
 
-    access_token = token_data.get("access_token", "")
-    refresh_token = token_data.get("refresh_token", "")
-    expires_in = token_data.get("expires_in", 3600)
+    access_token = token_data.get("access_token")
+    if not access_token:
+        # Без access_token сохранять учётку бессмысленно: все запросы к Stepik
+        # будут падать 401, а панель покажет «вход выполнен» с пустыми данными.
+        raise HTTPException(status_code=502, detail="Stepik did not return an access token")
+    refresh_token = token_data.get("refresh_token") or ""
+    try:
+        expires_in = int(token_data.get("expires_in") or 3600)
+    except (TypeError, ValueError):
+        expires_in = 3600
 
     profile = await get_user_profile(access_token)
     stepik_id = _profile_stepik_id(profile)
@@ -229,6 +242,22 @@ async def callback(
             settings.stepik_user_id,
         )
         raise HTTPException(status_code=403, detail="This panel belongs to another Stepik account")
+
+    if not settings.stepik_user_id:
+        # STEPIK_USER_ID не задан: владельцем становится первый вошедший
+        # аккаунт. Иначе любой Stepik-пользователь мог залогиниться и увидеть
+        # глобальные снапшоты/витрины (они не разделены по аккаунтам).
+        owner_row = await db.execute(
+            select(User.stepik_id).order_by(User.created_at.asc()).limit(1)
+        )
+        owner_stepik_id = owner_row.scalar_one_or_none()
+        if owner_stepik_id is not None and owner_stepik_id != stepik_id:
+            logger.warning(
+                "Login rejected: Stepik user %s is not the panel owner %s",
+                stepik_id,
+                owner_stepik_id,
+            )
+            raise HTTPException(status_code=403, detail="This panel belongs to another Stepik account")
 
     encrypted_access = encrypt_token(access_token)
     encrypted_refresh = encrypt_token(refresh_token)
@@ -300,12 +329,20 @@ async def refresh_session(request: Request, response: Response, db: AsyncSession
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
 
-    result = await db.execute(select(User).where(User.id == user_id))
+    try:
+        user_uuid = uuid.UUID(user_id)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Invalid or expired session") from None
+
+    result = await db.execute(select(User).where(User.id == user_uuid))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
-    await _blacklist_token(token, 60)
+    # Старый токен должен оставаться заблокированным до истечения его
+    # собственной подписи. Раньше блокировка жила 60 с, после чего уже
+    # заменённый токен снова становился валидным.
+    await _blacklist_token(token, _session_ttl_hours() * 3600)
 
     new_token = create_session_token(str(user.id))
     resp = Response(status_code=200, content='{"status":"ok"}', media_type="application/json")

@@ -14,7 +14,7 @@ export function useTabSorts(tabColumns, initialSorts) {
 
   const onSort = (tab) => (key) => {
     setSorts((prev) => {
-      const cur = prev[tab];
+      const cur = prev[tab] || { key: null, dir: 'asc' };
       const cfg = tabColumns[tab]?.find((c) => c.key === key);
       const next =
         cur.key === key

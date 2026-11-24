@@ -1,7 +1,6 @@
 """Финансы: raw_course_benefit_by_month + raw_course_benefit → financial_snapshots."""
 
 import contextlib
-import json
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -14,9 +13,64 @@ from app.services.transform.common import (
     _ensure_json,
     _get_buyer_names,
     _serialize_data,
+    _to_float,
+    _to_int,
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _new_bucket(**extra) -> dict:
+    """Агрегат платежей: одна формула для курсов/промокодов/UTM."""
+    return {**extra, "payments": 0, "turnover": 0.0, "income": 0.0, "refunds": 0.0}
+
+
+def _apply_benefit(bucket: dict, benefit: dict) -> None:
+    """Добавить платёж в агрегат.
+
+    Возврат (`status=refunded`): refunds растёт положительным (abs(amount)),
+    оборот уменьшается на payment_amount, доход — на сумму возврата (amount
+    отрицательный). Та же формула используется в фильтре по курсам.
+    """
+    amount = _to_float(benefit.get("amount")) or 0.0
+    payment_amount = _to_float(benefit.get("payment_amount")) or 0.0
+    bucket["payments"] += 1
+    if benefit.get("status") == "refunded":
+        bucket["refunds"] += abs(amount)
+        bucket["turnover"] -= payment_amount
+        bucket["income"] += amount
+    else:
+        bucket["turnover"] += payment_amount
+        bucket["income"] += amount
+
+
+def _promo_side_map(rows) -> dict[str, bool]:
+    """name (нормализованное) → True, если промокод на стороне Stepik."""
+    result: dict[str, bool] = {}
+    for name, is_stepik_side in rows:
+        if name is None:
+            continue
+        key = str(name).strip().casefold()
+        if not key:
+            continue
+        result[key] = str(is_stepik_side).strip().lower() in ("true", "1")
+    return result
+
+
+def _promo_flags(code, promo_is_stepik: dict[str, bool]) -> tuple[bool, bool | None]:
+    """(авторский, на стороне Stepik) для кода платежа.
+
+    False/None — код неизвестен (промокоды не синканы): не выдаём его за
+    авторский и не выдаём за Stepik, чтобы не показывать ложные предупреждения
+    о комиссии.
+    """
+    if not code:
+        return False, False
+    key = str(code).strip().casefold()
+    if key not in promo_is_stepik:
+        return False, None
+    is_stepik = promo_is_stepik[key]
+    return (not is_stepik), is_stepik
 
 
 async def transform_financials(session: AsyncSession):
@@ -25,154 +79,106 @@ async def transform_financials(session: AsyncSession):
     r = await session.execute(text("SELECT id, stepik_course_id, title FROM courses"))
     course_map = {int(row[1]): {"id": str(row[0]), "title": row[2]} for row in r}
 
-    course_prices = {}
+    course_prices: dict[int, float] = {}
     if course_map:
         r = await session.execute(text("SELECT _raw_json FROM raw_course"))
         for (raw_json,) in r:
             rc = _ensure_json(raw_json)
-            cid = rc.get("id")
+            cid = _to_int(rc.get("id")) if isinstance(rc, dict) else None
             if cid in course_map:
                 price_val = rc.get("price")
                 if price_val is not None:
                     with contextlib.suppress(ValueError, TypeError):
                         course_prices[cid] = float(price_val)
 
-    r = await session.execute(
-        text("""
-        SELECT _raw_json FROM raw_course_benefit_by_month
-    """)
-    )
-    by_months = [_ensure_json(r[0]) for r in r]
+    r = await session.execute(text("SELECT _raw_json FROM raw_course_benefit_by_month"))
+    by_months = [obj for row in r if isinstance(obj := _ensure_json(row[0]), dict)]
 
-    r = await session.execute(
-        text("""
-        SELECT _raw_json FROM raw_course_benefit
-    """)
-    )
-    benefits = [_ensure_json(r[0]) for r in r]
+    r = await session.execute(text("SELECT _raw_json FROM raw_course_benefit"))
+    benefits = [obj for row in r if isinstance(obj := _ensure_json(row[0]), dict)]
 
-    total_turnover = sum(float(m.get("total_turnover", 0) or 0) for m in by_months)
-    total_income = sum(float(m.get("total_user_income", 0) or 0) for m in by_months)
-    total_refunds = sum(float(m.get("total_refunds", 0) or 0) for m in by_months)
-    total_payments = sum(int(m.get("count_payments", 0) or 0) for m in by_months)
-    total_refunds_count = sum(int(m.get("count_refunds", 0) or 0) for m in by_months)
+    # Авторские промокоды: `is_stepik_side=False` в /api/promo-codes.
+    r = await session.execute(text("SELECT name, is_stepik_side FROM raw_promo_code"))
+    promo_is_stepik = _promo_side_map(r)
+
+    total_turnover = sum(_to_float(m.get("total_turnover")) or 0.0 for m in by_months)
+    total_income = sum(_to_float(m.get("total_user_income")) or 0.0 for m in by_months)
+    total_refunds = sum(_to_float(m.get("total_refunds")) or 0.0 for m in by_months)
+    total_payments = sum(_to_int(m.get("count_payments")) or 0 for m in by_months)
+    total_refunds_count = sum(_to_int(m.get("count_refunds")) or 0 for m in by_months)
 
     now = datetime.now(UTC)
     current_month_turnover = 0.0
     current_month_income = 0.0
     current_month_payments = 0
     for m in by_months:
-        if m.get("year") == now.year and m.get("month") == now.month:
-            current_month_turnover = float(m.get("total_turnover", 0) or 0)
-            current_month_income = float(m.get("total_user_income", 0) or 0)
-            current_month_payments = int(m.get("count_payments", 0) or 0)
+        if _to_int(m.get("year")) == now.year and _to_int(m.get("month")) == now.month:
+            current_month_turnover = _to_float(m.get("total_turnover")) or 0.0
+            current_month_income = _to_float(m.get("total_user_income")) or 0.0
+            current_month_payments = _to_int(m.get("count_payments")) or 0
 
     months_data = []
-    for m in sorted(by_months, key=lambda x: (x.get("year", 0), x.get("month", 0))):
-        year = m.get("year", 0)
-        month_num = m.get("month", 0)
+    for m in sorted(by_months, key=lambda x: (_to_int(x.get("year")) or 0, _to_int(x.get("month")) or 0)):
+        year = _to_int(m.get("year"))
+        month_num = _to_int(m.get("month"))
+        if year is None or month_num is None or not 1 <= month_num <= 12:
+            logger.warning("  skipping benefit-by-month row with invalid year/month: %r", m)
+            continue
         months_data.append(
             {
-                "month": f"{MONTH_NAMES.get(month_num, str(month_num))} {year}",
+                "month": f"{MONTH_NAMES[month_num]} {year}",
                 "year": year,
                 "month_num": month_num,
-                "turnover": float(m.get("total_turnover", 0) or 0),
-                "income": float(m.get("total_user_income", 0) or 0),
-                "refunds": float(m.get("total_refunds", 0) or 0),
-                "payments_count": int(m.get("count_payments", 0) or 0),
-                "refunds_count": int(m.get("count_refunds", 0) or 0),
+                "turnover": _to_float(m.get("total_turnover")) or 0.0,
+                "income": _to_float(m.get("total_user_income")) or 0.0,
+                "refunds": _to_float(m.get("total_refunds")) or 0.0,
+                "payments_count": _to_int(m.get("count_payments")) or 0,
+                "refunds_count": _to_int(m.get("count_refunds")) or 0,
             }
         )
 
-    course_stats = {}
-    for b in benefits:
-        cid = b.get("course")
-        if cid not in course_stats:
-            cm = course_map.get(cid, {})
-            course_stats[cid] = {
-                "course_id": cid,
-                "title": cm.get("title", f"Курс #{cid}"),
-                "price": course_prices.get(cid),
-                "turnover": 0,
-                "income": 0,
-                "refunds": 0,
-                "payments": 0,
-            }
-        status = b.get("status", "")
-        amount = float(b.get("amount", 0) or 0)
-        payment_amount = float(b.get("payment_amount", 0) or 0)
-        cs = course_stats[cid]
-        cs["payments"] += 1
-        if status == "refunded":
-            cs["refunds"] += abs(amount)
-            cs["turnover"] -= payment_amount
-            cs["income"] += amount
-        else:
-            cs["turnover"] += payment_amount
-            cs["income"] += amount
+    # Все курсы автора попадают в снапшот, даже без единого платежа: страница
+    # «Курсы» показывает их цену и нулевой доход, а не «—».
+    course_stats: dict[int, dict] = {
+        cid: _new_bucket(course_id=cid, title=cm.get("title") or f"Курс #{cid}", price=course_prices.get(cid))
+        for cid, cm in course_map.items()
+    }
+    promo_stats: dict[str, dict] = {}
+    utm_stats: dict[str, dict] = {}
 
-    promo_stats = {}
     for b in benefits:
+        cid = _to_int(b.get("course"))
+        cs = course_stats.get(cid)
+        if cs is None:
+            cs = course_stats[cid] = _new_bucket(
+                course_id=cid, title=f"Курс #{cid}", price=course_prices.get(cid)
+            )
+        _apply_benefit(cs, b)
+
         code = b.get("promo_code")
-        if code is None:
-            continue
-        if code not in promo_stats:
-            promo_stats[code] = {
-                "promo_code": code,
-                "payments": 0,
-                "turnover": 0,
-                "income": 0,
-                "refunds": 0,
-                "last_used": b.get("time", ""),
-            }
-        ps = promo_stats[code]
-        ps["payments"] += 1
-        amount = float(b.get("amount", 0) or 0)
-        payment_amount = float(b.get("payment_amount", 0) or 0)
-        if b.get("status") == "refunded":
-            ps["refunds"] += abs(amount)
-            ps["turnover"] -= payment_amount
-            ps["income"] += amount
-        else:
-            ps["turnover"] += payment_amount
-            ps["income"] += amount
-        if b.get("time", "") > ps["last_used"]:
-            ps["last_used"] = b.get("time", "")
+        if code:
+            ps = promo_stats.setdefault(
+                code, _new_bucket(promo_code=code, last_used=b.get("time", "") or "")
+            )
+            _apply_benefit(ps, b)
+            ps["last_used"] = max(ps["last_used"], b.get("time", "") or "")
 
-    utm_stats = {}
-    for b in benefits:
         last_utm = b.get("last_course_click_utm") or {}
-        source = last_utm.get("utm_source")
-        if not source:
-            continue
-        label = UTM_SOURCE_LABELS.get(source, source)
-        if label not in utm_stats:
-            utm_stats[label] = {
-                "utm_source": label,
-                "payments": 0,
-                "turnover": 0,
-                "income": 0,
-                "refunds": 0,
-                "last_used": b.get("time", ""),
-            }
-        us = utm_stats[label]
-        us["payments"] += 1
-        amount = float(b.get("amount", 0) or 0)
-        payment_amount = float(b.get("payment_amount", 0) or 0)
-        if b.get("status") == "refunded":
-            us["refunds"] += abs(amount)
-            us["turnover"] -= payment_amount
-            us["income"] += amount
-        else:
-            us["turnover"] += payment_amount
-            us["income"] += amount
-        if b.get("time", "") > us["last_used"]:
-            us["last_used"] = b.get("time", "")
+        source = last_utm.get("utm_source") if isinstance(last_utm, dict) else None
+        if source:
+            label = UTM_SOURCE_LABELS.get(source, source)
+            us = utm_stats.setdefault(
+                label, _new_bucket(utm_source=label, last_used=b.get("time", "") or "")
+            )
+            _apply_benefit(us, b)
+            us["last_used"] = max(us["last_used"], b.get("time", "") or "")
 
     recent_payments = []
     buyer_names = await _get_buyer_names(session)
-    for b in sorted(benefits, key=lambda x: x.get("time", ""), reverse=True):
+    for b in sorted(benefits, key=lambda x: x.get("time", "") or "", reverse=True):
         last_utm = b.get("last_course_click_utm") or {}
+        if not isinstance(last_utm, dict):
+            last_utm = {}
         utm_source = last_utm.get("utm_source")
         if b.get("is_invoice_payment"):
             channel = "По счету"
@@ -180,22 +186,25 @@ async def transform_financials(session: AsyncSession):
             channel = "А-ссылка"
         else:
             channel = "Stepik"
-        buyer = b.get("buyer")
-        try:
-            student = buyer_names.get(int(buyer))
-        except (TypeError, ValueError):
-            student = None
+        buyer = _to_int(b.get("buyer"))
+        student = buyer_names.get(buyer) if buyer is not None else None
+        promo_code = b.get("promo_code")
+        promo_is_author, promo_is_stepik_flag = _promo_flags(promo_code, promo_is_stepik)
         recent_payments.append(
             {
                 "id": b.get("id"),
-                "course": course_map.get(b.get("course"), {}).get("title", f"Курс #{b.get('course')}"),
-                "amount": float(b.get("amount", 0) or 0),
-                "payment_amount": float(b.get("payment_amount", 0) or 0),
+                "course": course_map.get(_to_int(b.get("course")), {}).get(
+                    "title", f"Курс #{b.get('course')}"
+                ),
+                "amount": _to_float(b.get("amount")) or 0.0,
+                "payment_amount": _to_float(b.get("payment_amount")) or 0.0,
                 "status": b.get("status", ""),
                 "time": b.get("time", ""),
                 "buyer": buyer,
                 "student": student,
-                "promo_code": b.get("promo_code"),
+                "promo_code": promo_code,
+                "promo_is_author": promo_is_author,
+                "promo_is_stepik": promo_is_stepik_flag,
                 "currency": b.get("currency_code", "RUB"),
                 "channel": channel,
                 "is_gift": bool(b.get("is_gift")),
@@ -226,7 +235,7 @@ async def transform_financials(session: AsyncSession):
     r = await session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
     prev_row = r.fetchone()
     if prev_row:
-        prev_data = prev_row[0] if isinstance(prev_row[0], dict) else json.loads(prev_row[0])
+        prev_data = _ensure_json(prev_row[0])
         if isinstance(prev_data, dict) and prev_data.get("community"):
             snapshot_data["community"] = prev_data["community"]
 
@@ -238,8 +247,8 @@ async def transform_financials(session: AsyncSession):
         """),
         {
             "id": str(uuid.uuid4()),
-            "data": _serialize_data(snapshot_data, session),
-                "now": datetime.now(UTC),
+            "data": _serialize_data(snapshot_data),
+            "now": datetime.now(UTC),
         },
     )
 

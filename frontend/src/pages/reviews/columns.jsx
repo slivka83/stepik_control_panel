@@ -1,6 +1,6 @@
 import { numCell } from '../../components/NumericCell';
 import { STEPIK_URLS } from '../../constants.jsx';
-import { getRatingColor, yearMonthLabel } from '../../utils/format';
+import { formatRating, getRatingColor, yearMonthLabel } from '../../utils/format';
 import { monthComposite } from '../../utils/monthWindow';
 
 export const TABS = [
@@ -41,7 +41,7 @@ const scoreCell = (row) => (
   <td className="text-right font-mono text-xs pl-1 pr-1">
     {row.avg_score ? (
       <span className="font-bold" style={{ color: getRatingColor(row.avg_score) }}>
-        {row.avg_score.toFixed(2)}
+        {formatRating(row.avg_score)}
       </span>
     ) : (
       <span className="text-gray-500">—</span>

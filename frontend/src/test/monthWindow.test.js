@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { buildMonthWindow, parseMonthLabel, formatMonthLabel } from '../utils/monthWindow.js';
+import {
+  buildMonthWindow,
+  formatMonthLabel,
+  makeMonthsTick,
+  monthComposite,
+  parseMonthLabel,
+} from '../utils/monthWindow.js';
 
 const NOW = new Date(2026, 7, 15); // 15 августа 2026
 
@@ -60,5 +66,28 @@ describe('buildMonthWindow', () => {
     const result = buildMonthWindow(months, { now: NOW });
     expect(result).toHaveLength(18);
     expect(result[17].month).toBe('Месяц 25');
+  });
+});
+
+describe('monthComposite', () => {
+  it('uses numeric year/month_num when present', () => {
+    expect(monthComposite({ year: 2026, month_num: 3, month: 'Март 2026' })).toBe(202603);
+  });
+
+  it('falls back to parsing the label', () => {
+    expect(monthComposite({ month: 'Март 2026' })).toBe(202603);
+  });
+});
+
+describe('makeMonthsTick', () => {
+  it('adds a short year when the window spans multiple years', () => {
+    const tick = makeMonthsTick([{ month: 'Декабрь 2025' }, { month: 'Январь 2026' }]);
+    expect(tick('Декабрь 2025')).toBe('Дек 25');
+    expect(tick('Январь 2026')).toBe('Янв 26');
+  });
+
+  it('keeps only the month when all rows are in one year', () => {
+    const tick = makeMonthsTick([{ month: 'Январь 2026' }, { month: 'Февраль 2026' }]);
+    expect(tick('Январь 2026')).toBe('Янв');
   });
 });

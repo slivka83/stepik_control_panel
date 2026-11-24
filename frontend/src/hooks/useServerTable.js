@@ -36,7 +36,7 @@ export function useServerTable({
 
   const reqIdRef = useRef(0);
   const firstRenderRef = useRef(true);
-  const prevLastSyncRef = useRef(null);
+  const prevLastSyncRef = useRef(undefined);
   const extraKey = JSON.stringify(extraParams ?? {});
 
   const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
@@ -63,12 +63,16 @@ export function useServerTable({
       setError(null);
     } catch (e) {
       if (reqIdRef.current !== id) return;
-      setError(e.message);
+      setError(e.response?.data?.detail || e.message || 'Не удалось загрузить данные');
     }
   }, [endpoint, resultKey, safePage, rowsPerPage, sort.key, sort.dir, selectedCourseIds, extraKey]);
 
   useEffect(() => {
-    if (enabled) fetchPage();
+    if (!enabled) {
+      setError(null);
+      return;
+    }
+    fetchPage();
   }, [enabled, fetchPage]);
 
   useEffect(() => {
@@ -80,16 +84,15 @@ export function useServerTable({
   }, [sort.key, sort.dir, resetKey]);
 
   useEffect(() => {
-    if (
-      enabled &&
-      prevLastSyncRef.current !== null &&
-      syncStatus.last_sync !== prevLastSyncRef.current
-    ) {
-      if (resetPageOnSync) setPage(1);
-      else fetchPage();
-    }
+    const changed =
+      prevLastSyncRef.current !== undefined && syncStatus.last_sync !== prevLastSyncRef.current;
     prevLastSyncRef.current = syncStatus.last_sync;
-  }, [syncStatus.last_sync, enabled, resetPageOnSync, fetchPage]);
+    if (!enabled || !changed) return;
+    // setPage(1) на уже первой странице — no-op, поэтому явно перезапрашиваем:
+    // иначе список остаётся со старыми строками после синка.
+    if (resetPageOnSync && page !== 1) setPage(1);
+    else fetchPage();
+  }, [syncStatus.last_sync, enabled, resetPageOnSync, fetchPage, page]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);

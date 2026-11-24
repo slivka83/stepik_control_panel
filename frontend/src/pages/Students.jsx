@@ -3,10 +3,11 @@ import ErrorBanner from '../components/ErrorBanner';
 import StudentsBar from '../components/StudentsBar';
 import DataTable from '../components/DataTable';
 import { useServerTable } from '../hooks/useServerTable';
-import { COHORT_COLORS } from '../constants.jsx';
+import { COHORT_COLORS, COHORT_LABELS } from '../constants.jsx';
 import { fmtDate } from '../utils/format';
 
 const cohortHex = (status) => COHORT_COLORS[String(status).toLowerCase()] || '#6b7280';
+const cohortLabel = (status) => COHORT_LABELS[String(status).toLowerCase()] || status || '—';
 
 const STUDENT_COLUMNS = [
   {
@@ -40,7 +41,7 @@ const STUDENT_COLUMNS = [
             color: cohortHex(s.cohort_status),
           }}
         >
-          {s.cohort_status}
+          {cohortLabel(s.cohort_status)}
         </span>
       </td>
     ),

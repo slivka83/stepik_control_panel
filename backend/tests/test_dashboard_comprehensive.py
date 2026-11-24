@@ -5,6 +5,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.api.auth import get_user
+from app.constants import MONTH_NAMES
 from app.database import get_db
 from app.main import app
 from app.models import Course, FinancialSnapshot, StudentEnrollment, Submission, User
@@ -617,8 +618,18 @@ class TestDashboardKPITrends:
         user = _make_user_in_db(db_session)
         course = _make_course_in_db(db_session, user.id)
 
+        now = datetime.now(UTC)
         months_data = [
-            {"month": "Июль 2026", "income": 5000, "payments_count": 5, "refunds_count": 0},
+            {
+                "month": f"{MONTH_NAMES[now.month]} {now.year}",
+                "year": now.year,
+                "month_num": now.month,
+                "income": 5000,
+                "turnover": 6000,
+                "refunds": 0,
+                "payments_count": 5,
+                "refunds_count": 0,
+            },
         ]
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
@@ -829,7 +840,7 @@ class TestDashboardKPITrends:
         finally:
             app.dependency_overrides.clear()
 
-    async def test_refunds_pcs_change_pct(self, db_session):
+    async def test_refunds_amount_and_count_change_pct(self, db_session):
         """Regression: refunds count card (Возвраты (шт) /месяц) uses refunds_count from months."""
         user = _make_user_in_db(db_session)
         course = _make_course_in_db(db_session, user.id)
@@ -871,12 +882,14 @@ class TestDashboardKPITrends:
             with patch("app.api.dashboard.kpi.datetime", _FakeDateTime):
                 response = client.get("/api/dashboard/kpi")
             data = response.json()
-            assert data["current_month_refunds_count"] == 1200
-            assert data["refunds_change_pct"] == 140
-            assert data["refunds_change_detail"] == {"current": 1200, "previous": 500}
-            assert data["current_month_refunds_pcs"] == 3
-            assert data["refunds_pcs_change_pct"] == 200
-            assert data["refunds_pcs_change_detail"] == {"current": 3, "previous": 1}
+            # refunds_amount — рубли, refunds_count — штуки. Раньше имена были
+            # перепутаны: *_count нёс сумму, а *_pcs — количество.
+            assert data["current_month_refunds_amount"] == 1200
+            assert data["refunds_amount_change_pct"] == 140
+            assert data["refunds_amount_change_detail"] == {"current": 1200, "previous": 500}
+            assert data["current_month_refunds_count"] == 3
+            assert data["refunds_count_change_pct"] == 200
+            assert data["refunds_count_change_detail"] == {"current": 3, "previous": 1}
         finally:
             app.dependency_overrides.clear()
 

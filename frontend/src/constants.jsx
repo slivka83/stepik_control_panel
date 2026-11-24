@@ -1,6 +1,4 @@
 export const CHART_COLORS = {
-  cyberBlue: '#38bdf8',
-  neonGreen: '#4ade80',
   gridLine: '#1e293b',
   textSecondary: '#64748b',
   panelBg: '#162032',

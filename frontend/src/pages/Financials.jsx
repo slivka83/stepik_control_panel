@@ -21,21 +21,28 @@ import {
   TABS,
 } from './financials/columns';
 
+const TAB_KEYS = TABS.map((t) => t.key);
+
 export default function Financials() {
   const { data, error, refresh } = useSync();
   const financials = data.financials;
-  const [activeTab, handleTabChange] = useTabState();
+  const [activeTab, handleTabChange] = useTabState('months', TAB_KEYS);
   const { sorts, onSort } = useTabSorts(TAB_COLUMNS, SORT_INIT);
   const [viewMode, setViewMode] = useState('table');
   const [chartMetric, setChartMetric] = useState('turnover_income');
 
   const { summary, months, years, courses, promos, utms, recent_payments } = financials || {};
-  const dailyRows = useMemo(() => buildDailyStats(recent_payments), [recent_payments]);
+  // Ключ дня в зависимостях: после полуночи 30-дневное окно «По дням»
+  // должно пересчитаться, даже если платежи не менялись.
+  const todayKey = new Date().toDateString();
+  const dailyRows = useMemo(() => buildDailyStats(recent_payments), [recent_payments, todayKey]);
+  // Таблица показывает новые дни сверху, а график — хронологически слева направо.
+  const dailyChartRows = useMemo(() => [...dailyRows].reverse(), [dailyRows]);
   const chartTab = CHARTABLE_TABS.includes(activeTab) ? activeTab : null;
   const chartRows = useMemo(() => {
-    const base = chartTab === 'months' ? months || [] : dailyRows;
+    const base = chartTab === 'months' ? months || [] : dailyChartRows;
     return base.map((r) => ({ ...r, commission: chartCommission(r) }));
-  }, [chartTab, months, dailyRows]);
+  }, [chartTab, months, dailyChartRows]);
   const chartXKey = chartTab === 'months' ? 'month' : 'day';
   const chartXTick = chartTab === 'months' ? makeMonthsTick(chartRows) : DAYS_TICK;
   const chartPeriodLabel = chartTab === 'months' ? MONTHS_PERIOD : DAYS_PERIOD;
@@ -54,6 +61,15 @@ export default function Financials() {
       <div className="flex flex-col flex-1 min-h-0">
         <div className="flex items-center justify-between gap-3 shrink-0 flex-wrap">
           <Tabs items={TABS} active={activeTab} onChange={handleTabChange} />
+
+          {activeTab === 'recent' && (
+            <div
+              className="text-[11px] text-gray-500 text-right"
+              title="⚠ — комиссия выше 7% у покупки по А-ссылке. Промокод Stepik — это продвижение Stepik, для него 7% не применяется."
+            >
+              <span className="text-amber-alert">⚠</span> выше 7% по А-ссылке; с промокодом Stepik — не ошибка
+            </div>
+          )}
 
           <ChartToggle
             visible={!!chartTab}

@@ -49,14 +49,31 @@ async def list_courses(
 
     snapshot_result = await db.execute(select(FinancialSnapshot).limit(1))
     snapshot = snapshot_result.scalar_one_or_none()
-    per_course_community = snapshot.data.get("community", {}).get("per_course", {}) if snapshot else {}
-    finance_courses = {c["course_id"]: c for c in (snapshot.data.get("courses", []) if snapshot else [])}
+    snapshot_data = snapshot.data if snapshot is not None and isinstance(snapshot.data, dict) else {}
+    community = snapshot_data.get("community")
+    per_course_community = (
+        community.get("per_course", {}) if isinstance(community, dict) else {}
+    )
+    if not isinstance(per_course_community, dict):
+        per_course_community = {}
+    finance_courses = {}
+    for c in snapshot_data.get("courses", []):
+        if not isinstance(c, dict):
+            continue
+        try:
+            finance_courses[int(c["course_id"])] = c
+        except (KeyError, TypeError, ValueError):
+            continue
 
     courses_list = []
     for course in courses:
         sid = str(course.stepik_course_id)
         fc = finance_courses.get(course.stepik_course_id, {})
+        if not isinstance(fc, dict):
+            fc = {}
         pc = per_course_community.get(sid, {})
+        if not isinstance(pc, dict):
+            pc = {}
         courses_list.append(
             {
                 "id": str(course.id),
@@ -73,7 +90,11 @@ async def list_courses(
                 "average_rating": pc.get("average_rating", 0),
             }
         )
-    courses_list.sort(key=lambda c: (c["published_at"] is not None, c["published_at"] or ""), reverse=True)
+    # Stable order: published first (newest on top), drafts after them, ties by
+    # title. Without the tiebreak the table order changed between requests.
+    courses_list.sort(key=lambda c: (c["title"] or "").casefold())
+    courses_list.sort(key=lambda c: c["published_at"] or "", reverse=True)
+    courses_list.sort(key=lambda c: c["published_at"] is not None, reverse=True)
     return {"courses": courses_list}
 
 

@@ -75,7 +75,7 @@ describe('CourseStructureMatrix', () => {
   it('renders average user grade in cells', () => {
     render(<CourseStructureMatrix modules={modules} metric="grade" />);
     const link = screen.getAllByRole('link').find((l) => l.getAttribute('href') === 'https://stepik.org/lesson/10/step/1');
-    expect(link.textContent).toBe('4.86');
+    expect(link.textContent).toBe('4,86');
   });
 
   it('renders dash in grade cell when no votes', () => {

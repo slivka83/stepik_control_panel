@@ -20,6 +20,7 @@ export default [
         HTMLElement: 'readonly',
         navigator: 'readonly',
         localStorage: 'readonly',
+        URLSearchParams: 'readonly',
       },
     },
     settings: {

@@ -124,6 +124,17 @@ describe('DataTable', () => {
     expect(screen.queryByText('Ряд 1')).not.toBeInTheDocument();
   });
 
+  it('resets to page 1 when the sort changes', () => {
+    const many = Array.from({ length: 60 }, (_, i) => ({ id: i + 1, name: `Ряд ${i + 1}`, score: i }));
+    renderTable({ rows: many });
+    expect(screen.getByText(/Страница 1 из \d+/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Вперёд →'));
+    expect(screen.getByText(/Страница 2 из \d+/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Балл').closest('th'));
+    expect(screen.getByText(/Страница 1 из \d+/)).toBeInTheDocument();
+  });
+
   it('renders empty state row with colSpan when emptyText provided', () => {
     renderTable({ rows: [], emptyText: 'Нет данных' });
     const td = screen.getByText('Нет данных').closest('td');

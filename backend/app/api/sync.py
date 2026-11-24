@@ -37,7 +37,7 @@ async def sync_status(
         remaining = max(0, int(elapsed))
 
     return {
-        "in_progress": sync_mod._sync_in_progress,
+        "in_progress": sync_mod.status_in_progress(),
         "progress": sync_mod._sync_progress,
         "step": sync_mod._sync_step,
         "last_sync": last_sync,
@@ -52,11 +52,11 @@ async def trigger_sync(
     user: User = Depends(get_user),
 ):
     await sync_mod.ensure_state_loaded()
-    if sync_mod._sync_in_progress:
-        return {"status": "already_in_progress"}
-    if not force and not sync_mod.can_sync():
-        remaining = int(sync_mod.SYNC_COOLDOWN_SECONDS - (time_mod.time() - sync_mod._last_sync_completed_at))
-        return {"status": "cooldown", "cooldown_remaining_seconds": max(0, remaining)}
+    # request_sync reserves the slot synchronously: the executor thread may not
+    # have started yet, and a status poll right after POST must not see idle.
+    result = sync_mod.request_sync(force)
+    if result["status"] != "sync_started":
+        return result
     loop = asyncio.get_running_loop()
-    loop.run_in_executor(None, sync_mod.sync_all_sync, force, user.id)
-    return {"status": "sync_started"}
+    loop.run_in_executor(None, sync_mod.run_sync_thread, force, user.id)
+    return result

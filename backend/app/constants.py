@@ -23,6 +23,16 @@ COHORT_PASSIVE_DAYS = 30
 COHORT_FADING_DAYS = 90
 ZOMBIE_DAYS_AFTER_JOIN = 3
 
+# «Лучший» статус студента, у которого курсы в разных сегментах (как в
+# student_marts): Active важнее Passive и т.д.
+COHORT_RANK: dict[str, int] = {
+    "Active": 0,
+    "Passive": 1,
+    "Fading": 2,
+    "Sleeping": 3,
+    "Zombie": 4,
+}
+
 UTM_SOURCE_LABELS: dict[str, str] = {
     "yandex_stpk": "Я.Директ",
     "ya_stpk": "Я.Директ",

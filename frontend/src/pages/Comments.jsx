@@ -20,9 +20,11 @@ import {
   TABS,
 } from './comments/columns';
 
+const TAB_KEYS = TABS.map((t) => t.key);
+
 export default function Comments() {
   const { data, error, refresh, selectedCourseIds } = useSync();
-  const [activeTab, handleTabChange] = useTabState();
+  const [activeTab, handleTabChange] = useTabState('months', TAB_KEYS);
   const { sorts, onSort } = useTabSorts(TAB_COLUMNS, SORT_INIT);
   const [viewMode, setViewMode] = useState('table');
   const [chartMetric, setChartMetric] = useState('likes_dislikes');
@@ -45,7 +47,7 @@ export default function Comments() {
   const byCourse = comments.by_course || [];
   const totals = comments.totals || {};
 
-  const bannerError = error || list.error;
+  const bannerError = error || (isListTab ? list.error : null);
   const retry = () => {
     if (error) refresh();
     if (isListTab) list.refetch();

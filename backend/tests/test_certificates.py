@@ -93,9 +93,15 @@ async def test_certificates_aggregates_months_years_courses(db_session):
 
     months = {m["month"]: m for m in data["months"]}
     july = months["Июль 2026"]
-    assert july == {"month": "Июль 2026", "students": 3, "total": 3, "distinction": 1, "regular": 2}
+    assert july == {
+        "month": "Июль 2026", "year": 2026, "month_num": 7,
+        "students": 3, "total": 3, "distinction": 1, "regular": 2,
+    }
     aug = months["Август 2026"]
-    assert aug == {"month": "Август 2026", "students": 1, "total": 2, "distinction": 1, "regular": 1}
+    assert aug == {
+        "month": "Август 2026", "year": 2026, "month_num": 8,
+        "students": 1, "total": 2, "distinction": 1, "regular": 1,
+    }
 
     assert data["years"] == [{"year": 2026, "students": 3, "total": 5, "distinction": 2, "regular": 3}]
 

@@ -1,6 +1,12 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { setHasSession } from '../session';
+import { apiUrl } from '../config';
 
 const AuthContext = createContext(null);
+
+// Backend/database may still be booting when the tab opens right after start.
+// A network error or 5xx must not be mistaken for "logged out": retry quietly.
+const AUTH_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000];
 
 async function parseJsonResponse(res) {
   const contentType = res.headers.get('content-type');
@@ -15,34 +21,57 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const checkAuth = async () => {
+    let cancelled = false;
+    let timer = null;
+
+    const attempt = async (index) => {
+      let loggedOut = false;
       try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        const res = await fetch(apiUrl('/auth/me'), { credentials: 'include' });
+        if (cancelled) return;
         if (res.ok) {
-          setUser(await parseJsonResponse(res));
-        } else {
-          setUser(null);
+          const profile = await parseJsonResponse(res);
+          setHasSession(true);
+          setUser(profile);
+          if (!cancelled) setLoading(false);
+          return;
+        }
+        if (res.status === 401 || res.status === 403) {
+          setHasSession(false);
+          loggedOut = true;
         }
       } catch {
-        setUser(null);
-      } finally {
-        setLoading(false);
+        // network error — backend not ready yet
       }
+
+      if (cancelled) return;
+      if (loggedOut || index >= AUTH_RETRY_DELAYS_MS.length) {
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+      timer = setTimeout(() => attempt(index + 1), AUTH_RETRY_DELAYS_MS[index]);
     };
-    checkAuth();
+
+    attempt(0);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, []);
 
   const login = () => {
-    window.location.href = '/api/auth/login';
+    window.location.href = apiUrl('/auth/login');
   };
 
   const logout = async () => {
     try {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      await fetch(apiUrl('/auth/logout'), { method: 'POST', credentials: 'include' });
     } catch {
       // ignore
     }
     setUser(null);
+    setHasSession(false);
   };
 
   return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>;

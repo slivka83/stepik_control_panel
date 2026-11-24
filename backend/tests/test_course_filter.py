@@ -333,7 +333,7 @@ class TestFilterSecurity:
         try:
             response = client.get(f"/api/dashboard/submissions?course_ids={u3.id}")
             assert response.status_code == 200
-            assert response.json() == {"months": [], "by_course": [], "years": []}
+            assert response.json() == {"months": [], "by_course": [], "years": [], "published_total": 0}
 
             response = client.get(f"/api/dashboard/kpi?course_ids={u3.id}")
             assert response.status_code == 200
@@ -385,7 +385,7 @@ class TestFilterSubmissions:
         _override(user, db_session)
         try:
             response = client.get("/api/dashboard/submissions?course_ids=")
-            assert response.json() == {"months": [], "by_course": [], "years": []}
+            assert response.json() == {"months": [], "by_course": [], "years": [], "published_total": 0}
 
             response = client.get("/api/dashboard/kpi?course_ids=")
             data = response.json()
@@ -599,11 +599,15 @@ class TestFilterCharts:
             months = response.json()["months"]
             assert len(months) == 2, "cert1 из сценария (текущий месяц) + 2 добавленных"
             by_label = {m["month"]: m for m in months}
-            assert by_label[label] == {"month": label, "dark": 2, "light": 1}
+            assert by_label[label] == {
+                "month": label, "year": old_year, "month_num": old_month, "dark": 2, "light": 1,
+            }
 
             response = client.get(f"/api/dashboard/certificates?course_ids={u2.id}")
             months = response.json()["months"]
-            assert months == [{"month": label, "dark": 1, "light": 1}]
+            assert months == [
+                {"month": label, "year": old_year, "month_num": old_month, "dark": 1, "light": 1}
+            ]
 
             response = client.get(f"/api/dashboard/certificates?course_ids={u3.id}")
             assert response.json()["months"] == [], "чужой курс не отдаёт сертификаты"
@@ -630,7 +634,7 @@ class TestFilterKPI:
             assert data["total_income"] == 800
             assert data["current_month_turnover"] == 800
             assert data["total_comments"] == 1
-            assert data["total_reviews"] == 2
+            assert data["total_reviews"] == 1  # mart_reviews — ровно строки страницы Отзывов
             assert data["average_rating"] == 4.5
             assert data["certificates_current_month"] == 1
             assert data["reviews_current_month"] == 1
@@ -863,3 +867,66 @@ class TestFilterFinancialsInvariant:
         unfiltered = _sum_months(data["months"])
         filtered = _sum_months(filter_financials(data, {101, 102})["months"])
         assert filtered == unfiltered
+
+    def test_empty_in_clause_is_safe(self):
+        """Regression: `IN ()` — синтаксическая ошибка; пустой список → NULL."""
+        from app.api.dashboard.common import in_clause
+
+        assert in_clause([]) == ("NULL", {})
+
+    def test_filtered_courses_keep_selected_courses_without_payments(self):
+        """Курс без платежей остаётся в таблице выбранных курсов с нулями.
+
+        Иначе «фильтр = все курсы» и «без фильтра» давали разные наборы строк
+        (в снапшоте курс есть, в отфильтрованном ответе — пропадал).
+        """
+        data = {
+            "courses": [
+                {"course_id": 101, "title": "Python", "price": 2990},
+                {"course_id": 102, "title": "JS", "price": 1990},
+            ],
+            "recent_payments": [
+                {
+                    "raw": {
+                        "course": 101,
+                        "amount": 1000,
+                        "payment_amount": 1200,
+                        "status": "completed",
+                        "time": "2026-07-01T10:00:00Z",
+                    }
+                }
+            ],
+        }
+        out = filter_financials(data, {101, 102})
+        by_id = {c["course_id"]: c for c in out["courses"]}
+        assert set(by_id) == {101, 102}
+        assert by_id[101]["payments"] == 1
+        assert by_id[102]["payments"] == 0
+        assert by_id[102]["price"] == 1990
+        assert by_id[102]["title"] == "JS"
+
+    def test_totals_include_payments_without_parseable_time(self):
+        """Платёж с битой датой не попадает в месяцы, но обязан попасть в итоги.
+
+        Иначе «Оборот» фильтра расходится с суммой по курсам/promos, где такой
+        платёж учтён.
+        """
+        data = {
+            "courses": [{"course_id": 101, "title": "Python"}],
+            "recent_payments": [
+                {
+                    "raw": {
+                        "course": 101,
+                        "amount": 1000,
+                        "payment_amount": 1200,
+                        "status": "completed",
+                        "time": None,
+                    }
+                }
+            ],
+        }
+        out = filter_financials(data, {101})
+        assert out["months"] == []
+        assert out["summary"]["total_payments"] == 1
+        assert out["summary"]["total_turnover"] == 1200
+        assert out["summary"]["total_income"] == 1000

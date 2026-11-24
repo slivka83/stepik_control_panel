@@ -67,14 +67,17 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Читаем порты из .env
+REM Читаем порты и пароль Redis из .env
 set BACKEND_PORT=8000
 set FRONTEND_PORT=3000
+set REDIS_PASSWORD=stepik_redis
 for /f "tokens=1,* delims==" %%a in ('findstr /b "BACKEND_PORT=" "%PROJECT_DIR%.env"') do set BACKEND_PORT=%%b
 for /f "tokens=1,* delims==" %%a in ('findstr /b "FRONTEND_PORT=" "%PROJECT_DIR%.env"') do set FRONTEND_PORT=%%b
+for /f "tokens=1,* delims==" %%a in ('findstr /b "REDIS_PASSWORD=" "%PROJECT_DIR%.env"') do set REDIS_PASSWORD=%%b
 REM Обрезаем пробелы из значений портов
 set BACKEND_PORT=!BACKEND_PORT: =!
 set FRONTEND_PORT=!FRONTEND_PORT: =!
+set REDIS_PASSWORD=!REDIS_PASSWORD: =!
 
 echo.
 echo   ┌──────────────────────────────────┐
@@ -102,7 +105,7 @@ echo   PostgreSQL is ready
 
 set /a elapsed=0
 :wait_redis
-docker compose -f "%PROJECT_DIR%docker-compose.yml" exec -T redis redis-cli ping >nul 2>&1
+docker compose -f "%PROJECT_DIR%docker-compose.yml" exec -T redis redis-cli -a "!REDIS_PASSWORD!" ping >nul 2>&1
 if not errorlevel 1 goto redis_ready
 set /a elapsed+=1
 if !elapsed! geq 30 (
@@ -130,6 +133,16 @@ if not exist ".venv\Scripts\uvicorn.exe" (
         echo   ERROR: uv pip install failed.
         goto :cleanup
     )
+)
+if not exist ".venv\Scripts\alembic.exe" (
+    echo   Installing missing dependencies...
+    uv pip install -r requirements.txt --python ".venv"
+)
+echo   Applying database migrations...
+".venv\Scripts\alembic.exe" upgrade head
+if errorlevel 1 (
+    echo   ERROR: database migrations failed. Check .env and PostgreSQL.
+    goto :cleanup
 )
 start /b "" ".venv\Scripts\uvicorn.exe" app.main:app --host 0.0.0.0 --port %BACKEND_PORT% --reload --reload-dir app > "%TEMP%\stepik_backend.log" 2>&1
 

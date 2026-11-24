@@ -1,7 +1,9 @@
 import axios from 'axios';
+import { API_BASE, apiUrl } from './config';
+import { getHasSession, setHasSession } from './session';
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: API_BASE,
   timeout: 30000,
   withCredentials: true,
 });
@@ -12,15 +14,18 @@ let refreshPromise = null;
 async function refreshSession() {
   if (!isRefreshing) {
     isRefreshing = true;
-    refreshPromise = fetch('/api/auth/refresh', {
+    refreshPromise = fetch(apiUrl('/auth/refresh'), {
       method: 'POST',
       credentials: 'include',
-    }).finally(() => {
-      isRefreshing = false;
-    });
+    })
+      .then((res) => res.ok)
+      // A network error must not turn the original 401 into a refresh crash.
+      .catch(() => false)
+      .finally(() => {
+        isRefreshing = false;
+      });
   }
-  const res = await refreshPromise;
-  return res.ok;
+  return refreshPromise;
 }
 
 api.interceptors.response.use(
@@ -29,11 +34,15 @@ api.interceptors.response.use(
     const originalRequest = error.config;
 
     if (error.response?.status === 401 && !originalRequest._retry) {
+      // Пока сессии нет (страница открыта до входа), 401 — нормальный ответ,
+      // а не «сессия истекла»: не уводим пользователя на дашборд.
+      if (!getHasSession()) return Promise.reject(error);
       originalRequest._retry = true;
       const refreshed = await refreshSession();
       if (refreshed) {
         return api(originalRequest);
       }
+      setHasSession(false);
       window.location.href = '/';
     }
     return Promise.reject(error);

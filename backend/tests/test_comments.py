@@ -112,6 +112,37 @@ def _get_list(db, user, **params):
         app.dependency_overrides.clear()
 
 
+async def test_deleted_comment_excluded_from_aggregates(db_session):
+    """Regression: удалённый комментарий попадал в «Всего комментариев» и лайки.
+
+    Списки его скрывали (`is_deleted`), а агрегаты — нет: цифры на дашборде и
+    на странице расходились.
+    """
+    user = _make_user()
+    await _seed(db_session, user)
+    before = _get_comments(db_session, user)
+
+    payload = {
+        "id": 777,
+        "user": 1,
+        "target": 500,
+        "time": "2026-07-15T10:00:00Z",
+        "vote_delta": 5,
+        "reply_count": 0,
+        "is_deleted": True,
+    }
+    await db_session.execute(
+        text('INSERT INTO raw_comment (comment_id, "user", target, "time", _raw_json) '
+             "VALUES ('c-deleted', '1', '500', '2026-07-15T10:00:00Z', :j)"),
+        {"j": json.dumps(payload)},
+    )
+    await db_session.flush()
+    await build_marts(db_session)
+
+    after = _get_comments(db_session, user)
+    assert after["totals"] == before["totals"]
+
+
 async def test_comments_aggregates_months_years_courses(db_session):
     user = _make_user()
     c1, c2 = await _seed(db_session, user)
@@ -120,9 +151,15 @@ async def test_comments_aggregates_months_years_courses(db_session):
 
     months = {m["month"]: m for m in data["months"]}
     july = months["Июль 2026"]
-    assert july == {"month": "Июль 2026", "students": 2, "total": 3, "likes": 4, "dislikes": 1, "replies": 1}
+    assert july == {
+        "month": "Июль 2026", "year": 2026, "month_num": 7,
+        "students": 2, "total": 3, "likes": 4, "dislikes": 1, "replies": 1,
+    }
     aug = months["Август 2026"]
-    assert aug == {"month": "Август 2026", "students": 1, "total": 1, "likes": 0, "dislikes": 0, "replies": 2}
+    assert aug == {
+        "month": "Август 2026", "year": 2026, "month_num": 8,
+        "students": 1, "total": 1, "likes": 0, "dislikes": 0, "replies": 2,
+    }
 
     assert data["years"] == [{"year": 2026, "students": 2, "total": 4, "likes": 4, "dislikes": 1, "replies": 3}]
 

@@ -128,10 +128,35 @@ class TestTransformCourses:
 
     @pytest.mark.asyncio
     async def test_removes_deleted_courses(self, db_session):
+        """Regression: удаление курса падало на FK дочерних строк.
+
+        Курс, удалённый на Stepik, удалялся одним DELETE FROM courses, но в БД
+        FK созданы без ON DELETE CASCADE — синк падал на student_enrollments
+        и mart_*.
+        """
         from app.services.transform import transform_courses
 
         user = _make_user(db_session)
-        await _make_course(db_session, user.id, stepik_course_id=999, title="To Delete")
+        course_id = await _make_course(db_session, user.id, stepik_course_id=999, title="To Delete")
+        # Raw inserts with the same id representation as the transform sees:
+        # on SQLite the ORM stores UUIDs as 32 hex chars, while raw SQL stores
+        # the hyphenated form (PG stores a native UUID and is unaffected).
+        await db_session.execute(
+            text("""
+            INSERT INTO student_enrollments
+                (id, course_id, student_id, cohort_status, points_earned,
+                 certificate_issued, created_at)
+            VALUES (:id, :cid, 1, 'Active', 0, 0, :now)
+        """),
+            {"id": str(uuid.uuid4()), "cid": course_id, "now": datetime.now(UTC)},
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO mart_steps (id, course_id, stepik_course_id, step_id)
+            VALUES (:id, :cid, 999, 500)
+        """),
+            {"id": str(uuid.uuid4()), "cid": course_id},
+        )
         await db_session.commit()
 
         await self._populate_raw_courses(db_session, [])
@@ -142,6 +167,9 @@ class TestTransformCourses:
 
         r = await db_session.execute(text("SELECT id FROM courses"))
         assert len(list(r)) == 0
+        for table in ("student_enrollments", "mart_steps"):
+            r = await db_session.execute(text(f"SELECT count(*) FROM {table}"))
+            assert r.scalar() == 0, f"{table} не очищена при удалении курса"
 
     @pytest.mark.asyncio
     async def test_skips_course_owned_by_another_user(self, db_session):
@@ -356,6 +384,39 @@ class TestTransformSubmissions:
         s3 = next(s for s in submissions if s[0] == 1002)
         assert s3[4] == 500
 
+    async def test_garbage_score_and_eta_do_not_kill_the_transform(self, db_session):
+        """Regression: один мусорный score/eta (не число) ронял весь transform."""
+        from app.services.transform import transform_submissions
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=101)
+        await db_session.execute(
+            text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}')")
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_unit (unit_id, lesson_id, section_id, _raw_json) VALUES (1, 10, 1, '{}')")
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_section (section_id, course, units, _raw_json) VALUES (1, 101, '[1]', '{}')")
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_submission (submission_id, step, _raw_json)
+            VALUES (1000, 500, '{"id": 1000, "status": "correct", "time": "2026-07-15T10:00:00Z",
+                                    "score": "n/a", "eta": "soon", "attempt": 10}')
+        """)
+        )
+        await db_session.commit()
+
+        await transform_submissions(db_session)
+        await db_session.commit()
+
+        r = await db_session.execute(text("SELECT score, eta FROM submissions WHERE stepik_submission_id = 1000"))
+        row = r.fetchone()
+        assert row is not None
+        assert row[0] == 0
+        assert row[1] == 0
+
 
 # ─── transform_financials ──────────────────────────────────────────────
 
@@ -487,6 +548,75 @@ class TestTransformFinancials:
         assert data["recent_payments"][1]["channel"] == "Stepik"
         assert data["recent_payments"][1]["is_gift"] is False
         assert data["recent_payments"][1]["raw"]["last_course_click_utm"]["utm_campaign"] == "rsya_yad_feed_stepik_rus"
+
+    @pytest.mark.asyncio
+    async def test_recent_payments_mark_promo_owner(self, db_session):
+        """Авторский промокод ≠ промокод Stepik: это нужно для проверки 7%."""
+        from app.services.transform import transform_financials
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=101, title="Python 101")
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course_benefit (course, amount, payment_amount, status, "time", buyer, promo_code, currency_code, _raw_json)
+            VALUES (101, '1500', '2500', 'debited', '2026-07-01T10:00:00Z', 1001, 'FIRST', 'RUB', :j1),
+                   (101, '1500', '2500', 'debited', '2026-07-02T10:00:00Z', 1002, 'STBLACKFRIDAY25', 'RUB', :j2)
+        """),
+            {
+                "j1": json.dumps({"promo_code": "FIRST"}),
+                "j2": json.dumps({"promo_code": "STBLACKFRIDAY25"}),
+            },
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_promo_code (promo_code_id, course, name, is_stepik_side, _raw_json)
+            VALUES ('1', '101', 'FIRST', 'false', '{}'),
+                   ('2', '101', 'STBLACKFRIDAY25', 'true', '{}')
+        """)
+        )
+        await db_session.commit()
+
+        await transform_financials(db_session)
+        await db_session.commit()
+
+        r = await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
+        snapshot = r.fetchone()[0]
+        data = json.loads(snapshot) if isinstance(snapshot, str) else snapshot
+        by_code = {p["promo_code"]: p for p in data["recent_payments"]}
+        assert by_code["FIRST"]["promo_is_author"] is True
+        assert by_code["FIRST"]["promo_is_stepik"] is False
+        assert by_code["STBLACKFRIDAY25"]["promo_is_author"] is False
+        assert by_code["STBLACKFRIDAY25"]["promo_is_stepik"] is True
+
+    @pytest.mark.asyncio
+    async def test_unknown_promo_side_is_none(self, db_session):
+        """Не синканный промокод нельзя выдавать за промокод Stepik.
+
+        Иначе фронтенд не помечает подозрительную комиссию, хотя владелец
+        промокода неизвестен.
+        """
+        from app.services.transform import transform_financials
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=101, title="Python 101")
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course_benefit (course, amount, payment_amount, status, "time", promo_code, _raw_json)
+            VALUES (101, '1500', '2500', 'debited', '2026-07-01T10:00:00Z', 'MYSTERY', :j)
+        """),
+            {"j": json.dumps({"promo_code": "MYSTERY"})},
+        )
+        await db_session.commit()
+
+        await transform_financials(db_session)
+        await db_session.commit()
+
+        r = await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
+        snapshot = r.fetchone()[0]
+        data = json.loads(snapshot) if isinstance(snapshot, str) else snapshot
+        payment = data["recent_payments"][0]
+        assert payment["promo_is_author"] is False
+        assert payment["promo_is_stepik"] is None
 
     @pytest.mark.asyncio
     async def test_income_is_net_of_refunds_across_levels(self, db_session):
@@ -752,6 +882,38 @@ class TestTransformFinancials:
         assert data["months"] == []
 
     @pytest.mark.asyncio
+    async def test_course_without_payments_keeps_price_and_zero_stats(self, db_session):
+        """Курс без продаж не исчезает из снапшота: страница «Курсы» показывает
+        его цену, а не «—»."""
+        import json as _json
+
+        from app.services.transform import transform_financials
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=101, title="Python 101")
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course (course_id, title, _raw_json)
+            VALUES (101, 'Python 101', :j)
+        """),
+            {"j": _json.dumps({"id": 101, "title": "Python 101", "price": 4990})},
+        )
+        await db_session.commit()
+
+        await transform_financials(db_session)
+        await db_session.commit()
+
+        r = await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
+        snapshot = r.fetchone()[0]
+        data = _json.loads(snapshot) if isinstance(snapshot, str) else snapshot
+        assert len(data["courses"]) == 1
+        course = data["courses"][0]
+        assert course["course_id"] == 101
+        assert course["price"] == 4990
+        assert course["payments"] == 0
+        assert course["income"] == 0
+
+    @pytest.mark.asyncio
     async def test_preserves_community_block(self, db_session):
         """Regression: transform_financials (DELETE+INSERT) терял community-блок.
 
@@ -938,6 +1100,104 @@ class TestTransformCommunity:
         assert data["community"]["total_comments"] == 0
 
 
+# ─── transform_steps: shared lesson attribution ─────────────────────────
+
+
+class TestSharedLessonAttribution:
+    @pytest.mark.asyncio
+    async def test_lesson_shared_by_two_courses_belongs_to_first_course(self, db_session):
+        """Regression: шаг одного урока, стоящего в двух курсах, приписывался
+        последнему обработанному курсу, а build_step_course_map — первому."""
+        from app.services.transform import transform_steps
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=100)
+        await _make_course(db_session, user.id, stepik_course_id=101)
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_section (section_id, course, position, title) VALUES
+                ('s1', '100', '1', 'Module A'),
+                ('s2', '101', '1', 'Module B')
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_unit (lesson_id, section_id, position) VALUES
+                ('10', 's1', '1'),
+                ('10', 's2', '1')
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_lesson (lesson_id, steps, title)
+            VALUES ('10', '[500]', 'Shared lesson')
+        """)
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_step (step_id, lesson) VALUES ('500', '10')")
+        )
+        await db_session.commit()
+
+        await transform_steps(db_session)
+
+        step = (
+            await db_session.execute(
+                text(
+                    "SELECT stepik_course_id, lesson_number, module_number "
+                    "FROM mart_steps WHERE step_id = 500"
+                )
+            )
+        ).one()
+        assert tuple(step) == (100, 1, 1)
+        lesson_courses = (
+            await db_session.execute(text("SELECT stepik_course_id FROM mart_lessons"))
+        ).scalars().all()
+        assert lesson_courses == [100]
+
+
+class TestCommentCourseFallback:
+    @pytest.mark.asyncio
+    async def test_comment_with_unknown_step_is_attributed_by_its_course(self, db_session):
+        """Комментарий к несинканому шагу, но с известным course, попадает в
+        витрину (как и в transform_community) — иначе KPI и страница расходятся."""
+        from app.services.transform import transform_comments
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=100)
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_comment (comment_id, "user", target, "time", thread, _raw_json)
+            VALUES ('c1', '7', '999', '2026-07-10T10:00:00Z', '',
+                    :j)
+        """),
+            {
+                "j": json.dumps(
+                    {
+                        "id": 1,
+                        "user": 7,
+                        "course": 100,
+                        "target": 999,
+                        "time": "2026-07-10T10:00:00Z",
+                        "thread": "",
+                    }
+                )
+            },
+        )
+        await db_session.commit()
+
+        await transform_comments(db_session)
+
+        row = (
+            await db_session.execute(
+                text(
+                    "SELECT stepik_course_id, lesson_id, step_number FROM mart_comments "
+                    "WHERE comment_id = 1"
+                )
+            )
+        ).one()
+        assert tuple(row) == (100, None, None)
+
+
 # ─── Schema validation: transform queries match raw table columns ──────
 
 
@@ -1065,7 +1325,8 @@ class TestTransformStudents:
         assert s7["certificates"] == 1
         assert s7["submissions_count"] == 3
         assert s7["submissions_successful"] == 2
-        assert s7["comments_count"] == 2
+        # Опубликованное решение учитывается отдельно и не входит в «Комментарии».
+        assert s7["comments_count"] == 1
         assert s7["published_solutions"] == 1
         assert s7["last_activity"] is not None
 

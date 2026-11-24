@@ -1,7 +1,7 @@
 import { useState, useId } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
 import { CHART_COLORS } from '../constants.jsx';
-import { buildMonthWindow } from '../utils/monthWindow.js';
+import { buildMonthWindow, makeMonthsTick } from '../utils/monthWindow.js';
 import { ChartBarShape, ChartTooltip, ChartTooltipRow, ChartTooltipTitle } from './chartKit';
 
 const COLOR_BRIGHT = '#38bdf8';
@@ -18,7 +18,6 @@ function mixColors(a, b) {
 
 export default function SubmissionsChart({
   data = {},
-  showTitle = true,
   title,
   primaryColor,
   secondaryColor,
@@ -31,6 +30,7 @@ export default function SubmissionsChart({
   const uid = useId();
 
   const months = buildMonthWindow(data.months || []);
+  const monthTick = makeMonthsTick(months);
 
   if (!months.length) {
     return (
@@ -49,10 +49,14 @@ export default function SubmissionsChart({
   const chartData = months.map((d) => {
     const correct = d.correct || 0;
     const published = d.published ?? 0;
+    // Сегмент «Опубликованные» не может быть больше «Правильных» в этом
+    // месяце (публикация и решение считаются по разным датам). Полное
+    // значение остаётся в publishedTotal для тултипа/KPI.
+    const publishedSegment = Math.min(published, correct);
     return {
       ...d,
-      published,
-      correct: Math.max(correct - published, 0),
+      published: publishedSegment,
+      correct: Math.max(correct - publishedSegment, 0),
       correctTotal: correct,
       publishedTotal: published,
       wrong: Math.max((d.total || 0) - correct, 0),
@@ -86,7 +90,7 @@ export default function SubmissionsChart({
         {title || 'Решения'} за {months.length} месяцев
       </figcaption>
       <div className="flex items-center justify-between mb-2 shrink-0">
-        {showTitle && <h3 className="text-white font-medium">{title || 'Решения'}</h3>}
+        <h3 className="text-white font-medium">{title || 'Решения'}</h3>
         <div className="flex items-center gap-4">
           {!hideCorrectLegend && (
             <div className="flex items-center gap-2">
@@ -161,12 +165,7 @@ export default function SubmissionsChart({
               fontFamily="JetBrains Mono"
               interval={0}
               tickMargin={8}
-              tickFormatter={(value) => {
-                if (!value) return '';
-                const parts = value.split(' ');
-                const month = parts[0] || '';
-                return month.length > 3 ? month.substring(0, 3) : month;
-              }}
+              tickFormatter={monthTick}
             />
             <YAxis
               stroke={CHART_COLORS.textSecondary}

@@ -1,6 +1,7 @@
 import { formatCurrency } from '../../utils/formatNumber';
 import { yearMonthLabel } from '../../utils/format';
-import { formatUtmTooltip, paymentCommission } from '../../utils/financials';
+import { monthComposite } from '../../utils/monthWindow';
+import { commissionWarning, formatUtmTooltip, paymentCommission } from '../../utils/financials';
 
 export const TABS = [
   { key: 'months', label: 'По месяцам' },
@@ -16,7 +17,7 @@ export const CHARTABLE_TABS = ['months', 'days'];
 
 export const CHART_METRICS = {
   turnover_income: {
-    label: 'Оборот / Доход',
+    label: 'Доход / Комиссия',
     format: 'money',
     bars: [
       { dataKey: 'income', color: '#4ade80' },
@@ -51,11 +52,6 @@ export const SORT_INIT = {
   recent: { key: 'time', dir: 'desc' },
 };
 
-function monthCompositeValue(m) {
-  if (m.year != null && m.month_num != null) return m.year * 100 + m.month_num;
-  return 0;
-}
-
 const moneyCell = (key, className) => (row) => (
   <td className={`text-right font-mono text-xs pl-1 pr-1 ${className}`}>{formatCurrency(row[key])}</td>
 );
@@ -67,11 +63,15 @@ const refundsCell = (row) => (
   </td>
 );
 const paymentsCell = (row) => <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300">{row.payments}</td>;
-const lastUsedCell = (row) => (
-  <td className="text-right text-gray-400 text-xs pl-1 pr-1 truncate">
-    {row.last_used ? new Date(row.last_used).toLocaleDateString('ru-RU') : '—'}
-  </td>
-);
+const lastUsedCell = (row) => {
+  const d = row.last_used ? new Date(row.last_used) : null;
+  const valid = d && !Number.isNaN(d.getTime());
+  return (
+    <td className="text-right text-gray-400 text-xs pl-1 pr-1 truncate">
+      {valid ? d.toLocaleDateString('ru-RU') : '—'}
+    </td>
+  );
+};
 
 const MONTHS_COLUMNS = [
   {
@@ -79,7 +79,7 @@ const MONTHS_COLUMNS = [
     label: 'Месяц',
     width: 'w-[28%]',
     numeric: true,
-    getValue: monthCompositeValue,
+    getValue: monthComposite,
     render: (m) => <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate">{yearMonthLabel(m.month)}</td>,
   },
   {
@@ -230,18 +230,24 @@ const RECENT_COLUMNS = [
   {
     key: 'time',
     label: 'Дата',
-    width: 'w-[12%]',
+    width: 'w-[11%]',
     naturalDir: 'asc',
-    render: (p) => (
-      <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate">
-        {`${new Date(p.time).toLocaleDateString('ru-RU')} ${new Date(p.time).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`}
-      </td>
-    ),
+    render: (p) => {
+      const d = new Date(p.time);
+      if (Number.isNaN(d.getTime())) {
+        return <td className="text-gray-500 font-mono text-xs pl-1 pr-1 truncate">—</td>;
+      }
+      return (
+        <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate">
+          {`${d.toLocaleDateString('ru-RU')} ${d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}`}
+        </td>
+      );
+    },
   },
   {
     key: 'course',
     label: 'Курс',
-    width: 'w-[26%]',
+    width: 'w-[23%]',
     render: (p) => (
       <td className="text-gray-300 font-mono text-xs pl-1 pr-1 truncate" title={p.course}>
         {p.course}
@@ -252,7 +258,7 @@ const RECENT_COLUMNS = [
     key: 'student',
     label: 'Студент',
     align: 'right',
-    width: 'w-[14%]',
+    width: 'w-[12%]',
     nullLast: true,
     render: (p) => (
       <td className="text-right text-gray-300 font-mono text-xs pl-1 pr-1 truncate" title={p.student || ''}>
@@ -294,12 +300,29 @@ const RECENT_COLUMNS = [
     getValue: (p) => paymentCommission(p)?.pct ?? null,
     render: (p) => {
       const c = paymentCommission(p);
+      const warning = commissionWarning(p);
+      const warningTitle = warning
+        ? `Подозрительно: ${warning.pct}% вместо ${warning.expectedPct}%. Покупка по А-ссылке — комиссия должна быть ${warning.expectedPct}% (разница ${warning.delta} п.п.).`
+        : '';
       return (
-        <td
-          className="text-right font-mono text-xs pl-1 pr-1 text-gray-300 truncate"
-          title={c ? formatCurrency(c.amount) : ''}
-        >
-          {c ? `${c.pct}%` : '—'}
+        <td className="text-right font-mono text-xs pl-1 pr-1 truncate" title={c ? formatCurrency(c.amount) : ''}>
+          {c ? (
+            <span className="inline-flex items-center justify-end gap-0.5">
+              <span className={warning ? 'text-crimson-alert' : 'text-gray-300'}>{`${c.pct}%`}</span>
+              {warning && (
+                <span
+                  className="text-crimson-alert cursor-help"
+                  title={warningTitle}
+                  role="img"
+                  aria-label="Подозрительная комиссия"
+                >
+                  ⚠
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="text-gray-300">—</span>
+          )}
         </td>
       );
     },
@@ -331,7 +354,7 @@ const RECENT_COLUMNS = [
     key: 'promo_code',
     label: 'Промокод',
     align: 'right',
-    width: 'w-[12%]',
+    width: 'w-[11%]',
     nullLast: true,
     render: (p) => <td className="text-right text-gray-300 text-xs pl-1 pr-1 truncate">{p.promo_code || '—'}</td>,
   },
@@ -349,7 +372,7 @@ const RECENT_COLUMNS = [
     key: 'utm_source_label',
     label: 'UTM',
     align: 'right',
-    width: 'w-[10%]',
+    width: 'w-[9%]',
     nullLast: true,
     render: (p) => (
       <td className="text-right text-gray-300 text-xs pl-1 pr-1 truncate" title={formatUtmTooltip(p.raw)}>

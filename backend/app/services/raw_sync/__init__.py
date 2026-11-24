@@ -20,6 +20,7 @@ from .common import (
     _get_fields_mapping,
     _is_text_step,
     _paginated_fetch,
+    _raw_course_ids,
     _replace_raw_table,
     _upsert_raw_table,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "_get_fields_mapping",
     "_is_text_step",
     "_paginated_fetch",
+    "_raw_course_ids",
     "_replace_raw_table",
     "_request",
     "_upsert_raw_table",

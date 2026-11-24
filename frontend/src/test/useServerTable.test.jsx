@@ -117,6 +117,61 @@ describe('useServerTable', () => {
     await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
   });
 
+  it('refetches on sync with resetPageOnSync even when already on page 1', async () => {
+    // Regression: setPage(1) на первой странице — no-op, и список не обновлялся.
+    let setSyncValue;
+    function Wrapper({ children }) {
+      const [value, setValue] = useState(
+        baseSync({ syncStatus: { in_progress: false, last_sync: '2026-07-01T00:00:00' } }),
+      );
+      setSyncValue = setValue;
+      return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>;
+    }
+    renderHook(
+      () =>
+        useServerTable({
+          endpoint: '/test',
+          columns: COLUMNS,
+          initialSort: INITIAL_SORT,
+          resultKey: 'rows',
+          resetPageOnSync: true,
+        }),
+      { wrapper: Wrapper },
+    );
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
+
+    act(() =>
+      setSyncValue(baseSync({ syncStatus: { in_progress: false, last_sync: '2026-08-01T00:00:00' } })),
+    );
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+  });
+
+  it('refetches when the first-ever sync sets last_sync (null → timestamp)', async () => {
+    let setSyncValue;
+    function Wrapper({ children }) {
+      const [value, setValue] = useState(baseSync());
+      setSyncValue = setValue;
+      return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>;
+    }
+    renderHook(
+      () =>
+        useServerTable({
+          endpoint: '/test',
+          columns: COLUMNS,
+          initialSort: INITIAL_SORT,
+          resultKey: 'rows',
+        }),
+      { wrapper: Wrapper },
+    );
+
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
+    act(() =>
+      setSyncValue(baseSync({ syncStatus: { in_progress: false, last_sync: '2026-08-01T00:00:00' } })),
+    );
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+  });
+
   it('returns to page 1 when the reset key changes', async () => {
     api.get.mockResolvedValue({ data: { rows: [], total: 40 } });
     const { result, rerender } = renderHook(

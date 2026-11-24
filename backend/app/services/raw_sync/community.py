@@ -8,11 +8,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.stepik_api import StepikAPIError
 
-from .common import _hub, _raw_course_ids, _save_sync_state
+from .common import _as_int, _hub, _previous_raw_objects, _raw_course_ids, _save_sync_state
 
 logger = logging.getLogger(__name__)
 
 COMMENTS_ENDPOINT = "comments"
+# Страховка от вечного has_next=true. С курсором синк останавливается на
+# первой странице, где встретил уже сохранённый комментарий; большой лимит
+# нужен только для догоняющей загрузки после долгого простоя.
+COMMENTS_MAX_PAGES = 500
 
 
 async def _sync_review_summaries(session: AsyncSession, token: str) -> None:
@@ -30,12 +34,11 @@ async def _sync_review_summaries(session: AsyncSession, token: str) -> None:
                 review_ids.append(rid)
         except (json.JSONDecodeError, TypeError):
             pass
-    review_ids = list(set(int(x) for x in review_ids if x is not None))
-
-    if not review_ids:
-        return
+    review_ids = sorted({rid for value in review_ids if (rid := _as_int(value)) is not None})
 
     review_summaries = []
+    failed_batches = 0
+    failed_ids: set[int] = set()
     for i in range(0, len(review_ids), 100):
         batch = review_ids[i : i + 100]
         try:
@@ -46,9 +49,21 @@ async def _sync_review_summaries(session: AsyncSession, token: str) -> None:
                 {"ids[]": batch},
             )
         except StepikAPIError as e:
+            failed_batches += 1
+            failed_ids.update(batch)
             logger.warning("  course-review-summaries batch %d: %s — skip", i // 100, e)
             continue
         review_summaries.extend(rs)
+    if failed_batches and not review_summaries:
+        # Ни одна сводка не пришла из-за ошибок: не затираем прошлые рейтинги.
+        logger.warning("  all review-summary batches failed — keeping previous rows")
+        return
+    # Частичный сбой не должен удалять уже сохранённые сводки этого батча.
+    review_summaries.extend(
+        await _previous_raw_objects(
+            session, "raw_course_review_summary", "review_summary_id", failed_ids
+        )
+    )
     mapping = await _hub()._get_fields_mapping(session, "course_review_summaries")
     await _hub()._replace_raw_table(session, "raw_course_review_summary", review_summaries, mapping)
     logger.info("  raw_course_review_summary: %d rows", len(review_summaries))
@@ -62,21 +77,42 @@ async def _sync_reviews(session: AsyncSession, token: str, course_ids: list[int]
     """
     mapping_reviews = await _hub()._get_fields_mapping(session, "course_reviews")
     all_reviews = []
+    failed_courses: list[int] = []
     for cid in course_ids:
         try:
             reviews = await _hub()._paginated_fetch("/course-reviews", token, "course-reviews", {"course": cid})
         except StepikAPIError as e:
+            failed_courses.append(cid)
             logger.warning("  course-reviews course %d: %s — skip", cid, e)
             continue
         all_reviews.extend(reviews)
         logger.info("    course %d: %d reviews", cid, len(reviews))
+    if course_ids and len(failed_courses) == len(course_ids) and not all_reviews:
+        logger.warning("  all course-reviews requests failed — keeping previous rows")
+        return
+    # Частичный сбой не должен удалять отзывы упавшего курса: возвращаем их
+    # из прошлой загрузки и заменяем таблицу целиком.
+    all_reviews.extend(
+        await _previous_raw_objects(session, "raw_course_review", "course", failed_courses)
+    )
     await _hub()._replace_raw_table(session, "raw_course_review", all_reviews, mapping_reviews)
     logger.info("  raw_course_review: %d rows total", len(all_reviews))
     await session.commit()
 
 
 async def _sync_comments(session: AsyncSession, token: str, course_ids: list[int]) -> int:
-    """Comments — incremental by time per course."""
+    """Comments — incremental by time per course.
+
+    The endpoint returns newest-first. `>= last_time` (not `>`) keeps other
+    comments created in the same second as the saved cursor: with `>` they were
+    never fetched again and their edits/likes never refreshed. Upsert applies
+    changes to already stored comments too (text, vote_delta, replies,
+    is_staff_replied), so the "Не отвеченные"/"Дизлайки" lists stay current.
+
+    The cursor is advanced only when the scan actually reached already stored
+    comments (or the end of the list). A capped run (huge backlog) leaves the
+    cursor untouched and logs a warning instead of silently skipping the gap.
+    """
     r = await session.execute(
         text(
             "SELECT key, value FROM raw_sync_state "
@@ -92,7 +128,8 @@ async def _sync_comments(session: AsyncSession, token: str, course_ids: list[int
         course_new = 0
         page = 1
         max_time_str = last_time
-        while page <= 50:
+        reached_boundary = False
+        while page <= COMMENTS_MAX_PAGES:
             try:
                 data = await _hub()._request(
                     "GET", "/comments", token, {"course": cid, "page": page, "page_size": 20}
@@ -102,12 +139,18 @@ async def _sync_comments(session: AsyncSession, token: str, course_ids: list[int
                 break
             objects = data.get("comments", [])
             if not objects:
+                reached_boundary = True
                 break
 
             new_objects = []
             for obj in objects:
                 t = obj.get("time", "") or ""
-                if isinstance(t, str) and t > last_time:
+                if not isinstance(t, str):
+                    continue
+                if last_time and t < last_time:
+                    # Дошли до уже сохранённого хвоста — дальше всё старое.
+                    reached_boundary = True
+                if not last_time or t >= last_time:
                     new_objects.append(obj)
                     if t > max_time_str:
                         max_time_str = t
@@ -116,15 +159,25 @@ async def _sync_comments(session: AsyncSession, token: str, course_ids: list[int
                 await _hub()._upsert_raw_table(session, "raw_comment", new_objects, mapping)
                 course_new += len(new_objects)
 
-                await _save_sync_state(
-                    session, COMMENTS_ENDPOINT, f"last_time_course_{cid}", max_time_str
-                )
-
+            if reached_boundary:
+                break
             if not data.get("meta", {}).get("has_next"):
+                reached_boundary = True
                 break
             page += 1
 
         if course_new > 0:
+            if reached_boundary:
+                await _save_sync_state(
+                    session, COMMENTS_ENDPOINT, f"last_time_course_{cid}", max_time_str
+                )
+            else:
+                logger.warning(
+                    "    course %d: %d-page backlog not fully fetched — cursor stays at %r",
+                    cid,
+                    COMMENTS_MAX_PAGES,
+                    last_time or "the beginning",
+                )
             logger.info("    course %d: +%d comments", cid, course_new)
             await session.commit()
         total_new += course_new

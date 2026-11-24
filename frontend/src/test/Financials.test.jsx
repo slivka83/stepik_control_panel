@@ -55,6 +55,7 @@ const mockFinancials = {
       status: 'debited',
       time: '2026-01-15T10:00:00',
       promo_code: 'WELCOME',
+      promo_is_author: true,
       channel: 'Stepik',
       is_gift: false,
       student: 'Иван Петров',
@@ -230,15 +231,80 @@ describe('Financials', () => {
     expect(screen.getByText('А-ссылка')).toBeInTheDocument();
     expect(screen.getByText('По счету')).toBeInTheDocument();
     expect(screen.getByText('Да')).toBeInTheDocument();
-    expect(screen.getByText('29%')).toBeInTheDocument();
-    expect(screen.getByText('93%')).toBeInTheDocument();
-    expect(screen.getByText('25%')).toBeInTheDocument();
+    expect(screen.getByText('29%')).toHaveClass('text-gray-300');
+    // Возврат — не покупка: комиссия от возвращённой суммы не считается.
+    expect(screen.queryByText('93%')).not.toBeInTheDocument();
+    expect(screen.getByText('25%')).toHaveClass('text-gray-300');
+    expect(screen.queryByRole('img', { name: 'Подозрительная комиссия' })).not.toBeInTheDocument();
+    expect(screen.getByText(/с промокодом Stepik/)).toBeInTheDocument();
     expect(screen.getByTitle('2 000 ₽')).toBeInTheDocument();
-    expect(screen.getByTitle('6 500 ₽')).toBeInTheDocument();
+    // У возврата комиссии нет — ячейка «—», а не 93% от суммы возврата.
+    expect(screen.queryByTitle('6 500 ₽')).not.toBeInTheDocument();
     const tooltip = screen.getByTitle(/utm_source: yandex_stpk/);
     expect(tooltip).toHaveAttribute('title', expect.stringContaining('utm_medium: cpc'));
     expect(tooltip.getAttribute('title')).not.toContain('amount');
     expect(screen.getByText(/10:00/)).toBeInTheDocument();
+  });
+
+  it('marks 40% on an author-link payment as a red suspicious commission', async () => {
+    const user = userEvent.setup();
+    renderFinancials({
+      ...mockFinancials,
+      recent_payments: [
+        {
+          id: 'p-error',
+          course: 'Курс с А-ссылкой',
+          amount: 2940,
+          payment_amount: 4900,
+          status: 'debited',
+          time: '2026-01-15T10:00:00',
+          channel: 'А-ссылка',
+          is_gift: false,
+        },
+      ],
+    });
+    await user.click(screen.getByText('Последние операции'));
+    expect(screen.getByText('40%')).toHaveClass('text-crimson-alert');
+    const warning = screen.getByRole('img', { name: 'Подозрительная комиссия' });
+    expect(warning).toHaveClass('text-crimson-alert');
+    expect(warning).toHaveAttribute('title', expect.stringContaining('Покупка по А-ссылке'));
+  });
+
+  it('does not mark 40% for a Stepik promo or a regular Stepik sale', async () => {
+    const user = userEvent.setup();
+    renderFinancials({
+      ...mockFinancials,
+      recent_payments: [
+        {
+          id: 'p-stepik-promo',
+          course: 'Курс',
+          amount: 2940,
+          payment_amount: 4900,
+          status: 'debited',
+          time: '2026-01-15T10:00:00',
+          channel: 'А-ссылка',
+          promo_code: 'STBLACKFRIDAY25',
+          promo_is_stepik: true,
+          is_gift: false,
+        },
+        {
+          id: 'p-stepik-sale',
+          course: 'Курс',
+          amount: 2940,
+          payment_amount: 4900,
+          status: 'debited',
+          time: '2026-01-14T10:00:00',
+          channel: 'Stepik',
+          is_gift: false,
+        },
+      ],
+    });
+    await user.click(screen.getByText('Последние операции'));
+    expect(screen.getAllByText('40%')).toHaveLength(2);
+    for (const pct of screen.getAllByText('40%')) {
+      expect(pct).toHaveClass('text-gray-300');
+    }
+    expect(screen.queryByRole('img', { name: 'Подозрительная комиссия' })).not.toBeInTheDocument();
   });
 
   it('switches to utm tab on click', async () => {
@@ -398,7 +464,7 @@ describe('Financials', () => {
     renderFinancials();
     await user.click(screen.getByRole('button', { name: 'Показать график' }));
     expect(screen.getByRole('combobox', { name: 'Метрика графика' })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Диаграмма Оборот / Доход' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Диаграмма Доход / Комиссия' })).toBeInTheDocument();
     expect(screen.queryByText('Месяц')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Показать таблицу' })).toHaveAttribute('aria-pressed', 'true');
     await user.click(screen.getByRole('button', { name: 'Показать таблицу' }));
@@ -423,7 +489,7 @@ describe('Financials', () => {
     await user.click(screen.getByRole('button', { name: 'Показать график' }));
     await user.click(screen.getByText('По дням'));
     expect(screen.getByRole('combobox', { name: 'Метрика графика' })).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Диаграмма Оборот / Доход' })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Диаграмма Доход / Комиссия' })).toBeInTheDocument();
     await user.click(screen.getByText('По годам'));
     expect(screen.queryByRole('combobox', { name: 'Метрика графика' })).not.toBeInTheDocument();
     await user.click(screen.getByText('По месяцам'));

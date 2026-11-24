@@ -11,9 +11,11 @@ import ChartToggle from '../components/ChartToggle';
 import { makeMonthsTick } from '../utils/monthWindow';
 import { CHART_METRICS, SORT_INIT, TAB_COLUMNS, TABS } from './certificates/columns';
 
+const TAB_KEYS = TABS.map((t) => t.key);
+
 export default function Certificates() {
   const { data, error, refresh } = useSync();
-  const [activeTab, handleTabChange] = useTabState();
+  const [activeTab, handleTabChange] = useTabState('months', TAB_KEYS);
   const { sorts, onSort } = useTabSorts(TAB_COLUMNS, SORT_INIT);
   const [viewMode, setViewMode] = useState('table');
   const [chartMetric, setChartMetric] = useState('type_split');

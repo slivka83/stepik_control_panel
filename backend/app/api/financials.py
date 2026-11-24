@@ -1,3 +1,5 @@
+import contextlib
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -27,28 +29,46 @@ async def get_financials(
                 "total_income": 0,
                 "total_refunds": 0,
                 "total_payments": 0,
+                "total_refunds_count": 0,
+                "current_month_turnover": 0,
+                "current_month_income": 0,
+                "current_month_payments": 0,
             },
             "months": [],
             "years": [],
             "courses": [],
+            "promos": [],
+            "utms": [],
             "recent_payments": [],
         }
+    snapshot_data = snapshot.data if isinstance(snapshot.data, dict) else {}
     if parsed is not None:
         courses, _ = await get_courses_for_user(db, user, parsed)
         selected_stepik_ids = {c.stepik_course_id for c in courses}
-        data = filter_financials(snapshot.data, selected_stepik_ids)
-        data["community"] = await filter_community(db, snapshot.data, selected_stepik_ids)
+        course_meta = {c.stepik_course_id: {"title": c.title} for c in courses}
+        data = filter_financials(snapshot_data, selected_stepik_ids, course_meta)
+        data["community"] = await filter_community(db, snapshot_data, selected_stepik_ids)
     else:
-        data = dict(snapshot.data)
-    year_stats = {}
-    for m in data.get("months", []):
-        y = m.get("year")
-        if y is None:
+        data = dict(snapshot_data)
+    if not isinstance(data.get("summary"), dict):
+        data["summary"] = {}
+    for key in ("months", "courses", "promos", "utms", "recent_payments"):
+        value = data.get(key)
+        data[key] = [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+    year_stats: dict[int, dict] = {}
+    for m in data["months"]:
+        try:
+            y = int(m.get("year"))
+        except (TypeError, ValueError):
             continue
-        agg = year_stats.setdefault(y, {"year": y, "payments_count": 0, "turnover": 0.0, "income": 0.0, "refunds": 0.0})
-        agg["payments_count"] += int(m.get("payments_count", 0) or 0)
-        agg["turnover"] += float(m.get("turnover", 0) or 0)
-        agg["income"] += float(m.get("income", 0) or 0)
-        agg["refunds"] += float(m.get("refunds", 0) or 0)
+        agg = year_stats.setdefault(
+            y, {"year": y, "payments_count": 0, "turnover": 0.0, "income": 0.0, "refunds": 0.0}
+        )
+        with contextlib.suppress(TypeError, ValueError):
+            agg["payments_count"] += int(m.get("payments_count") or 0)
+        for key in ("turnover", "income", "refunds"):
+            with contextlib.suppress(TypeError, ValueError):
+                agg[key] += float(m.get(key) or 0)
     data["years"] = [year_stats[y] for y in sorted(year_stats)]
     return data

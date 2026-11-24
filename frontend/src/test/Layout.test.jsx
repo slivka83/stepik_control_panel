@@ -39,7 +39,11 @@ const NAV_LINKS = {
 
 function mockAuthMe(authenticated) {
   if (!authenticated) {
-    vi.spyOn(global, 'fetch').mockRejectedValue(new Error('no auth'));
+    vi.spyOn(global, 'fetch').mockResolvedValue({
+      ok: false,
+      status: 401,
+      headers: { get: (name) => (name === 'content-type' ? 'application/json' : null) },
+    });
     return;
   }
   vi.spyOn(global, 'fetch').mockResolvedValue({

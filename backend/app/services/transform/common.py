@@ -4,7 +4,7 @@ import html
 import json
 import logging
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -26,11 +26,15 @@ def _ensure_json(val):
     if isinstance(val, (dict, list)):
         return val
     if isinstance(val, (str, bytes, bytearray)):
-        return json.loads(val)
+        try:
+            return json.loads(val)
+        except (json.JSONDecodeError, TypeError):
+            # Одна битая raw-строка не должна ронять весь transform.
+            return None
     return val
 
 
-def _serialize_data(val, session):
+def _serialize_data(val):
     """Serialize to JSON string. PG asyncpg expects string for jsonb codec."""
     return json.dumps(val, ensure_ascii=False)
 
@@ -80,10 +84,14 @@ def _step_grade(raw) -> tuple:
         return None, 0
     votes_total = 0
     votes_count = 0
-    for i, cnt in enumerate(ng):
+    # Stepik всегда отдаёт 5 смайликов (оценки 1..5); лишние значения
+    # игнорируем, чтобы они не сдвигали среднее вверх.
+    for i, cnt in enumerate(ng[:5]):
         try:
             c = int(cnt)
         except (TypeError, ValueError):
+            continue
+        if c <= 0:
             continue
         votes_total += c * (i + 1)
         votes_count += c
@@ -111,6 +119,34 @@ def _month_tuple(time_raw) -> tuple[int, int] | None:
     if dt is None:
         return None
     return dt.year, dt.month
+
+
+def is_solution_thread(thread) -> bool:
+    """Комментарий опубликован в треде решений (Stepik отдаёт `thread` строкой
+    или списком тредов). Единая проверка для community/comments/students —
+    раньше `"solution" in thread` был скопирован в трёх местах и падал на
+    не-строковых значениях."""
+    if not thread:
+        return False
+    if isinstance(thread, str):
+        return "solution" in thread
+    if isinstance(thread, (list, tuple, set)):
+        return any("solution" in str(item) for item in thread)
+    if isinstance(thread, dict):
+        return any("solution" in str(value) for value in thread.values())
+    return False
+
+
+def is_published_solution(comment: dict) -> bool:
+    """Опубликованное решение, а не ответ преподавателя в том же треде.
+
+    `thread` одинаков для решения студента и для ответов в нём. Ответ
+    преподавателя — это обсуждение, а не опубликованное решение, поэтому он
+    не должен попадать в «Опубликованные»/«Публичные решения».
+    """
+    if not isinstance(comment, dict) or not is_solution_thread(comment.get("thread")):
+        return False
+    return comment.get("user_role") != "teacher"
 
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -142,12 +178,16 @@ def calculate_cohort_status(last_viewed_at, date_joined=None):
         return "Zombie"
     if last_viewed_at.tzinfo is None:
         last_viewed_at = last_viewed_at.replace(tzinfo=UTC)
-    days = (datetime.now(UTC) - last_viewed_at).days
-    if days <= COHORT_ACTIVE_DAYS:
+    # Точная разница, а не целые дни: иначе запись «7 дней и 12 часов назад»
+    # получала Active (floor → 7), тогда как график когорт относил её к Passive.
+    age = datetime.now(UTC) - last_viewed_at
+    # Допуск в 1 с: граница «ровно 90 дней» не должна уезжать в следующий
+    # сегмент из-за микросекунд между вызовом и расчётом.
+    if age <= timedelta(days=COHORT_ACTIVE_DAYS, seconds=1):
         return "Active"
-    if days <= COHORT_PASSIVE_DAYS:
+    if age <= timedelta(days=COHORT_PASSIVE_DAYS, seconds=1):
         return "Passive"
-    if days <= COHORT_FADING_DAYS:
+    if age <= timedelta(days=COHORT_FADING_DAYS, seconds=1):
         return "Fading"
     if date_joined is not None:
         if date_joined.tzinfo is None:

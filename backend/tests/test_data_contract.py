@@ -73,6 +73,8 @@ RECENT_PAYMENT_KEYS = {
     "buyer",
     "student",
     "promo_code",
+    "promo_is_author",
+    "promo_is_stepik",
     "currency",
     "channel",
     "is_gift",

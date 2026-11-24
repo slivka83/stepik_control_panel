@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.transform.common import calculate_cohort_status, load_course_map, parse_dt
+from app.services.transform.common import _to_float, _to_int, calculate_cohort_status, load_course_map, parse_dt
 
 logger = logging.getLogger(__name__)
 
@@ -39,17 +39,16 @@ async def transform_enrollments(session: AsyncSession):
             """),
             {"cid": str(stepik_cid)},
         )
-        cert_users = {int(r[0]) for r in r}
+        cert_users = {uid for row in r if (uid := _to_int(row[0])) is not None}
 
         enrollments = []
         for g in grade_rows:
-            student_id = g.get("student_id")
+            student_id = _to_int(g.get("student_id"))
             if student_id is None:
                 continue
-            student_id = int(student_id)
             lv = parse_dt(g.get("last_viewed"))
             dj = parse_dt(g.get("date_joined"))
-            score = int(float(g.get("score") or 0))
+            score = int(_to_float(g.get("score")) or 0)
             enrollments.append(
                 {
                     "id": str(uuid.uuid4()),

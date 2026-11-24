@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chartCommission, formatUtmTooltip, paymentCommission } from '../utils/financials';
+import { chartCommission, commissionWarning, formatUtmTooltip, paymentCommission } from '../utils/financials';
 
 describe('paymentCommission', () => {
   it('counts the Stepik fee as the difference between payment and income', () => {
@@ -15,8 +15,9 @@ describe('paymentCommission', () => {
     expect(paymentCommission({})).toBeNull();
   });
 
-  it('handles refunded payments (negative amount) without a negative fee', () => {
-    expect(paymentCommission({ payment_amount: 1000, amount: -900 })).toEqual({ pct: 10, amount: 100 });
+  it('does not calculate a commission for refunded payments', () => {
+    // Regression: полный возврат давал «комиссию 100%» — в таблице теперь «—».
+    expect(paymentCommission({ status: 'refunded', payment_amount: 1000, amount: -900 })).toBeNull();
   });
 
   it('never reports a negative fee when income exceeds the payment', () => {
@@ -32,6 +33,99 @@ describe('chartCommission', () => {
   it('is zero for an empty row', () => {
     expect(chartCommission({})).toBe(0);
     expect(chartCommission(null)).toBe(0);
+  });
+
+  it('never returns a negative commission (refunds can make income > turnover)', () => {
+    expect(chartCommission({ turnover: 100, income: 200 })).toBe(0);
+  });
+});
+
+describe('commissionWarning', () => {
+  it('does not flag the author-link rate of 7%', () => {
+    expect(
+      commissionWarning({
+        payment_amount: 1000,
+        amount: 930,
+        status: 'debited',
+        channel: 'А-ссылка',
+      }),
+    ).toBeNull();
+  });
+
+  it('does not flag a regular Stepik sale at 40% without an author link', () => {
+    expect(commissionWarning({ payment_amount: 4900, amount: 2940, status: 'debited', channel: 'Stepik' })).toBeNull();
+  });
+
+  it('does not flag an author promo without an author link', () => {
+    expect(
+      commissionWarning({
+        payment_amount: 4900,
+        amount: 2940,
+        status: 'debited',
+        channel: 'Stepik',
+        promo_is_author: true,
+      }),
+    ).toBeNull();
+  });
+
+  it('marks a high commission on an author-link payment as an error', () => {
+    expect(commissionWarning({ payment_amount: 4900, amount: 2940, status: 'debited', channel: 'А-ссылка' })).toEqual({
+      pct: 40,
+      amount: 1960,
+      expectedPct: 7,
+      delta: 33,
+      severity: 'error',
+    });
+    expect(
+      commissionWarning({
+        payment_amount: 4900,
+        amount: 2940,
+        status: 'debited',
+        raw: { is_z_link_used: true },
+      }),
+    ).toMatchObject({ pct: 40, severity: 'error' });
+  });
+
+  it('does not flag a Stepik promo even on an author-link payment', () => {
+    expect(
+      commissionWarning({
+        payment_amount: 4900,
+        amount: 2940,
+        status: 'debited',
+        channel: 'А-ссылка',
+        promo_is_stepik: true,
+      }),
+    ).toBeNull();
+  });
+
+  it('does not flag an unknown promo code (not synced)', () => {
+    expect(
+      commissionWarning({
+        payment_amount: 4900,
+        amount: 2940,
+        status: 'debited',
+        channel: 'А-ссылка',
+        promo_code: 'MYSTERY',
+        promo_is_stepik: null,
+      }),
+    ).toBeNull();
+  });
+
+  it('does not flag refunded payments', () => {
+    expect(
+      commissionWarning({ payment_amount: 7000, amount: -500, status: 'refunded', channel: 'А-ссылка' }),
+    ).toBeNull();
+  });
+
+  it('does not flag a commission below the expected rate', () => {
+    expect(
+      commissionWarning({
+        payment_amount: 1000,
+        amount: 950,
+        status: 'debited',
+        channel: 'А-ссылка',
+      }),
+    ).toBeNull();
   });
 });
 

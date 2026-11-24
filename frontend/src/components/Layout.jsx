@@ -28,9 +28,11 @@ function formatDateTime(iso) {
 
 function Sidebar() {
   const { user, loading, login, logout } = useAuth();
-  const { syncStatus, updateSyncStatus, data, isFilterActive, selectedCourseIds } = useSync();
+  const { syncStatus, updateSyncStatus, data, isFilterActive, selectedCourseIds, refresh } =
+    useSync();
   const [syncing, setSyncing] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [syncError, setSyncError] = useState(null);
   const [filterOpen, setFilterOpen] = useState(false);
   const filterBtnRef = useRef(null);
   const startRef = useRef(null);
@@ -38,7 +40,7 @@ function Sidebar() {
 
   const isSyncing = syncing || syncStatus.in_progress;
   const displayProgress = syncing ? progress : syncStatus.progress || 0;
-  const lastError = !isSyncing ? syncStatus.last_error : null;
+  const lastError = !isSyncing ? syncError || syncStatus.last_error : null;
 
   useEffect(() => {
     if (!isSyncing) {
@@ -69,6 +71,7 @@ function Sidebar() {
   const handleSync = async () => {
     setSyncing(true);
     setProgress(0);
+    setSyncError(null);
     try {
       const { data: trigger } = await api.post('/sync');
       if (trigger.status === 'cooldown' || trigger.status === 'already_in_progress') {
@@ -83,8 +86,11 @@ function Sidebar() {
         setProgress(data.progress || 0);
         if (!data.in_progress) break;
       }
+      // Не ждём 30-секундного опроса контекста: сразу подтягиваем свежие KPI.
+      refresh();
     } catch (err) {
       console.error('Sync error:', err);
+      setSyncError(err.response?.data?.detail || 'Не удалось запустить синхронизацию');
     } finally {
       setSyncing(false);
       setProgress(0);

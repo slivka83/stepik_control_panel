@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { FunnelChart, Funnel, Cell, LabelList, Tooltip, ResponsiveContainer } from 'recharts';
+import { FunnelChart, Funnel, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import api from '../api';
+import EmptyCourses from '../pages/courses/EmptyCourses';
 
 const COLOR_BRIGHT = '#38bdf8';
 const COLOR_DIM = '#1a6a9e';
@@ -21,7 +22,8 @@ const fmtPct = (v) => `${v.toLocaleString('ru-RU', { maximumFractionDigits: 1 })
 function FunnelRectangle(props) {
   const { x, y, upperWidth, height, fill, stroke } = props;
   const w = Math.max(upperWidth, 4);
-  const rx = x + upperWidth / 2 - w / 2;
+  // Центрируем даже минимальную 4px-полоску по оси этапа.
+  const rx = x + (upperWidth - w) / 2;
   return <rect x={rx} y={y} width={w} height={height} fill={fill} stroke={stroke} strokeWidth={2} />;
 }
 
@@ -78,7 +80,7 @@ function FunnelTooltip({ active, payload }) {
   );
 }
 
-export default function CourseFunnel({ courses = [], courseId, view = 'modules' }) {
+export default function CourseFunnel({ courses = [], courseId, view = 'modules', lastSync }) {
   const [funnel, setFunnel] = useState(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
@@ -91,6 +93,8 @@ export default function CourseFunnel({ courses = [], courseId, view = 'modules' 
       return;
     }
     let cancelled = false;
+    // Не показываем воронку предыдущего курса под названием нового.
+    setFunnel(null);
     setLoading(true);
     setLoadError(null);
     api
@@ -107,22 +111,10 @@ export default function CourseFunnel({ courses = [], courseId, view = 'modules' 
     return () => {
       cancelled = true;
     };
-  }, [courseId, retryTick, view]);
+  }, [courseId, retryTick, view, lastSync]);
 
   if (courses.length === 0) {
-    return (
-      <div className="glass-panel p-8 text-center">
-        <div className="text-3xl mb-3">◆</div>
-        <h3 className="text-white text-lg mb-2">Нет курсов</h3>
-        <p className="text-gray-400 text-sm">Подключите аккаунт Stepik для импорта курсов</p>
-        <a
-          href="/api/auth/login"
-          className="inline-block mt-4 px-6 py-2 bg-cyber-blue/20 text-cyber-blue rounded-lg border border-cyber-blue/30 hover:bg-cyber-blue/30 transition-colors text-sm font-medium"
-        >
-          Подключить Stepik
-        </a>
-      </div>
-    );
+    return <EmptyCourses />;
   }
 
   const selectedCourse = courses.find((c) => c.id === courseId) || courses[0];

@@ -11,9 +11,11 @@ import ChartToggle from '../components/ChartToggle';
 import { makeMonthsTick } from '../utils/monthWindow';
 import { CHART_METRICS, SORT_INIT, TAB_COLUMNS, TABS } from './reviews/columns';
 
+const TAB_KEYS = TABS.map((t) => t.key);
+
 export default function Reviews() {
   const { data, error, refresh } = useSync();
-  const [activeTab, handleTabChange] = useTabState();
+  const [activeTab, handleTabChange] = useTabState('months', TAB_KEYS);
   const { sorts, onSort } = useTabSorts(TAB_COLUMNS, SORT_INIT);
   const [viewMode, setViewMode] = useState('table');
   const [chartMetric, setChartMetric] = useState('total');
@@ -31,7 +33,14 @@ export default function Reviews() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
         <KpiCard title="Всего отзывов" value={totals.reviews || 0} color="white" />
         <KpiCard title="Студенты" value={totals.students || 0} color="white" />
-        <KpiCard title="Средняя оценка" value={totals.avg_score || 0} ratingColor fractionDigits={2} />
+        <KpiCard
+          title="Средняя оценка"
+          value={totals.avg_score || 0}
+          ratingColor
+          noZero
+          fractionDigits={2}
+          minimumFractionDigits={2}
+        />
       </div>
 
       <div className="flex flex-col flex-1 min-h-0">

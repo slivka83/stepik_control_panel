@@ -21,13 +21,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import httpx
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import get_settings
 from app.services.crypto import decrypt_token
-from app.services.stepik_api import STEPIK_API_BASE, STEPIK_OAUTH_TOKEN_URL
+from app.services.stepik_api import StepikAPIError, _request, get_finance_token
 
 settings = get_settings()
 
@@ -72,38 +71,11 @@ async def get_user_token() -> str | None:
 
 
 async def get_client_token() -> str | None:
-    """Get client_credentials token."""
+    """Get a read-only client_credentials token (finance client, then regular)."""
     if settings.stepik_finance_client_id:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                STEPIK_OAUTH_TOKEN_URL,
-                data={
-                    "grant_type": "client_credentials",
-                    "client_id": settings.stepik_finance_client_id,
-                    "client_secret": settings.stepik_finance_client_secret,
-                    "scope": "read",
-                },
-                timeout=30.0,
-            )
-            if resp.status_code < 400:
-                data = resp.json()
-                return data.get("access_token")
-    # Fallback: try with regular client_id
+        return await get_finance_token(settings.stepik_finance_client_id, settings.stepik_finance_client_secret)
     if settings.stepik_client_id:
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                STEPIK_OAUTH_TOKEN_URL,
-                data={
-                    "grant_type": "client_credentials",
-                    "client_id": settings.stepik_client_id,
-                    "client_secret": settings.stepik_client_secret,
-                    "scope": "read",
-                },
-                timeout=30.0,
-            )
-            if resp.status_code < 400:
-                data = resp.json()
-                return data.get("access_token")
+        return await get_finance_token(settings.stepik_client_id, settings.stepik_client_secret)
     return None
 
 
@@ -296,15 +268,12 @@ def clean_path(api_path: str) -> str:
 
 
 async def fetch_page(path: str, token: str, params: dict | None = None) -> dict:
-    """Fetch one page from Stepik API. Path should be like /courses (without /api)."""
-    url = f"{STEPIK_API_BASE}{path}"
-    headers = {"Authorization": f"Bearer {token}"}
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(url, headers=headers, params=params)
-        if resp.status_code >= 400:
-            print(f"  HTTP {resp.status_code}: {resp.text[:200]}")
-            resp.raise_for_status()
-        return resp.json()
+    """Fetch one page through the shared client (retries, 429, GET-only)."""
+    try:
+        return await _request("GET", path, token, params)
+    except StepikAPIError as e:
+        print(f"  HTTP {e.status_code}: {e.detail[:200]}")
+        raise
 
 
 def compare_fields(api_obj: dict, endpoint_name: str, mapping_rows: list[dict]) -> list[dict]:
@@ -435,15 +404,20 @@ async def load_data(
         batch_size = 100
         for batch_start in range(0, len(full_ids), batch_size):
             batch = full_ids[batch_start : batch_start + batch_size]
-            batch_params = {"ids[]": batch}
-            data = await fetch_page(path, token, batch_params)
-            objects = extract_objects(data)
-            if not objects:
-                continue
-            await _insert_objects(engine, raw_table, objects, loaded_fields)
-            total += len(objects)
-            print(f"  ... {total} records loaded so far")
-            await asyncio.sleep(0.3)  # rate limit buffer
+            page = 1
+            while page <= 500:
+                batch_params = {"ids[]": batch, "page": page}
+                data = await fetch_page(path, token, batch_params)
+                objects = extract_objects(data)
+                if not objects:
+                    break
+                await _insert_objects(engine, raw_table, objects, loaded_fields)
+                total += len(objects)
+                print(f"  ... {total} records loaded so far")
+                if not data.get("meta", {}).get("has_next"):
+                    break
+                page += 1
+                await asyncio.sleep(0.3)  # rate limit buffer
         return total
 
     while page <= max_pages:
@@ -672,11 +646,12 @@ async def update_meta_mapping(engine, endpoint_name: str, fields: list[dict]):
                     {"en": endpoint_name, "af": api_field, "dc": db_column, "dt": db_type},
                 )
             elif f["status"] == "MISSING":
-                # Mark as not loaded
+                # Поле отсутствовало в ОДНОМ сэмпле — это часто опциональное
+                # поле. Не выключаем загрузку навсегда, только помечаем причину.
                 await conn.execute(
                     text("""
                         UPDATE meta_field_mapping
-                        SET is_loaded = false, skip_reason = 'not in API response'
+                        SET skip_reason = 'not in sampled API response'
                         WHERE endpoint_name = :en AND api_field = :af
                     """),
                     {"en": endpoint_name, "af": api_field},

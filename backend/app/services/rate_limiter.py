@@ -8,6 +8,7 @@ import asyncio
 import logging
 import threading
 import time
+import weakref
 
 import redis.asyncio as redis
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -20,7 +21,13 @@ settings = get_settings()
 
 redis_client = redis.from_url(settings.redis_url, decode_responses=True)
 
-_sync_thread_local = threading.local()
+# Redis asyncio-клиент привязан к event loop, в котором создал соединения.
+# Синхронизация выполняется в отдельном потоке/цикле, поэтому у каждого цикла
+# свой клиент и свой Lua-скрипт (раньше sync просто выключал rate limiter).
+_main_loop: asyncio.AbstractEventLoop | None = None
+_loop_clients: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+_loop_scripts: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+_loop_lock = threading.Lock()
 
 TOKEN_BUCKET_KEY_PREFIX = "rate_limit:stepik:"
 TOKEN_BUCKET_CAPACITY = 10
@@ -56,19 +63,62 @@ end
 """
 
 _token_bucket_script = redis_client.register_script(LUA_TOKEN_BUCKET)
+_default_redis = redis_client
+_default_script = _token_bucket_script
+
+
+def _get_redis():
+    """Redis-клиент текущего event loop (main loop — общий, sync — свой)."""
+    global _main_loop
+    if redis_client is not _default_redis:
+        return redis_client
+    loop = asyncio.get_running_loop()
+    with _loop_lock:
+        if _main_loop is None or _main_loop.is_closed():
+            _main_loop = loop
+        if loop is _main_loop:
+            return redis_client
+        client = _loop_clients.get(loop)
+        if client is None:
+            client = redis.from_url(settings.redis_url, decode_responses=True)
+            _loop_clients[loop] = client
+        return client
+
+
+def _get_token_bucket_script():
+    global _main_loop
+    if _token_bucket_script is not _default_script:
+        return _token_bucket_script
+    loop = asyncio.get_running_loop()
+    if _main_loop is None or loop is _main_loop:
+        return _token_bucket_script
+    client = _get_redis()
+    with _loop_lock:
+        script = _loop_scripts.get(loop)
+        if script is None:
+            script = client.register_script(LUA_TOKEN_BUCKET)
+            _loop_scripts[loop] = script
+        return script
+
+
+async def close_redis() -> None:
+    """Close the Redis client belonging to the current event loop."""
+    loop = asyncio.get_running_loop()
+    with _loop_lock:
+        client = _loop_clients.pop(loop, None)
+        _loop_scripts.pop(loop, None)
+    if client is not None:
+        await client.aclose()
 
 
 async def acquire_token() -> bool:
     """Try to acquire a token from the bucket. Fails open if Redis is down."""
-    if getattr(_sync_thread_local, "skip_rate_limit", False):
-        return True
-
     key = f"{TOKEN_BUCKET_KEY_PREFIX}tokens"
     last_refill_key = f"{TOKEN_BUCKET_KEY_PREFIX}last_refill"
     now = time.time()
 
     try:
-        result = await _token_bucket_script(
+        result = await _get_token_bucket_script()(
             keys=[key, last_refill_key],
             args=[TOKEN_BUCKET_CAPACITY, TOKEN_BUCKET_REFILL_RATE, now],
         )
@@ -93,7 +143,8 @@ async def check_auth_rate_limit(ip: str, max_requests: int = 5, window_seconds: 
     window_start = now - window_seconds
 
     try:
-        pipe = redis_client.pipeline()
+        client = _get_redis()
+        pipe = client.pipeline()
         pipe.zremrangebyscore(key, 0, window_start)
         pipe.zadd(key, {str(now): now})
         pipe.zcard(key)
@@ -105,7 +156,7 @@ async def check_auth_rate_limit(ip: str, max_requests: int = 5, window_seconds: 
         # пятый запрос видит count=5 и должен проходить, шестой (6) — нет.
         # Раньше сравнение было >= и реально допускало только 4 запроса.
         if count > max_requests:
-            oldest_in_window = await redis_client.zrange(key, 0, 0, withscores=True)
+            oldest_in_window = await client.zrange(key, 0, 0, withscores=True)
             if oldest_in_window:
                 oldest_ts = oldest_in_window[0][1]
                 retry_after = int(oldest_ts + window_seconds - now) + 1

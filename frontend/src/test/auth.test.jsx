@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 
@@ -25,6 +25,10 @@ describe('AuthContext', () => {
     global.fetch = vi.fn();
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('shows loading initially, then sets user on successful fetch', async () => {
     global.fetch.mockResolvedValueOnce({
       ok: true,
@@ -45,9 +49,10 @@ describe('AuthContext', () => {
     expect(screen.getByTestId('user').textContent).toContain('test@test.com');
   });
 
-  it('sets user to null on failed fetch', async () => {
+  it('sets user to null on 401 (not logged in)', async () => {
     global.fetch.mockResolvedValueOnce({
       ok: false,
+      status: 401,
       headers: { get: () => 'application/json' },
     });
 
@@ -60,10 +65,24 @@ describe('AuthContext', () => {
     await waitFor(() => {
       expect(screen.getByTestId('user').textContent).toBe('null');
     });
+    expect(screen.getByTestId('loading').textContent).toBe('false');
   });
 
-  it('sets user to null on network error', async () => {
-    global.fetch.mockRejectedValueOnce(new Error('Network error'));
+  it('Regression: retries /auth/me while the backend is still starting', async () => {
+    vi.useFakeTimers();
+    global.fetch
+      .mockRejectedValueOnce(new Error('Network error'))
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        headers: { get: () => 'application/json' },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'application/json' },
+        json: () => Promise.resolve({ id: 1, email: 'test@test.com' }),
+      });
 
     render(
       <AuthProvider>
@@ -71,9 +90,16 @@ describe('AuthContext', () => {
       </AuthProvider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByTestId('user').textContent).toBe('null');
-    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByTestId('user').textContent).toBe('null');
+    expect(screen.getByTestId('loading').textContent).toBe('true');
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByTestId('user').textContent).toContain('test@test.com');
+    expect(screen.getByTestId('loading').textContent).toBe('false');
+    vi.useRealTimers();
   });
 
   it('calls /api/auth/me on mount', async () => {

@@ -9,6 +9,10 @@ export { SyncContext };
 const SYNC_POLL_INTERVAL_MS = 2000;
 const IDLE_POLL_INTERVAL_MS = 30000;
 const MAX_POLL_INTERVAL_MS = 300000;
+// Retry a failed initial load (backend/database still booting after a restart)
+// instead of leaving the panel empty until a manual sync.
+const LOAD_RETRY_INITIAL_MS = 3000;
+const LOAD_RETRY_MAX_MS = 30000;
 
 // Every dashboard endpoint the panel loads. `select` reshapes the response
 // (courses live under `.courses`), `unfiltered` keeps the course filter off
@@ -64,8 +68,13 @@ export function SyncProvider({ children }) {
   const pollIntervalRef = useRef(IDLE_POLL_INTERVAL_MS);
   const filterRef = useRef(null);
   const fetchIdRef = useRef(0);
+  const retryTimerRef = useRef(null);
+  const retryDelayRef = useRef(LOAD_RETRY_INITIAL_MS);
+  const fetchAllRef = useRef(null);
 
   const fetchAll = useCallback(async (signal) => {
+    clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
     const myId = ++fetchIdRef.current;
     try {
       const courseIds = filterRef.current;
@@ -90,17 +99,34 @@ export function SyncProvider({ children }) {
       });
 
       const failures = results.filter((r) => r.status === 'rejected').length;
-      setError(failures > 0 ? `${failures} endpoint(s) failed to load` : null);
+      setError(failures > 0 ? `Не удалось загрузить данные (${failures})` : null);
       pollIntervalRef.current = IDLE_POLL_INTERVAL_MS;
+
+      if (failures > 0 && !signal?.aborted) {
+        retryTimerRef.current = setTimeout(() => {
+          fetchAllRef.current?.(signal);
+        }, retryDelayRef.current);
+        retryDelayRef.current = Math.min(retryDelayRef.current * 2, LOAD_RETRY_MAX_MS);
+      } else {
+        retryDelayRef.current = LOAD_RETRY_INITIAL_MS;
+      }
     } catch (err) {
       if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
         setError(err.message);
         pollIntervalRef.current = Math.min(pollIntervalRef.current * 2, MAX_POLL_INTERVAL_MS);
+        if (!signal?.aborted) {
+          retryTimerRef.current = setTimeout(() => {
+            fetchAllRef.current?.(signal);
+          }, retryDelayRef.current);
+          retryDelayRef.current = Math.min(retryDelayRef.current * 2, LOAD_RETRY_MAX_MS);
+        }
       }
     } finally {
       setLoading(false);
     }
   }, []);
+
+  fetchAllRef.current = fetchAll;
 
   const updateSyncStatus = useCallback((status) => {
     const next = normalizeSyncStatus(status);
@@ -169,17 +195,28 @@ export function SyncProvider({ children }) {
     fetchAll(controller.signal);
 
     let lastKnownSync = null;
+    let firstPoll = true;
+    let backendWasDown = false;
     let timer = null;
     const poll = async () => {
       try {
         const { data: status } = await api.get('/sync/status', { signal: controller.signal });
+        const recovered = backendWasDown;
+        backendWasDown = false;
         updateSyncStatus(status);
-        if (lastKnownSync && status.last_sync && lastKnownSync !== status.last_sync) {
+        // Reload after a restart even when last_sync did not change: the tab
+        // may have loaded its data before the backend was ready. The first
+        // poll only records the baseline — otherwise an empty first-ever sync
+        // (last_sync was null, then a timestamp) never triggered a reload.
+        if (recovered || (!firstPoll && status.last_sync !== lastKnownSync)) {
           fetchAll(controller.signal);
         }
+        firstPoll = false;
         lastKnownSync = status.last_sync;
         timer = setTimeout(poll, status.in_progress ? SYNC_POLL_INTERVAL_MS : pollIntervalRef.current);
       } catch {
+        if (controller.signal.aborted) return;
+        backendWasDown = true;
         timer = setTimeout(poll, pollIntervalRef.current);
       }
     };
@@ -187,9 +224,31 @@ export function SyncProvider({ children }) {
     timer = setTimeout(poll, 0);
     return () => {
       clearTimeout(timer);
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
       controller.abort();
     };
   }, [user, authLoading, fetchAll, updateSyncStatus]);
+
+  // After the backend restarts (dev reload), an open tab keeps stale/empty data.
+  // Reloading on focus makes the panel recover without a manual sync.
+  useEffect(() => {
+    if (!user) return undefined;
+    let lastReloadAt = 0;
+    const onFocus = () => {
+      if (document.visibilityState === 'hidden') return;
+      const now = Date.now();
+      if (now - lastReloadAt < 1000) return;
+      lastReloadAt = now;
+      fetchAll(abortRef.current?.signal);
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [user, fetchAll]);
 
   const contextValue = useMemo(
     () => ({

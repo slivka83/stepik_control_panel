@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 import time
 import weakref
 from typing import Any
@@ -39,15 +40,18 @@ class StepikRateLimitError(StepikAPIError):
 _clients: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = (
     weakref.WeakKeyDictionary()
 )
+# Both the main loop and the sync thread may create clients concurrently.
+_clients_lock = threading.Lock()
 
 
 async def _get_client() -> httpx.AsyncClient:
     loop = asyncio.get_running_loop()
-    client = _clients.get(loop)
-    if client is None or client.is_closed:
-        limits = httpx.Limits(max_keepalive_connections=20, max_connections=50)
-        client = httpx.AsyncClient(limits=limits, timeout=30.0)
-        _clients[loop] = client
+    with _clients_lock:
+        client = _clients.get(loop)
+        if client is None or client.is_closed:
+            limits = httpx.Limits(max_keepalive_connections=20, max_connections=50)
+            client = httpx.AsyncClient(limits=limits, timeout=30.0)
+            _clients[loop] = client
     return client
 
 
@@ -56,7 +60,8 @@ async def close_client() -> None:
     приложения и в конце потока синка). Клиент чужого цикла закрыть отсюда
     нельзя — пул соединений привязан к своему циклу."""
     loop = asyncio.get_running_loop()
-    client = _clients.pop(loop, None)
+    with _clients_lock:
+        client = _clients.pop(loop, None)
     if client is not None:
         await client.aclose()
 
@@ -80,8 +85,10 @@ async def _request(
     if method.upper() != "GET":
         raise ValueError("Only GET requests are allowed to Stepik API (Zero-Write Policy)")
 
-    if not await acquire_token():
-        await handle_rate_limit(1.0)
+    # Token bucket: wait for a free slot instead of sending immediately after a
+    # fixed 1s pause (the old code could still exceed the upstream limit).
+    while not await acquire_token():
+        await handle_rate_limit(0.5)
 
     headers = {}
     if token:
@@ -145,7 +152,17 @@ async def _request(
     if response.status_code >= 400:
         raise StepikAPIError(response.status_code, response.text)
 
-    return response.json()
+    try:
+        return response.json()
+    except ValueError as e:
+        # 200 с обрезанным/HTML-телом (прокси, обрыв) не должен убивать
+        # многочасовой sync без повтора.
+        if retries >= MAX_RETRIES:
+            raise StepikAPIError(0, f"invalid JSON after {MAX_RETRIES} retries: {e}") from e
+        wait = 2**retries
+        logger.warning("Invalid JSON on %s, retry %d/%d after %ds", path, retries + 1, MAX_RETRIES, wait)
+        await asyncio.sleep(wait)
+        return await _request(method, path, token, params, retries + 1)
 
 
 async def get_user_profile(token: str) -> dict:
@@ -202,37 +219,59 @@ async def exchange_code_for_token(code: str, client_id: str, client_secret: str,
 
 
 _finance_token_cache: dict[str, Any] = {"token": None, "expires_at": 0}
-_finance_token_lock = asyncio.Lock()
+# A module-level asyncio.Lock binds to the first event loop that waits on it;
+# the finance token is requested from the sync thread's loop, so a lock shared
+# across loops raised "is bound to a different event loop". One lock per loop.
+_finance_token_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = (
+    weakref.WeakKeyDictionary()
+)
+_finance_locks_guard = threading.Lock()
+
+
+def _finance_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    with _finance_locks_guard:
+        lock = _finance_token_locks.get(loop)
+        if lock is None:
+            lock = asyncio.Lock()
+            _finance_token_locks[loop] = lock
+        return lock
 
 
 async def get_finance_token(client_id: str, client_secret: str) -> str:
     """Get or refresh finance API token using client_credentials grant.
 
-    Uses asyncio.Lock to be thread-safe across concurrent async contexts.
-    Caches token until 60s before expiry.
+    Caches the token until 60s before expiry; one in-flight request per loop.
     """
-    now = time.time()
-    async with _finance_token_lock:
+    async with _finance_lock():
+        now = time.time()
         if _finance_token_cache["token"] and _finance_token_cache["expires_at"] > now + 60:
             return _finance_token_cache["token"]
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            STEPIK_OAUTH_TOKEN_URL,
-            data={
-                "grant_type": "client_credentials",
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "scope": "read",
-            },
-            timeout=30.0,
-        )
-        if response.status_code >= 400:
-            raise StepikAPIError(response.status_code, response.text)
-        data = response.json()
-        token = data.get("access_token", "")
-        expires_in = data.get("expires_in", 36000)
-        async with _finance_token_lock:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                STEPIK_OAUTH_TOKEN_URL,
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "scope": "read",
+                },
+                timeout=30.0,
+            )
+            if response.status_code >= 400:
+                if response.status_code in (401, 403):
+                    _finance_token_cache["token"] = None
+                    _finance_token_cache["expires_at"] = 0
+                raise StepikAPIError(response.status_code, response.text)
+            data = response.json()
+            token = data.get("access_token")
+            if not token:
+                raise StepikAPIError(response.status_code, "no access_token in finance response")
+            try:
+                expires_in = int(data.get("expires_in") or 36000)
+            except (TypeError, ValueError):
+                expires_in = 36000
             _finance_token_cache["token"] = token
             _finance_token_cache["expires_at"] = now + expires_in
-        return token
+            return token

@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.dashboard.common import in_clause
+from app.api.dashboard.common import in_clause, votes_weighted_grade
 from app.constants import MONTH_NAMES, UTM_SOURCE_LABELS
 
 
@@ -47,6 +47,13 @@ def _int_or_none(val):
         return int(val)
     except (TypeError, ValueError):
         return None
+
+
+def _float_or_zero(val) -> float:
+    try:
+        return float(val or 0)
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def _month_tuple(time_raw) -> tuple[int, int] | None:
@@ -95,28 +102,58 @@ def _filtered_payments(data: dict, selected_stepik_ids: set[int]) -> list[dict]:
     return payments
 
 
-def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
+def filter_financials(
+    data: dict, selected_stepik_ids: set[int], course_meta: dict[int, dict] | None = None
+) -> dict:
     """Recompute summary/months/courses/promos/utms/recent_payments from
     per-payment records restricted to the selected courses.
+
+    `course_meta` (stepik id → {title, price}) fills the course table for
+    courses that are not in the snapshot yet (fresh selection/first sync).
     """
     payments = _filtered_payments(data, selected_stepik_ids)
 
     months_map: dict[tuple[int, int], dict] = {}
-    course_stats: dict[int, dict] = {}
     promo_stats: dict[str, dict] = {}
     utm_stats: dict[str, dict] = {}
+    orig_courses: dict[int, dict] = {}
+    for c in data.get("courses", []) or []:
+        if not isinstance(c, dict):
+            continue
+        cid = _int_or_none(c.get("course_id"))
+        if cid is not None:
+            orig_courses[cid] = c
+    meta = course_meta or {}
+    # Все выбранные курсы остаются в таблице «По курсам», даже без платежей:
+    # иначе фильтр «все курсы» и «без фильтра» давали разные наборы строк.
+    course_stats: dict[int, dict] = {
+        cid: {
+            "course_id": cid,
+            "title": (
+                (orig_courses.get(cid) or {}).get("title")
+                or (meta.get(cid) or {}).get("title")
+                or f"Курс #{cid}"
+            ),
+            "price": (orig_courses.get(cid) or {}).get("price")
+            or (meta.get(cid) or {}).get("price"),
+            "payments": 0,
+            "turnover": 0.0,
+            "income": 0.0,
+            "refunds": 0.0,
+        }
+        for cid in selected_stepik_ids
+    }
 
     for b in payments:
-        cid = b.get("course")
+        cid = _int_or_none(b.get("course"))
         status = b.get("status", "")
-        amount = float(b.get("amount", 0) or 0)
-        payment_amount = float(b.get("payment_amount", 0) or 0)
-        time_raw = b.get("time", "")
+        amount = _float_or_zero(b.get("amount"))
+        payment_amount = _float_or_zero(b.get("payment_amount"))
+        time_raw = b.get("time") or ""
+        if not isinstance(time_raw, str):
+            time_raw = str(time_raw)
 
-        cs = course_stats.setdefault(
-            cid,
-            {"course_id": cid, "payments": 0, "turnover": 0.0, "income": 0.0, "refunds": 0.0},
-        )
+        cs = course_stats[cid]
         _apply_payment(cs, status, amount, payment_amount)
 
         ym = _month_tuple(time_raw)
@@ -136,7 +173,7 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
             _apply_payment(ms, status, amount, payment_amount, "payments_count", "refunds_count")
 
         code = b.get("promo_code")
-        if code is not None:
+        if code:
             ps = promo_stats.setdefault(
                 code,
                 {
@@ -152,8 +189,8 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
             if time_raw > ps["last_used"]:
                 ps["last_used"] = time_raw
 
-        last_utm = b.get("last_course_click_utm") or {}
-        source = last_utm.get("utm_source")
+        last_utm = b.get("last_course_click_utm")
+        source = last_utm.get("utm_source") if isinstance(last_utm, dict) else None
         if source:
             label = UTM_SOURCE_LABELS.get(source, source)
             us = utm_stats.setdefault(
@@ -187,11 +224,22 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
             }
         )
 
-    total_turnover = sum(m["turnover"] for m in months)
-    total_income = sum(m["income"] for m in months)
-    total_refunds = sum(m["refunds"] for m in months)
-    total_payments = sum(m["payments_count"] for m in months)
-    total_refunds_count = sum(m["refunds_count"] for m in months)
+    # Итоги считаем по всем отфильтрованным платежам, а не по сумме months:
+    # платёж с нераспознаваемой датой не попадает в месяцы, но обязан попасть
+    # в общий итог — иначе «Оборот» фильтра расходится с таблицей курсов.
+    totals = {"payments": 0, "turnover": 0.0, "income": 0.0, "refunds": 0.0}
+    total_refunds_count = 0
+    for b in payments:
+        status = b.get("status", "")
+        amount = _float_or_zero(b.get("amount"))
+        payment_amount = _float_or_zero(b.get("payment_amount"))
+        _apply_payment(totals, status, amount, payment_amount)
+        if status == "refunded":
+            total_refunds_count += 1
+    total_turnover = totals["turnover"]
+    total_income = totals["income"]
+    total_refunds = totals["refunds"]
+    total_payments = totals["payments"]
 
     now = datetime.now(UTC)
     current_month_turnover = 0.0
@@ -203,32 +251,27 @@ def filter_financials(data: dict, selected_stepik_ids: set[int]) -> dict:
             current_month_income = m["income"]
             current_month_payments = m["payments_count"]
 
-    orig_courses = {c.get("course_id"): c for c in data.get("courses", []) or [] if isinstance(c, dict)}
-    courses = []
-    for cid, cs in course_stats.items():
-        o = orig_courses.get(cid, {})
-        courses.append(
-            {
-                "course_id": cid,
-                "title": o.get("title", f"Курс #{cid}"),
-                "price": o.get("price"),
-                "turnover": round(cs["turnover"], 2),
-                "income": round(cs["income"], 2),
-                "refunds": round(cs["refunds"], 2),
-                "payments": cs["payments"],
-            }
-        )
+    courses = [
+        {
+            "course_id": cid,
+            "title": cs["title"],
+            "price": cs["price"],
+            "turnover": round(cs["turnover"], 2),
+            "income": round(cs["income"], 2),
+            "refunds": round(cs["refunds"], 2),
+            "payments": cs["payments"],
+        }
+        for cid, cs in course_stats.items()
+    ]
     courses.sort(key=lambda x: x["turnover"], reverse=True)
 
-    selected_ids = selected_stepik_ids
     recent_payments = [
         p
         for p in data.get("recent_payments", []) or []
         if isinstance(p, dict)
         and isinstance(p.get("raw"), dict)
-        and _int_or_none(p["raw"].get("course")) in selected_ids
+        and _int_or_none(p["raw"].get("course")) in selected_stepik_ids
     ]
-
     return {
         "summary": {
             "total_turnover": total_turnover,
@@ -288,8 +331,12 @@ async def filter_community(db: AsyncSession, data: dict, selected_stepik_ids: se
     monthly comment/solution series are rebuilt from mart_comments (course and
     year/month are denormalized in the view — no step→course map needed).
     """
-    community = data.get("community", {}) or {}
-    per_course = community.get("per_course", {}) or {}
+    community = data.get("community")
+    if not isinstance(community, dict):
+        community = {}
+    per_course = community.get("per_course")
+    if not isinstance(per_course, dict):
+        per_course = {}
     selected_keys = {str(cid) for cid in selected_stepik_ids}
 
     total_reviews = 0
@@ -358,11 +405,4 @@ async def filter_steps_average_grade(db: AsyncSession, selected_stepik_ids: set[
         ),
         params,
     )
-    votes_total = 0
-    votes_count = 0
-    for grade, votes in rows:
-        if grade is None or not votes:
-            continue
-        votes_total += grade * votes
-        votes_count += votes
-    return round(votes_total / votes_count, 2) if votes_count else 0.0
+    return votes_weighted_grade(rows)

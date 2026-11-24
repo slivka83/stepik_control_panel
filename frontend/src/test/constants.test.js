@@ -10,8 +10,6 @@ import {
 describe('Constants', () => {
   describe('CHART_COLORS', () => {
     it('has all chart color keys', () => {
-      expect(CHART_COLORS).toHaveProperty('cyberBlue');
-      expect(CHART_COLORS).toHaveProperty('neonGreen');
       expect(CHART_COLORS).toHaveProperty('gridLine');
       expect(CHART_COLORS).toHaveProperty('textSecondary');
       expect(CHART_COLORS).toHaveProperty('panelBg');

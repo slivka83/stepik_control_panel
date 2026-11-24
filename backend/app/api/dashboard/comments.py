@@ -37,7 +37,9 @@ LIST_TYPES = ("unanswered", "disliked")
 LIST_SORT_SQL = {
     "time": "time",
     "student": "user_name",
-    "course": "stepik_course_id",
+    # Сортируем по названию, которое видит пользователь, а не по числовому id.
+    "course": "(SELECT COALESCE(c.title, '') FROM courses c "
+    "WHERE c.stepik_course_id = mart_comments.stepik_course_id)",
     "text": "text",
     "likes": "likes",
     "dislikes": "dislikes",
@@ -91,6 +93,8 @@ async def get_comments(
     months = [
         {
             "month": format_month_label(m["month"], m["year"]),
+            "year": m["year"],
+            "month_num": m["month"],
             "students": m["students"],
             "total": m["total"],
             "likes": m["likes"],
@@ -165,8 +169,10 @@ async def get_comments_list(
     type_filter = "is_unanswered = TRUE" if list_type == "unanswered" else "is_disliked = TRUE"
     sort_expr = LIST_SORT_SQL[sort]
     # NULLS LAST expressed via a CASE so it works on both PostgreSQL and SQLite.
+    # Unique tiebreaker: сортировка по likes/replies с одинаковыми значениями
+    # без него даёт произвольный порядок и дубли/пропуски строк между страницами.
     order_clause = (
-        f"CASE WHEN {sort_expr} IS NULL THEN 1 ELSE 0 END, {sort_expr} {order.upper()}"
+        f"CASE WHEN {sort_expr} IS NULL THEN 1 ELSE 0 END, {sort_expr} {order.upper()}, comment_id ASC"
     )
 
     count_result = await db.execute(

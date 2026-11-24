@@ -85,7 +85,7 @@ function MetricToggle({ items, active, onChange, ariaLabel }) {
 }
 
 export default function Courses() {
-  const { data, error, refresh } = useSync();
+  const { data, error, refresh, syncStatus } = useSync();
   const courses = data.courses || [];
   const [activeTab, setActiveTab] = useState('courses');
   const [courseId, setCourseId] = useState(null);
@@ -121,6 +121,7 @@ export default function Courses() {
           title="Средний рейтинг"
           value={averageRating}
           ratingColor
+          noZero
           fractionDigits={2}
           minimumFractionDigits={2}
         />
@@ -172,10 +173,20 @@ export default function Courses() {
           ))}
 
         {activeTab === 'steps' && (
-          <CourseStepsTab courses={courses} courseId={selectedCourseId} metric={metric} />
+          <CourseStepsTab
+            courses={courses}
+            courseId={selectedCourseId}
+            metric={metric}
+            lastSync={syncStatus.last_sync}
+          />
         )}
         {activeTab === 'funnel' && (
-          <CourseFunnel courses={courses} courseId={selectedCourseId} view={funnelView} />
+          <CourseFunnel
+            courses={courses}
+            courseId={selectedCourseId}
+            view={funnelView}
+            lastSync={syncStatus.last_sync}
+          />
         )}
       </div>
     </div>

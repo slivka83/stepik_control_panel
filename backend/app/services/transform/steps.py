@@ -82,7 +82,9 @@ async def transform_steps(session: AsyncSession):
         }
 
     # Сквозная нумерация по курсу: module_number = индекс секции (по position),
-    # lesson_number = сумма юнитов предыдущих модулей + позиция юнита.
+    # lesson_number = порядковый номер урока в курсе. Считаем именно порядок,
+    # а не offset + raw position: после удаления юнита positions идут с дырами
+    # (1, 3, 4), и прежняя формула давала дубли номеров на границе модулей.
     course_sections: dict[int, list[str]] = {}
     for section_id, info in sections.items():
         if info["course"] is not None:
@@ -90,9 +92,12 @@ async def transform_steps(session: AsyncSession):
 
     module_info: dict[str, dict] = {}
     lesson_attr: dict[int, dict] = {}
-    for course_int, sec_ids in course_sections.items():
-        sec_ids.sort(key=lambda s: sections[s]["position"] if sections[s]["position"] is not None else 0)
-        offset = 0
+    for course_int in sorted(course_sections):
+        sec_ids = sorted(
+            course_sections[course_int],
+            key=lambda s: (sections[s]["position"] if sections[s]["position"] is not None else 0, s),
+        )
+        lesson_number = 0
         for module_number, section_id in enumerate(sec_ids, start=1):
             info = sections[section_id]
             module_info[section_id] = {
@@ -100,23 +105,32 @@ async def transform_steps(session: AsyncSession):
                 "module_title": info["title"],
                 "course": course_int,
             }
-            units = sorted(units_by_section.get(section_id, []))
-            for unit_pos, lesson_id in units:
+            for _unit_pos, lesson_id in sorted(units_by_section.get(section_id, [])):
+                # Один урок может стоять в курсе несколько раз (или в двух
+                # курсах): у витрины один путь на шаг, поэтому первый по
+                # порядку модуль/курс — источник истины. Первый = минимальный
+                # course id (курсы обходятся по возрастанию), как в
+                # build_step_course_map — иначе структура и решения/комментарии
+                # приписывали общий урок разным курсам.
+                if lesson_id is None or lesson_id in lesson_attr:
+                    continue
+                lesson_number += 1
                 lesson_attr[lesson_id] = {
                     "course": course_int,
                     "module_number": module_number,
-                    "lesson_number": offset + unit_pos,
+                    "lesson_number": lesson_number,
                     "module_title": info["title"],
                 }
-            offset += len(units)
 
     module_rows = []
     lesson_rows = []
-    for course_int, sec_ids in course_sections.items():
+    for course_int in sorted(course_sections):
         course_uuid = course_map.get(course_int)
         if course_uuid is None:
             continue
-        for section_id in sec_ids:
+        for section_id in sorted(
+            course_sections[course_int], key=lambda s: (module_info[s]["module_number"], s)
+        ):
             info = module_info[section_id]
             module_rows.append(
                 {
@@ -127,9 +141,15 @@ async def transform_steps(session: AsyncSession):
                     "module_title": info["module_title"],
                 }
             )
-        for lesson_id, attr in lesson_attr.items():
-            if attr["course"] != course_int:
-                continue
+        course_lessons = sorted(
+            (
+                (attr["lesson_number"], lesson_id, attr)
+                for lesson_id, attr in lesson_attr.items()
+                if attr["course"] == course_int
+            ),
+            key=lambda item: item[0],
+        )
+        for _number, lesson_id, attr in course_lessons:
             li = lesson_info.get(lesson_id)
             if li is None:
                 continue
@@ -149,9 +169,9 @@ async def transform_steps(session: AsyncSession):
     # mart_steps = объединение шагов из raw_lesson.steps (структура) и всех
     # строк raw_step (метрики/kpi), атрибуция пути через unit→section→course.
     step_rows: dict[int, dict] = {}
-    for lesson_id, li in lesson_info.items():
+    for lesson_id, li in sorted(lesson_info.items()):
         attr = lesson_attr.get(lesson_id)
-        for step_id, step_number in li["step_positions"].items():
+        for step_id, step_number in sorted(li["step_positions"].items()):
             row = step_rows.setdefault(step_id, {"step_id": step_id})
             row["lesson_id"] = lesson_id
             row["step_number"] = step_number
@@ -164,7 +184,7 @@ async def transform_steps(session: AsyncSession):
                 if course_uuid is not None:
                     row["course_id"] = course_uuid
                     row["stepik_course_id"] = attr["course"]
-    for step_id, lesson_id in raw_step_lesson.items():
+    for step_id, lesson_id in sorted(raw_step_lesson.items()):
         if step_id in step_rows and "lesson_id" in step_rows[step_id]:
             continue
         row = step_rows.setdefault(step_id, {"step_id": step_id})

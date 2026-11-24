@@ -192,6 +192,19 @@ RAW_TABLES = {
             _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """,
+    "raw_promo_code": """
+        CREATE TABLE IF NOT EXISTS raw_promo_code (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            promo_code_id TEXT,
+            course TEXT,
+            name TEXT,
+            is_stepik_side TEXT,
+            "user" TEXT,
+            discount TEXT,
+            _raw_json TEXT,
+            _loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """,
     "raw_comment": """
         CREATE TABLE IF NOT EXISTS raw_comment (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

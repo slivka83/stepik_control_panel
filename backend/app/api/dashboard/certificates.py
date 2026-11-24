@@ -69,6 +69,8 @@ async def get_certificates_stats(
     months = [
         {
             "month": format_month_label(m["month"], m["year"]),
+            "year": m["year"],
+            "month_num": m["month"],
             "students": m["students"],
             "total": m["total"],
             "distinction": m["distinction"],

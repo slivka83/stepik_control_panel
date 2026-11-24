@@ -74,6 +74,8 @@ async def get_reviews_stats(
     months = [
         {
             "month": format_month_label(m["month"], m["year"]),
+            "year": m["year"],
+            "month_num": m["month"],
             "students": m["students"],
             "total": m["total"],
             "avg_score": _avg_score(m["score_sum"], m["score_count"]),

@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, Cell } from 'recharts';
 import { CHART_COLORS } from '../constants.jsx';
-import { buildMonthWindow } from '../utils/monthWindow.js';
+import { chartCommission } from '../utils/financials';
+import { buildMonthWindow, makeMonthsTick } from '../utils/monthWindow.js';
 import { ChartBarShape, ChartTooltip, ChartTooltipRow, ChartTooltipTitle } from './chartKit';
 
 const COLOR = '#4ade80';
@@ -20,10 +21,11 @@ export default function RevenueChart({ data = [] }) {
   }
 
   const windowed = buildMonthWindow(data);
+  const monthTick = makeMonthsTick(windowed);
 
   const chartData = windowed.map((d) => ({
     ...d,
-    commission: Math.max((d.turnover || 0) - (d.income || 0), 0),
+    commission: chartCommission(d),
   }));
 
   const totalIncome = windowed.reduce((sum, d) => sum + (d.income || 0), 0);
@@ -100,12 +102,7 @@ export default function RevenueChart({ data = [] }) {
               fontFamily="JetBrains Mono"
               interval={0}
               tickMargin={8}
-              tickFormatter={(value) => {
-                if (!value) return '';
-                const parts = value.split(' ');
-                const month = parts[0] || '';
-                return month.length > 3 ? month.substring(0, 3) : month;
-              }}
+              tickFormatter={monthTick}
             />
             <YAxis
               stroke={CHART_COLORS.textSecondary}

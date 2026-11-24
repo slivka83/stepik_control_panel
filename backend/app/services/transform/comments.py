@@ -13,6 +13,7 @@ from app.services.transform.common import (
     _month_tuple,
     _strip_html,
     _to_int,
+    is_published_solution,
     load_course_map,
 )
 
@@ -22,8 +23,9 @@ logger = logging.getLogger(__name__)
 async def transform_comments(session: AsyncSession):
     """Build mart_comments from raw_comment, attributed via mart_steps.
 
-    Only attributable comments (step→course in the courses table). Aggregates
-    keep deleted comments; the list filters them out at read time.
+    Only attributable, non-deleted comments (step→course in the courses table).
+    Deleted comments are excluded here as well as in the list: they are no
+    longer part of "Всего комментариев" on the dashboard.
     """
     logger.info("=== Mart comments ===")
 
@@ -58,7 +60,7 @@ async def transform_comments(session: AsyncSession):
     rows = []
     for (raw_json,) in r:
         cm = _ensure_json(raw_json)
-        if not isinstance(cm, dict):
+        if not isinstance(cm, dict) or cm.get("is_deleted"):
             continue
         time_raw = cm.get("time")
         if not time_raw:
@@ -69,16 +71,31 @@ async def transform_comments(session: AsyncSession):
         try:
             sid = int(cm.get("target"))
         except (TypeError, ValueError):
-            continue
-        attr = step_attr.get(sid)
+            sid = None
+        attr = step_attr.get(sid) if sid is not None else None
         if attr is None:
-            continue
+            # Шаг не атрибутирован (нет в структуре) — но сам комментарий
+            # знает свой курс. Такая же атрибуция используется в
+            # transform_community, поэтому счётчики KPI и страницы совпадают.
+            course_raw = _to_int(cm.get("course"))
+            course_uuid = course_map.get(course_raw) if course_raw is not None else None
+            if course_uuid is None:
+                continue
+            attr = {
+                "course_uuid": course_uuid,
+                "stepik_course_id": course_raw,
+                "lesson_id": None,
+                "step_number": None,
+                "module_number": None,
+                "lesson_number": None,
+                "module_title": None,
+                "lesson_title": None,
+            }
         comment_id = _to_int(cm.get("id"))
         if comment_id is None:
             continue
         user_id = _to_int(cm.get("user"))
-        thread = cm.get("thread", "")
-        is_solution = "solution" in thread if thread else False
+        is_solution = is_published_solution(cm)
         vote_delta = _to_int(cm.get("vote_delta")) or 0
         is_unanswered = not (cm.get("is_staff_replied") is True or cm.get("user_role") == "teacher")
         rows.append(

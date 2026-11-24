@@ -1,6 +1,5 @@
 """Сообщество: рейтинги и комментарии → financial_snapshots.community."""
 
-import json
 import logging
 import uuid
 from datetime import UTC, datetime
@@ -8,7 +7,14 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.transform.common import _ensure_json, _serialize_data, _to_int, load_course_map
+from app.services.transform.common import (
+    _ensure_json,
+    _month_tuple,
+    _serialize_data,
+    _to_int,
+    is_published_solution,
+    load_course_map,
+)
 from app.services.transform.courses import build_step_course_map
 
 logger = logging.getLogger(__name__)
@@ -28,7 +34,7 @@ async def transform_community(session: AsyncSession):
         SELECT _raw_json FROM raw_course_review_summary
     """)
     )
-    reviews = [_ensure_json(r[0]) for r in r]
+    reviews = [rv for row in r if isinstance(rv := _ensure_json(row[0]), dict)]
 
     average_rating = 0.0
     total_reviews = 0
@@ -36,16 +42,26 @@ async def transform_community(session: AsyncSession):
     per_course_reviews_count = {}
     if reviews:
         for rv in reviews:
-            cid = rv.get("course") or rv.get("id")
+            # id сводки — не id курса; без course строку нельзя привязать к
+            # курсу (course-review-summaries всегда отдаёт course).
+            cid = _to_int(rv.get("course"))
+            if cid not in course_map:
+                # Сводка чужого/удалённого курса не должна попадать в
+                # «Всего отзывов»: иначе KPI расходится со страницей Отзывов
+                # (mart_reviews строится только по курсам из courses).
+                continue
             avg = rv.get("average")
-            cnt = int(rv.get("count", 0) or 0)
+            cnt = _to_int(rv.get("count")) or 0
             total_reviews += cnt
-            if cid and avg:
+            # Количество отзывов не зависит от наличия рейтинга: курс без
+            # оценки обязан остаться в per_course, иначе фильтр «все курсы»
+            # даёт меньший итог, чем отсутствие фильтра.
+            per_course_reviews_count[str(cid)] = cnt
+            if avg:
                 try:
                     avg_f = float(avg)
                     if avg_f > 0:
                         per_course_rating[str(cid)] = round(avg_f, 2)
-                        per_course_reviews_count[str(cid)] = cnt
                 except (ValueError, TypeError):
                     pass
         if per_course_rating:
@@ -56,7 +72,7 @@ async def transform_community(session: AsyncSession):
         SELECT _raw_json FROM raw_comment
     """)
     )
-    comments = sorted((_ensure_json(r[0]) for r in r), key=lambda x: x.get("time") or "")
+    comments = [cm for row in r if isinstance(cm := _ensure_json(row[0]), dict)]
 
     total_comments = 0
     comments_monthly = {}
@@ -67,16 +83,13 @@ async def transform_community(session: AsyncSession):
     step_course = await build_step_course_map(session)
 
     for cm in comments:
-        time_raw = cm.get("time")
-        if not time_raw:
+        if cm.get("is_deleted"):
             continue
-        try:
-            dt = datetime.fromisoformat(str(time_raw).replace("Z", "+00:00"))
-        except (ValueError, TypeError):
+        ym = _month_tuple(cm.get("time"))
+        if ym is None:
             continue
-        key = f"{dt.year}-{dt.month:02d}"
-        thread = cm.get("thread", "")
-        is_solution = "solution" in thread if thread else False
+        key = f"{ym[0]}-{ym[1]:02d}"
+        is_solution = is_published_solution(cm)
 
         # Only comments attributable to one of the user's courses count towards
         # the global/per-course totals. Prefer step→course mapping; fall back to
@@ -84,14 +97,14 @@ async def transform_community(session: AsyncSession):
         # consistent with mart_comments and with the filtered (course selection)
         # community stats — otherwise "all courses" would not equal "no filter".
         target = cm.get("target")
+        # Атрибуция — ровно та же, что у mart_comments: шаг → курс, а если шаг
+        # не атрибутирован, то курс из самого комментария. Иначе один и тот же
+        # комментарий попадал в KPI, но отсутствовал на странице Комментариев.
         step_cid = step_course.get(_to_int(target)) if (target and step_course) else None
         if not step_cid:
-            course_raw = cm.get("course")
-            course_raw_int = _to_int(course_raw)
-            if course_raw_int is not None and course_raw_int in course_map:
-                step_cid = course_raw_int
-            else:
-                continue
+            step_cid = _to_int(cm.get("course"))
+        if not step_cid or step_cid not in course_map:
+            continue
 
         if is_solution:
             total_solutions += 1
@@ -129,18 +142,20 @@ async def transform_community(session: AsyncSession):
     row = r.fetchone()
     if row:
         snap_id = row[0]
-        data = row[1] if isinstance(row[1], dict) else json.loads(row[1])
+        data = _ensure_json(row[1])
+        if not isinstance(data, dict):
+            data = {}
         data["community"] = community
         await session.execute(
             text("UPDATE financial_snapshots SET data = :data, updated_at = :now WHERE id = :id"),
-            {"data": _serialize_data(data, session), "now": datetime.now(UTC), "id": snap_id},
+            {"data": _serialize_data(data), "now": datetime.now(UTC), "id": snap_id},
         )
     else:
         await session.execute(
             text("INSERT INTO financial_snapshots (id, data, updated_at) VALUES (:id, :data, :now)"),
             {
                 "id": str(uuid.uuid4()),
-                "data": _serialize_data({"community": community}, session),
+                "data": _serialize_data({"community": community}),
                 "now": datetime.now(UTC),
             },
         )

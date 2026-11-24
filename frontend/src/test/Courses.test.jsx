@@ -235,7 +235,8 @@ describe('Courses', () => {
         <Courses />
       </TestRouter>,
     );
-    expect(screen.getByText('4.50')).toBeInTheDocument();
+    // Рейтинг есть и в KPI-плашке, и в таблице — оба с ru-RU запятой.
+    expect(screen.getAllByText('4,50').length).toBeGreaterThanOrEqual(1);
   });
 
   it('sorts by Студенты on header click', () => {

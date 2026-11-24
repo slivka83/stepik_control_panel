@@ -67,6 +67,9 @@ export function buildDailyStats(recent, daysBack = 30) {
  * Возвращает null, если платежа нет (делить не на что).
  */
 export function paymentCommission(payment) {
+  // Возврат — не покупка: «комиссия» от возвращённой суммы смысла не имеет
+  // (полный возврат давал бы 100%). В таблице показываем «—».
+  if (payment?.status === 'refunded') return null;
   const paid = Number(payment.payment_amount);
   const income = Number(payment.amount);
   if (!Number.isFinite(paid) || paid <= 0) return null;
@@ -74,9 +77,44 @@ export function paymentCommission(payment) {
   return { pct: Math.round((fee / paid) * 100), amount: fee };
 }
 
-/** Комиссия по строке графика: оборот минус доход (в деньгах). */
+/** Ставка Stepik для покупок по авторской (А-)ссылке. */
+const AUTHOR_LINK_COMMISSION_PCT = 7;
+
+/**
+ * Подозрительная комиссия: покупка по А-ссылке, но процент выше 7%.
+ *
+ * 7% полагается только авторской продаже по А-ссылке. Если промокод
+ * не авторский, а от Stepik, — это продвижение Stepik, и ставка 7% не
+ * применяется: 40% для такой продажи нормальны. Обычные продажи через
+ * Stepik (без А-ссылки) тоже не помечаем, даже если промокод авторский.
+ * Возвраты не помечаем: там процент считается от возвращённой суммы.
+ *
+ * `promo_is_stepik === null` — промокод не синкан, владелец неизвестен.
+ * Такой платёж не помечаем: ложные срабатывания хуже пропущенного.
+ * Отсутствие поля (старый снапшот) — данных о промокоде нет, ведём себя как
+ * раньше и помечаем: после ближайшего синка появится точный флаг.
+ */
+export function commissionWarning(payment, expectedPct = AUTHOR_LINK_COMMISSION_PCT) {
+  if (payment?.status === 'refunded') return null;
+  const commission = paymentCommission(payment);
+  if (!commission) return null;
+  const authorLink = payment?.channel === 'А-ссылка' || payment?.raw?.is_z_link_used === true;
+  if (!authorLink) return null;
+  if (payment?.promo_is_stepik === true || payment?.promo_is_stepik === null) return null;
+  if (commission.pct <= expectedPct) return null;
+  return {
+    ...commission,
+    expectedPct,
+    delta: commission.pct - expectedPct,
+    severity: 'error',
+  };
+}
+
+/** Комиссия по строке графика: оборот минус доход (в деньгах), не ниже нуля. */
 export function chartCommission(row) {
-  return (row?.turnover || 0) - (row?.income || 0);
+  // Возвраты могут сделать income больше оборота; отрицательный столбик
+  // комиссии ломал бы стек — как в RevenueChart, снизу ограничиваем нулём.
+  return Math.max((row?.turnover || 0) - (row?.income || 0), 0);
 }
 
 /** UTM-метки платежа для нативного тултипа (по строке на метку). */

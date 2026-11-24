@@ -37,8 +37,12 @@ async def sync_users(session: AsyncSession, token: str):
             if s.lstrip("-").isdigit():
                 ids.add(s)
 
+    mapping = await _hub()._get_fields_mapping(session, "users")
     if not ids:
-        logger.warning("  no user IDs to sync")
+        # Full reload semantics: no referenced users means the table must be
+        # empty, otherwise deleted students' names stay in the panel forever.
+        logger.warning("  no user IDs to sync — clearing raw_user")
+        await _hub()._replace_raw_table(session, "raw_user", [], mapping)
         return
 
     users = []
@@ -49,6 +53,5 @@ async def sync_users(session: AsyncSession, token: str):
         users.extend(u)
         logger.info("  ... %d profiles", len(users))
 
-    mapping = await _hub()._get_fields_mapping(session, "users")
     await _hub()._replace_raw_table(session, "raw_user", users, mapping)
     logger.info("  raw_user: %d rows", len(users))

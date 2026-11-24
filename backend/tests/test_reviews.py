@@ -92,9 +92,15 @@ async def test_reviews_aggregates_months_years_courses(db_session):
 
     months = {m["month"]: m for m in data["months"]}
     july = months["Июль 2026"]
-    assert july == {"month": "Июль 2026", "students": 3, "total": 3, "avg_score": 4.5}
+    assert july == {
+        "month": "Июль 2026", "year": 2026, "month_num": 7,
+        "students": 3, "total": 3, "avg_score": 4.5,
+    }
     aug = months["Август 2026"]
-    assert aug == {"month": "Август 2026", "students": 1, "total": 2, "avg_score": 4.0}
+    assert aug == {
+        "month": "Август 2026", "year": 2026, "month_num": 8,
+        "students": 1, "total": 2, "avg_score": 4.0,
+    }
 
     assert data["years"] == [{"year": 2026, "students": 3, "total": 5, "avg_score": 4.25}]
 

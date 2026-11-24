@@ -25,7 +25,14 @@ export default function Activities() {
       {error && <ErrorBanner message={error} onRetry={refresh} />}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0">
-        <ActiveStudentsChart data={data.activeStudents} hatched lightLabel="Уникальные студенты" tooltipRight />
+        <ActiveStudentsChart
+          data={data.activeStudents}
+          hatched
+          lightLabel="Уникальные студенты"
+          darkLabel="Повторные записи"
+          darkTooltipOverlap
+          tooltipRight
+        />
         <ActiveStudentsChart
           data={data.certificates}
           title="Сертификаты"

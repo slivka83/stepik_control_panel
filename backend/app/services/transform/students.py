@@ -7,12 +7,13 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.transform.common import _ensure_json
+from app.constants import COHORT_RANK
+from app.services.transform.common import _ensure_json, _to_int, is_published_solution
 
 logger = logging.getLogger(__name__)
 
 
-STATUS_RANK = {"Active": 0, "Passive": 1, "Fading": 2, "Sleeping": 3, "Zombie": 4}
+STATUS_RANK = COHORT_RANK
 
 
 async def transform_students(session: AsyncSession):
@@ -65,16 +66,17 @@ async def transform_students(session: AsyncSession):
     solutions_by_user: dict[int, int] = {}
     for (raw_json,) in comment_rows:
         obj = _ensure_json(raw_json)
-        if not isinstance(obj, dict):
+        if not isinstance(obj, dict) or obj.get("is_deleted"):
             continue
-        try:
-            uid = int(obj.get("user"))
-        except (TypeError, ValueError):
+        uid = _to_int(obj.get("user"))
+        if uid is None:
             continue
-        comments_by_user[uid] = comments_by_user.get(uid, 0) + 1
-        thread = obj.get("thread")
-        if isinstance(thread, str) and "solution" in thread:
+        if is_published_solution(obj):
+            # Опубликованное решение — отдельная колонка «Опубликованные»;
+            # в «Комментарии» оно не входит, как и на странице Комментариев.
             solutions_by_user[uid] = solutions_by_user.get(uid, 0) + 1
+        else:
+            comments_by_user[uid] = comments_by_user.get(uid, 0) + 1
 
     name_rows = await session.execute(text("SELECT user_id, first_name, last_name FROM raw_user"))
     names: dict[int, str] = {}

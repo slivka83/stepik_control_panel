@@ -50,9 +50,14 @@ async def refresh_user_tokens():
                         client_secret=settings.stepik_client_secret,
                     )
 
-                    new_access = token_data.get("access_token", "")
-                    new_refresh = token_data.get("refresh_token", refresh_token)
-                    expires_in = token_data.get("expires_in", 3600)
+                    new_access = token_data.get("access_token")
+                    if not new_access:
+                        raise RuntimeError("refresh response has no access_token")
+                    new_refresh = token_data.get("refresh_token") or refresh_token
+                    try:
+                        expires_in = int(token_data.get("expires_in") or 3600)
+                    except (TypeError, ValueError):
+                        expires_in = 3600
 
                     user.access_token = encrypt_token(new_access)
                     user.refresh_token = encrypt_token(new_refresh)

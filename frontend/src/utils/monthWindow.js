@@ -25,7 +25,10 @@ export function parseMonthLabel(label) {
 }
 
 export function monthComposite(m) {
-  const p = parseMonthLabel(m.month);
+  if (m && m.year != null && m.month_num != null) {
+    return Number(m.year) * 100 + Number(m.month_num);
+  }
+  const p = parseMonthLabel(m && m.month);
   return p ? p.year * 100 + p.month : 0;
 }
 
@@ -55,12 +58,20 @@ export function buildMonthWindow(months, { now = new Date(), size = 18 } = {}) {
 }
 
 export function makeMonthsTick(rows) {
-  const years = new Set((rows || []).map((m) => m.year));
+  const years = new Set(
+    (rows || []).map((m) => {
+      if (m && m.year != null) return Number(m.year);
+      const parsed = parseMonthLabel(m && m.month);
+      return parsed ? parsed.year : null;
+    }),
+  );
+  years.delete(null);
   return (value) => {
     const parts = String(value).split(' ');
     const name = parts[0] || '';
     const short = name.length > 3 ? name.substring(0, 3) : name;
-    const yearNum = Number(parts[1]);
+    const parsed = parseMonthLabel(value);
+    const yearNum = Number(parts[1]) || (parsed ? parsed.year : null);
     return years.size > 1 && yearNum ? `${short} ${String(yearNum).slice(2)}` : short;
   };
 }

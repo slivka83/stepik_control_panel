@@ -112,6 +112,12 @@ class TestCohortsBoundaries:
         assert data["passive"] == 1
         assert data["fading"] == 1
 
+    async def test_future_last_viewed_counted_active(self, db_session):
+        """Clock skew/будущая дата не должна выпадать из всех сегментов."""
+        user = await _seed_user(db_session)
+        data = await self._run(db_session, user, [(1, -1 / 24, "Active")])
+        assert data["active"] == 1
+
     async def test_zombie_excluded_from_all(self, db_session):
         user = await _seed_user(db_session)
         # A zombie active "today" must not be counted in any segment.
@@ -160,5 +166,43 @@ class TestCohortsBoundaries:
             assert data["fading"] == 0
             assert data["sleeping"] == 0
             assert data["zombie"] == 1
+        finally:
+            app.dependency_overrides.clear()
+
+    async def test_null_status_with_activity_is_not_lost(self, db_session):
+        """Regression: `cohort_status != 'Zombie'` для NULL — это NULL, и старая
+        строка без статуса выпадала из всех сегментов (сумма графика < KPI)."""
+        user = await _seed_user(db_session)
+        course = Course(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            stepik_course_id=100,
+            title="Python",
+            status="Published",
+        )
+        db_session.add(course)
+        await db_session.flush()
+        db_session.add(
+            StudentEnrollment(
+                id=uuid.uuid4(),
+                course_id=course.id,
+                student_id=1,
+                last_viewed_at=(datetime.now(UTC) - timedelta(days=1)).replace(tzinfo=None),
+                cohort_status=None,
+            )
+        )
+        await db_session.commit()
+
+        async def override_db():
+            yield db_session
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
+        try:
+            data = client.get("/api/dashboard/cohorts").json()
+            assert data["active"] == 1
         finally:
             app.dependency_overrides.clear()

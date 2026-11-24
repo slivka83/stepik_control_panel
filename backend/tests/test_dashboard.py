@@ -264,8 +264,8 @@ class TestDashboardKPIMonthSplit:
             assert data["comments_prev_months"] == 0
             assert data["current_month_comments"] == 1
             assert data["comments_change_detail"] is None, "1 vs 0 → нет процента (деление на ноль)"
-            assert data["total_reviews"] == 3
-            assert data["reviews_prev_months"] == 2
+            assert data["total_reviews"] == 2
+            assert data["reviews_prev_months"] == 1
             assert data["reviews_current_month"] == 1
             assert data["reviews_change_pct"] == 0, "1 vs 1 → 0%"
             assert data["reviews_change_detail"] == {"current": 1, "previous": 1}
@@ -786,8 +786,8 @@ class TestDashboardCertificates:
 
         months = await self._call(db_session, user)
         assert months == [
-            {"month": "Июнь 2026", "dark": 3, "light": 1},
-            {"month": "Июль 2026", "dark": 2, "light": 2},
+            {"month": "Июнь 2026", "year": 2026, "month_num": 6, "dark": 3, "light": 1},
+            {"month": "Июль 2026", "year": 2026, "month_num": 7, "dark": 2, "light": 2},
         ], "без type и без issue_date не должны ломать разбивку"
 
     async def test_empty_without_data(self, db_session):

@@ -133,3 +133,54 @@ class TestAuthCallback:
 
         assert exc_info.value.status_code == 403
         assert list((await db_session.execute(select(User))).scalars()) == []
+
+
+class TestSessionRefresh:
+    """Regression: старый session-token после refresh оставался валидным через
+    60 секунд — blacklist жил меньше, чем сама подпись токена."""
+
+    async def _make_user(self, session):
+        user = User(
+            id=uuid.uuid4(),
+            stepik_id=64381531,
+            access_token=encrypt_token("access"),
+            refresh_token=encrypt_token("refresh"),
+            token_expires_at=(datetime.now(UTC) + timedelta(hours=1)).replace(tzinfo=None),
+        )
+        session.add(user)
+        await session.commit()
+        return user
+
+    @staticmethod
+    def _request_with_cookie(token: str) -> Request:
+        return Request(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/auth/refresh",
+                "headers": [(b"cookie", f"stepik_session={token}".encode())],
+                "client": ("127.0.0.1", 12345),
+                "server": ("testserver", 80),
+                "scheme": "http",
+            }
+        )
+
+    @pytest.mark.asyncio
+    async def test_refresh_blacklists_old_token_for_full_session_ttl(self, db_session):
+        from app.api import auth as auth_module
+
+        user = await self._make_user(db_session)
+        token = auth_module.create_session_token(str(user.id))
+        request = self._request_with_cookie(token)
+
+        with (
+            patch("app.api.auth._is_blacklisted", new_callable=AsyncMock, return_value=False),
+            patch("app.api.auth._blacklist_token", new_callable=AsyncMock) as blacklist,
+        ):
+            response = await auth_module.refresh_session(request, Response(), db_session)
+
+        assert response.status_code == 200
+        blacklist.assert_awaited_once()
+        assert blacklist.await_args.args[0] == token
+        assert blacklist.await_args.args[1] == auth_module._session_ttl_hours() * 3600
+

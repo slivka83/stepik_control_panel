@@ -38,6 +38,7 @@ RAW_TABLES = {
     "raw_course_benefit",
     "raw_course_review",
     "raw_course_review_summary",
+    "raw_promo_code",
     "raw_comment",
     "raw_user",
     "raw_sync_state",
@@ -138,7 +139,7 @@ async def test_alembic_upgrade_head_on_empty_database():
             expected_head = ScriptDirectory.from_config(Config(str(BACKEND_DIR / "alembic.ini"))).get_heads()[0]
             assert await conn.fetchval("SELECT version_num FROM alembic_version") == expected_head
 
-            assert await conn.fetchval("SELECT count(*) FROM meta_endpoint") == 15
+            assert await conn.fetchval("SELECT count(*) FROM meta_endpoint") == 16
             assert await conn.fetchval("SELECT count(*) FROM meta_field_mapping") >= 70
 
             mappings = {

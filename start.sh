@@ -52,10 +52,12 @@ if [ ! -f "$PROJECT_DIR/.env" ]; then
     exit 1
 fi
 
-BACKEND_PORT=$(grep -E "^BACKEND_PORT=" "$PROJECT_DIR/.env" | cut -d= -f2 | tr -d ' ')
-FRONTEND_PORT=$(grep -E "^FRONTEND_PORT=" "$PROJECT_DIR/.env" | cut -d= -f2 | tr -d ' ')
+BACKEND_PORT=$(grep -E "^BACKEND_PORT=" "$PROJECT_DIR/.env" | cut -d= -f2 | tr -d ' ' || true)
+FRONTEND_PORT=$(grep -E "^FRONTEND_PORT=" "$PROJECT_DIR/.env" | cut -d= -f2 | tr -d ' ' || true)
+REDIS_PASSWORD=$(grep -E "^REDIS_PASSWORD=" "$PROJECT_DIR/.env" | cut -d= -f2 | tr -d ' ' || true)
 BACKEND_PORT=${BACKEND_PORT:-8000}
 FRONTEND_PORT=${FRONTEND_PORT:-3000}
+REDIS_PASSWORD=${REDIS_PASSWORD:-stepik_redis}
 
 wait_for_service() {
     local cmd="$1"
@@ -154,7 +156,7 @@ echo ""
 echo "[1/3] PostgreSQL + Redis ($CONTAINER_ENGINE)..."
 "${COMPOSE[@]}" -f "$PROJECT_DIR/docker-compose.yml" up -d 2>/dev/null
 wait_for_service "\"${COMPOSE[*]}\" -f \"$PROJECT_DIR/docker-compose.yml\" exec -T postgres pg_isready" "PostgreSQL"
-wait_for_service "\"${COMPOSE[*]}\" -f \"$PROJECT_DIR/docker-compose.yml\" exec -T redis redis-cli ping" "Redis"
+wait_for_service "\"${COMPOSE[*]}\" -f \"$PROJECT_DIR/docker-compose.yml\" exec -T redis redis-cli -a \"$REDIS_PASSWORD\" ping" "Redis"
 
 echo "[2/3] Backend (port $BACKEND_PORT)..."
 cd "$PROJECT_DIR/backend"
@@ -163,7 +165,12 @@ if [ ! -f ".venv/bin/uvicorn" ]; then
   uv venv --clear --python 3.12 .venv
   echo "  Installing dependencies..."
   uv pip install -r requirements.txt --python .venv
+elif [ ! -f ".venv/bin/alembic" ]; then
+  # Старое окружение без alembic — доустанавливаем зависимости.
+  uv pip install -r requirements.txt --python .venv
 fi
+echo "  Applying database migrations..."
+.venv/bin/alembic upgrade head
 launch_bg /tmp/stepik_backend.pid /tmp/stepik_backend.log \
     .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port "$BACKEND_PORT" --reload --reload-dir app
 BACKEND_PID=$(cat /tmp/stepik_backend.pid 2>/dev/null || true)

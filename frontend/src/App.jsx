@@ -13,25 +13,14 @@ const Certificates = lazy(() => import('./pages/Certificates'));
 const Reviews = lazy(() => import('./pages/Reviews'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
-function PageSkeleton() {
-  return (
-    <div className="animate-pulse space-y-6 p-6">
-      <div className="h-8 bg-space-gray rounded w-1/3" />
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="h-32 bg-space-gray rounded-xl" />
-        ))}
-      </div>
-      <div className="h-64 bg-space-gray rounded-xl" />
-    </div>
-  );
-}
-
+// Code splitting without a loading placeholder: the UI contract forbids
+// skeletons/"Загрузка..." that replace real cards (they cause layout flicker).
+// Pages render their real empty-state components as soon as the chunk loads.
 function App() {
   return (
     <Router future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Layout>
-        <Suspense fallback={<PageSkeleton />}>
+        <Suspense fallback={null}>
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/courses" element={<Courses />} />

@@ -10,11 +10,21 @@ import MetricBarChart from '../components/MetricBarChart';
 import ChartToggle from '../components/ChartToggle';
 import { makeMonthsTick } from '../utils/monthWindow';
 import api from '../api';
-import { calcWrong, CHART_METRICS, SORT_INIT, TAB_COLUMNS, TABS } from './solutions/columns';
+import {
+  calcWrong,
+  CHART_METRICS,
+  SORT_INIT,
+  SUCCESS_BAD_PCT,
+  SUCCESS_OK_PCT,
+  TAB_COLUMNS,
+  TABS,
+} from './solutions/columns';
+
+const TAB_KEYS = TABS.map((t) => t.key);
 
 export default function Solutions() {
-  const { data, error, refresh, selectedCourseIds } = useSync();
-  const [activeTab, handleTabChange] = useTabState();
+  const { data, error, refresh, selectedCourseIds, syncStatus } = useSync();
+  const [activeTab, handleTabChange] = useTabState('months', TAB_KEYS);
   const { sorts, onSort } = useTabSorts(TAB_COLUMNS, SORT_INIT);
   const [viewMode, setViewMode] = useState('table');
   const [chartMetric, setChartMetric] = useState('correct_wrong');
@@ -24,17 +34,27 @@ export default function Solutions() {
   const [hardestError, setHardestError] = useState(null);
 
   useEffect(() => {
-    if (activeTab !== 'hardest') return;
+    if (activeTab !== 'hardest') return undefined;
+    let cancelled = false;
     setHardestLoading(true);
     setHardestError(null);
     const params = { limit: 200, min_submissions: 1 };
     if (selectedCourseIds != null) params.course_ids = selectedCourseIds.join(',');
     api
       .get('/dashboard/hardest-steps', { params })
-      .then((res) => setHardestSteps(res.data.steps || []))
-      .catch(() => setHardestError('Не удалось загрузить данные'))
-      .finally(() => setHardestLoading(false));
-  }, [activeTab, selectedCourseIds]);
+      .then((res) => {
+        if (!cancelled) setHardestSteps(res.data.steps || []);
+      })
+      .catch(() => {
+        if (!cancelled) setHardestError('Не удалось загрузить данные');
+      })
+      .finally(() => {
+        if (!cancelled) setHardestLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, selectedCourseIds, syncStatus.last_sync]);
 
   const submissions = data.submissions || {};
   const months = submissions.months || [];
@@ -46,6 +66,7 @@ export default function Solutions() {
   const totalCorrect = months.reduce((s, m) => s + (m.correct || 0), 0);
   const totalWrong = totalSubmissions - totalCorrect;
   const totalPublished = months.reduce((s, m) => s + (m.published || 0), 0);
+  const publishedTotal = submissions.published_total ?? totalPublished;
   const avgSuccess = totalSubmissions > 0 ? Math.round((totalCorrect / totalSubmissions) * 100) : 0;
 
   return (
@@ -56,12 +77,18 @@ export default function Solutions() {
         <KpiCard title="Всего решений" value={totalSubmissions} color="white" />
         <KpiCard title="Правильных" value={totalCorrect} color="white" />
         <KpiCard title="Неправильных" value={totalWrong} color="white" />
-        <KpiCard title="Опубликованные" value={totalPublished} color="white" />
+        <KpiCard title="Опубликованные" value={publishedTotal} color="white" />
         <KpiCard
           title="Успех"
           value={avgSuccess}
           suffix="%"
-          color={avgSuccess < 33 ? 'crimson-alert' : avgSuccess < 66 ? 'amber-alert' : 'neon-green'}
+          color={
+            avgSuccess < SUCCESS_BAD_PCT
+              ? 'crimson-alert'
+              : avgSuccess < SUCCESS_OK_PCT
+                ? 'amber-alert'
+                : 'neon-green'
+          }
         />
       </div>
 
@@ -129,7 +156,7 @@ export default function Solutions() {
                 initialSort={SORT_INIT.hardest}
                 sort={sorts.hardest}
                 onSort={onSort('hardest')}
-                rowKey={(s) => s.stepik_step_id}
+                rowKey={(s) => `${s.course_id}-${s.stepik_step_id}`}
                 loading={hardestLoading}
                 error={hardestError}
                 emptyText="Нет данных"

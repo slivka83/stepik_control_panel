@@ -8,12 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.stepik_api import StepikAPIError
 
-from .common import _hub, _raw_course_ids, _save_sync_state
+from .common import _as_int, _hub, _raw_course_ids, _save_sync_state
 
 logger = logging.getLogger(__name__)
 
 STATE_ENDPOINT = "submissions"
-MAX_PAGES = 500
+# 2000 страниц × 20 = 40 000 решений на шаг. Раньше лимит 500 (10 000)
+# молча навсегда отрезал хвост популярного шага.
+MAX_PAGES = 2000
 
 
 def _page_state_key(prefix: str, value: int) -> str:
@@ -35,11 +37,12 @@ async def _step_ids(session: AsyncSession) -> list[int]:
     r = await session.execute(text("SELECT step_id, _raw_json FROM raw_step"))
     step_ids = []
     for sid, raw_json in r:
-        if sid is None:
+        step_id = _as_int(sid)
+        if step_id is None:
             continue
         if _hub()._is_text_step(raw_json):
             continue
-        step_ids.append(int(sid))
+        step_ids.append(step_id)
     return step_ids
 
 
@@ -95,7 +98,9 @@ async def _sync_step_submissions(
             page += 1
 
         if page > MAX_PAGES and step_new > 0:
-            logger.warning("  step %d: достигнут лимит 500 страниц — возможно, не все решения догружены", sid)
+            logger.warning(
+                "  step %d: достигнут лимит %d страниц — хвост решений не догружен", sid, MAX_PAGES
+            )
 
         if step_new > 0:
             logger.info("  step %d: +%d (page %d+)", sid, step_new, last_page if last_page > 0 else 1)
@@ -153,21 +158,23 @@ async def _sync_author_submissions(
     logger.info("  raw_submission: +%d rows (author pass, incremental)", author_total)
     return author_total, skipped_courses
 
-
 async def _sync_attempts(session: AsyncSession, token: str, mapping_attempts: dict[str, str]) -> int:
     """Download only attempts newly referenced by submissions (attempts are immutable)."""
     r = await session.execute(text("SELECT _raw_json FROM raw_submission"))
     attempt_ids = set()
     for (raw_json,) in r:
-        data = raw_json if isinstance(raw_json, dict) else json.loads(raw_json)
-        aid = data.get("attempt")
+        try:
+            data = raw_json if isinstance(raw_json, dict) else json.loads(raw_json)
+            aid = _as_int(data.get("attempt")) if isinstance(data, dict) else None
+        except (json.JSONDecodeError, TypeError):
+            continue
         if aid is not None:
-            attempt_ids.add(int(aid))
+            attempt_ids.add(aid)
     attempt_ids = sorted(attempt_ids)
 
     if attempt_ids:
         r = await session.execute(text("SELECT attempt_id FROM raw_attempt WHERE attempt_id IS NOT NULL"))
-        existing_ids = {int(row[0]) for row in r}
+        existing_ids = {aid for row in r if (aid := _as_int(row[0])) is not None}
         new_ids = [aid for aid in attempt_ids if aid not in existing_ids]
     else:
         new_ids = []
@@ -186,8 +193,14 @@ async def _sync_attempts(session: AsyncSession, token: str, mapping_attempts: di
             attempts = await _hub()._paginated_fetch("/attempts", token, "attempts", {"ids[]": batch})
             await _hub()._upsert_raw_table(session, "raw_attempt", attempts, mapping_attempts)
             total_attempts += len(attempts)
-        except Exception as e:
-            logger.warning("  attempts batch error: %s", e)
+        except StepikAPIError as e:
+            # Удалённые попытки (404) не должны убивать sync; остальные ошибки
+            # нельзя глотать: без attempt submissions остаются без user_id и
+            # is_author, и статистика студентов молча искажается.
+            if e.status_code == 404:
+                logger.warning("  attempts batch %d: 404 (deleted) — skip", i // 100)
+                continue
+            raise
     await session.commit()
     logger.info("  raw_attempt: +%d rows (incremental)", total_attempts)
     return total_attempts

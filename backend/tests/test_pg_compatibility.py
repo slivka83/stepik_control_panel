@@ -5,7 +5,6 @@ import re
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import text
@@ -23,9 +22,9 @@ class TestEnsureJson:
     def test_str_parses(self):
         assert _ensure_json('{"foo": 1}') == {"foo": 1}
 
-    def test_str_invalid_raises(self):
-        with pytest.raises(json.JSONDecodeError):
-            _ensure_json("not json")
+    def test_str_invalid_returns_none(self):
+        """Regression: битая raw-строка роняла весь transform."""
+        assert _ensure_json("not json") is None
 
     def test_list_dict(self):
         d = [{"a": 1}, {"b": 2}]
@@ -50,19 +49,19 @@ class TestEnsureJson:
 
 class TestSerializeData:
     def test_returns_str(self):
-        result = _serialize_data({"a": 1}, MagicMock())
+        result = _serialize_data({"a": 1})
         assert isinstance(result, str)
 
     def test_roundtrip(self):
         data = {"a": [1, 2], "b": "тест"}
-        s = _serialize_data(data, MagicMock())
+        s = _serialize_data(data)
         assert json.loads(s) == data
 
     def test_empty_dict(self):
-        assert _serialize_data({}, MagicMock()) == "{}"
+        assert _serialize_data({}) == "{}"
 
     def test_ensure_ascii_false(self):
-        result = _serialize_data({"x": "привет"}, MagicMock())
+        result = _serialize_data({"x": "привет"})
         assert "привет" in result
 
 

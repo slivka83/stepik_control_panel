@@ -29,12 +29,18 @@ def _session_factory() -> async_sessionmaker:
 
 _sync_lock = threading.Lock()
 _sync_in_progress = False
+# Запрос принят, но поток ещё не успел выставить in_progress (executor
+# запускается асинхронно). Без этого флага первый опрос /status сразу после
+# POST видел in_progress=false, и панель переставала показывать прогресс.
+_sync_pending = False
+_sync_pending_at: float = 0.0
 _sync_progress: int = 0
 _sync_step: str = ""
 _last_sync_completed_at: float = 0
 _last_sync_error: str | None = None
 
 SYNC_COOLDOWN_SECONDS = 60  # 1 minute
+SYNC_PENDING_TTL_SECONDS = 60  # executor never started → allow a new request
 
 _SYNC_STATE_ENDPOINT = "sync"
 _state_loaded = False
@@ -66,7 +72,8 @@ async def _persist_sync_state(in_progress: bool, progress: int, step: str, last_
 
 async def _load_sync_state():
     """Restore sync status after a process restart (uvicorn --reload, crash)."""
-    global _sync_in_progress, _sync_progress, _sync_step, _last_sync_completed_at, _last_sync_error
+    global _sync_in_progress, _sync_pending, _sync_progress, _sync_step
+    global _last_sync_completed_at, _last_sync_error
     async with _session_factory()() as session:
         r = await session.execute(
             text("SELECT key, value FROM raw_sync_state WHERE endpoint_name = :ep"),
@@ -90,6 +97,7 @@ async def _load_sync_state():
 
     # В новом процессе синк физически не запущен — сбросить «застрявшие» флаги.
     _sync_in_progress = False
+    _sync_pending = False
     _sync_progress = 0
     _sync_step = ""
     await _persist_sync_state(False, 0, "", _last_sync_error or "", _last_sync_completed_at)
@@ -112,7 +120,7 @@ async def _get_user_token(user_id=None) -> str | None:
         if user_id:
             result = await session.execute(select(User).where(User.id == user_id))
         else:
-            result = await session.execute(select(User))
+            result = await session.execute(select(User).order_by(User.created_at.asc()))
         users = result.scalars().all()
         if not users:
             logger.warning("No user found")
@@ -120,13 +128,51 @@ async def _get_user_token(user_id=None) -> str | None:
         return decrypt_token(users[0].access_token)
 
 
+def _pending_active() -> bool:
+    return _sync_pending and (time.time() - _sync_pending_at) < SYNC_PENDING_TTL_SECONDS
+
+
 def can_sync() -> bool:
     with _sync_lock:
-        if _sync_in_progress:
+        if _sync_in_progress or _pending_active():
             return False
         if _last_sync_completed_at == 0:
             return True
         return (time.time() - _last_sync_completed_at) >= SYNC_COOLDOWN_SECONDS
+
+
+def request_sync(force: bool = False) -> dict:
+    """Reserve a sync slot synchronously, before the executor thread starts.
+
+    The API calls this before `run_in_executor`, so `/status` reports
+    in_progress immediately and the progress polling in the UI cannot miss a
+    fast-starting sync. `sync_all` acknowledges the reservation.
+    """
+    global _sync_pending, _sync_pending_at
+    with _sync_lock:
+        if _sync_in_progress or _pending_active():
+            return {"status": "already_in_progress"}
+        if not force and _last_sync_completed_at > 0:
+            remaining = SYNC_COOLDOWN_SECONDS - (time.time() - _last_sync_completed_at)
+            if remaining > 0:
+                return {"status": "cooldown", "cooldown_remaining_seconds": max(0, int(remaining))}
+        _sync_pending = True
+        _sync_pending_at = time.time()
+        return {"status": "sync_started"}
+
+
+def fail_pending(error: str) -> None:
+    """Executor failed before `sync_all` could take over the reservation."""
+    global _sync_pending, _last_sync_error
+    with _sync_lock:
+        if _sync_pending:
+            _sync_pending = False
+            _last_sync_error = error or "Синхронизация не запустилась"
+
+
+def status_in_progress() -> bool:
+    with _sync_lock:
+        return _sync_in_progress or _pending_active()
 
 
 async def sync_courses_and_enrollments(user_id=None):
@@ -191,8 +237,8 @@ async def sync_submissions(user_id=None):
     logger.info("Submissions transformed")
 
 
-async def sync_financials(user_id=None):
-    """Raw sync → transform for financials."""
+async def sync_financials():
+    """Raw sync → transform for financials (global snapshot, one per install)."""
     global _sync_progress, _sync_step
 
     _sync_step = "финансы: загрузка"
@@ -256,13 +302,19 @@ async def sync_all(force: bool = False, user_id=None):
 
     If user_id is provided, sync only that user's data; otherwise sync all users.
     """
-    global _sync_in_progress, _sync_progress, _sync_step, _last_sync_completed_at, _last_sync_error
+    global _sync_in_progress, _sync_pending, _sync_progress, _sync_step
+    global _last_sync_completed_at, _last_sync_error
 
     with _sync_lock:
         if _sync_in_progress:
+            _sync_pending = False
             logger.info("Sync already in progress, skipping")
             return {"status": "skipped", "reason": "already_in_progress"}
-        if not force and _last_sync_completed_at > 0:
+        # request_sync() already checked the cooldown; direct calls still need
+        # the check, so only a reservation bypasses it.
+        reserved = _sync_pending
+        _sync_pending = False
+        if not force and not reserved and _last_sync_completed_at > 0:
             remaining = SYNC_COOLDOWN_SECONDS - (time.time() - _last_sync_completed_at)
             if remaining > 0:
                 logger.info("Sync skipped, cooldown remaining: %ds", int(remaining))
@@ -284,7 +336,7 @@ async def sync_all(force: bool = False, user_id=None):
         with _sync_lock:
             _sync_progress = 85
         _sync_step = "финансы"
-        await sync_financials(user_id)
+        await sync_financials()
         with _sync_lock:
             _sync_progress = 95
         _sync_step = "рейтинги"
@@ -307,8 +359,18 @@ async def sync_all(force: bool = False, user_id=None):
     finally:
         with _sync_lock:
             _sync_in_progress = False
+            _sync_pending = False
             _sync_progress = 0
             _sync_step = ""
+
+
+def run_sync_thread(force: bool = False, user_id=None) -> None:
+    """Executor entry point: never lets a start-up failure leave `pending` set."""
+    try:
+        sync_all_sync(force=force, user_id=user_id)
+    except Exception as e:  # pragma: no cover - engine/loop failures are env-specific
+        logger.error("Sync thread failed before completion: %s", e, exc_info=True)
+        fail_pending(str(e).strip() or f"{type(e).__name__}: {e!r}")
 
 
 def sync_all_sync(force: bool = False, user_id=None) -> dict:
@@ -319,8 +381,6 @@ def sync_all_sync(force: bool = False, user_id=None) -> dict:
     """
     from app.services import rate_limiter
     from app.services.stepik_api import close_client
-
-    rate_limiter._sync_thread_local.skip_rate_limit = True
 
     engine = create_async_engine(get_settings().database_url, pool_size=5, max_overflow=2)
     thread_session = async_sessionmaker(engine, expire_on_commit=False)
@@ -333,7 +393,11 @@ def sync_all_sync(force: bool = False, user_id=None) -> dict:
         return loop.run_until_complete(sync_all(force=force, user_id=user_id))
     finally:
         _sync_session_factory.reset(token)
-        rate_limiter._sync_thread_local.skip_rate_limit = False
-        loop.run_until_complete(close_client())
-        loop.run_until_complete(engine.dispose())
-        loop.close()
+        try:
+            loop.run_until_complete(close_client())
+        finally:
+            try:
+                loop.run_until_complete(rate_limiter.close_redis())
+            finally:
+                loop.run_until_complete(engine.dispose())
+                loop.close()

@@ -134,6 +134,130 @@ describe('SyncContext', () => {
     });
   });
 
+  it('Regression: retries a failed start-up load until data arrives without a manual sync', async () => {
+    vi.useFakeTimers();
+    const seen = new Set();
+    mockApiInstance.get.mockImplementation((url) => {
+      if (url === '/sync/status') {
+        return Promise.resolve({ data: { in_progress: false, last_sync: '2026-01-01T00:00:00Z' } });
+      }
+      if (!seen.has(url)) {
+        seen.add(url);
+        return Promise.reject(new Error('backend starting'));
+      }
+      if (url === '/dashboard/kpi') return Promise.resolve({ data: { total_revenue: 100 } });
+      return Promise.resolve({ data: {} });
+    });
+
+    render(
+      <AuthProvider>
+        <SyncProvider>
+          <TestConsumer />
+        </SyncProvider>
+      </AuthProvider>,
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByTestId('data-kpi').textContent).toBe('null');
+    expect(screen.getByTestId('error').textContent).not.toBe('no-error');
+
+    await vi.advanceTimersByTimeAsync(3000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(screen.getByTestId('data-kpi').textContent).toBe('loaded');
+    expect(screen.getByTestId('error').textContent).toBe('no-error');
+  });
+
+  it('reloads data after the backend comes back following a failed status poll', async () => {
+    vi.useFakeTimers();
+    let statusAttempts = 0;
+    mockApiInstance.get.mockImplementation((url) => {
+      if (url === '/sync/status') {
+        statusAttempts += 1;
+        if (statusAttempts === 1) return Promise.reject(new Error('backend down'));
+        return Promise.resolve({ data: { in_progress: false, last_sync: '2026-01-01T00:00:00Z' } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    render(
+      <AuthProvider>
+        <SyncProvider>
+          <div data-testid="mounted">mounted</div>
+        </SyncProvider>
+      </AuthProvider>,
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(0);
+    const before = kpiCalls().length;
+    expect(before).toBeGreaterThan(0);
+
+    await vi.advanceTimersByTimeAsync(30000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(kpiCalls().length).toBeGreaterThan(before);
+  });
+
+  it('Regression: reloads when the first-ever sync completes (no snapshot before it)', async () => {
+    vi.useFakeTimers();
+    let statusAttempts = 0;
+    mockApiInstance.get.mockImplementation((url) => {
+      if (url === '/sync/status') {
+        statusAttempts += 1;
+        // The panel was opened during the very first sync: last_sync was null,
+        // then a timestamp appears. The old guard `lastKnownSync && ...` never
+        // reloaded in this case, leaving the dashboard empty.
+        if (statusAttempts <= 2) {
+          return Promise.resolve({ data: { in_progress: true, progress: 50, last_sync: null } });
+        }
+        return Promise.resolve({ data: { in_progress: false, last_sync: '2026-01-01T00:00:00Z' } });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    render(
+      <AuthProvider>
+        <SyncProvider>
+          <div data-testid="mounted">mounted</div>
+        </SyncProvider>
+      </AuthProvider>,
+    );
+
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(0);
+    const before = kpiCalls().length;
+
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(2000);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(kpiCalls().length).toBeGreaterThan(before);
+  });
+
+  it('reloads data when the tab regains focus', async () => {
+    mockApiInstance.get.mockResolvedValue({ data: {} });
+
+    render(
+      <AuthProvider>
+        <SyncProvider>
+          <div data-testid="mounted">mounted</div>
+        </SyncProvider>
+      </AuthProvider>,
+    );
+
+    await waitFor(() => {
+      expect(kpiCalls().length).toBeGreaterThan(0);
+    });
+    const before = kpiCalls().length;
+
+    fireEvent.focus(window);
+
+    await waitFor(() => {
+      expect(kpiCalls().length).toBeGreaterThan(before);
+    });
+  });
+
   it('sets data.kpi when kpi endpoint succeeds', async () => {
     mockApiInstance.get.mockImplementation((url) => {
       if (url === '/dashboard/kpi') return Promise.resolve({ data: { total_revenue: 100 } });

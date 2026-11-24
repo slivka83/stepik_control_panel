@@ -145,8 +145,9 @@ describe('Students', () => {
     );
     expect(await screen.findByText('Иван Петров')).toBeInTheDocument();
     expect(screen.getByText('Студент 456')).toBeInTheDocument();
-    expect(screen.getByText('Active')).toBeInTheDocument();
-    expect(screen.getByText('Passive')).toBeInTheDocument();
+    // «Активные» есть и в легенде когорт, и в колонке статуса.
+    expect(screen.getAllByText('Активные').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Пассивные').length).toBeGreaterThan(0);
   });
 
   it('links student name to profile', async () => {

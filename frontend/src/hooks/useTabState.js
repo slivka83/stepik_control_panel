@@ -1,16 +1,37 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
-export function useTabState(defaultTab = 'months') {
+/**
+ * Вкладка, синхронизированная с URL (?tab=).
+ *
+ * `allowed` — список допустимых ключей: неизвестное значение из адресной
+ * строки (старая ссылка, опечатка) не должно оставлять страницу пустой.
+ * activeTab следует за URL, поэтому работают Back/Forward.
+ */
+export function useTabState(defaultTab = 'months', allowed = null) {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || defaultTab);
+  const allowedKey = allowed ? allowed.join(',') : '';
+
+  const readTab = useCallback(() => {
+    const value = searchParams.get('tab');
+    const valid = allowed ? allowed.includes(value) : Boolean(value);
+    return valid ? value : defaultTab;
+  }, [searchParams, defaultTab, allowed, allowedKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [activeTab, setActiveTab] = useState(readTab);
+
+  useEffect(() => {
+    setActiveTab(readTab());
+  }, [readTab]);
 
   const handleTabChange = useCallback(
     (tab) => {
       setActiveTab(tab);
-      setSearchParams({ tab });
+      const next = new URLSearchParams(searchParams);
+      next.set('tab', tab);
+      setSearchParams(next);
     },
-    [setSearchParams],
+    [searchParams, setSearchParams],
   );
 
   return [activeTab, handleTabChange];

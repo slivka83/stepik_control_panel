@@ -105,9 +105,11 @@ export default function StudentsBar({ data = {} }) {
           const pct = ((value / (visibleTotal || 1)) * 100).toFixed(0);
           const isHidden = hidden.has(key);
           return (
-            <div
+            <button
               key={key}
-              className="flex items-center gap-1.5 cursor-pointer select-none transition-opacity"
+              type="button"
+              aria-pressed={!isHidden}
+              className="flex items-center gap-1.5 cursor-pointer select-none transition-opacity bg-transparent border-0 p-0"
               style={{ opacity: isHidden ? 0.35 : 1 }}
               onClick={() => toggleKey(key)}
             >
@@ -121,7 +123,7 @@ export default function StudentsBar({ data = {} }) {
               />
               <span className="text-gray-500 text-[10px]">{COHORT_LABELS[key]}</span>
               <span className="text-gray-400 text-[10px] font-mono">{pct}%</span>
-            </div>
+            </button>
           );
         })}
       </div>

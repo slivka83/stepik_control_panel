@@ -62,7 +62,10 @@ async def get_alerts(
         alerts.append(
             {
                 "type": "warning",
-                "message": f"{row.count} студентов набрали проходной балл, но не получили сертификат",
+                "message": (
+                    f"{row.count} студентов на курсе «{row.title}» набрали 100+ баллов, "
+                    "но сертификат не выдан"
+                ),
                 "link": f"https://stepik.org/course/{row.stepik_course_id}/certificates",
                 "link_text": "Открыть на Stepik",
             }

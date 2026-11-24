@@ -1,4 +1,4 @@
-import { getRatingColor } from '../../utils/format';
+import { formatRating, getRatingColor } from '../../utils/format';
 import { STEP_METRICS } from './stepMetrics';
 
 const BLOCK_COLORS = {
@@ -25,6 +25,7 @@ const BLOCK_LETTERS = {
 const EMPTY_CELL = '#111a2b';
 
 function fmtCompact(value) {
+  if (value == null) return '—';
   const v = Number(value) || 0;
   if (v >= 1000) {
     const k = (v / 1000).toFixed(1).replace(/\.0$/, '');
@@ -83,7 +84,7 @@ export function metricCellText(step, metric) {
     return BLOCK_LETTERS[step.block] || (step.block ? step.block[0].toUpperCase() : '—');
   }
   if (metric === 'grade') {
-    return step.grade != null ? step.grade.toFixed(2) : '—';
+    return formatRating(step.grade);
   }
   if (metric === 'correct') {
     return step.total ? `${Math.round((step.correct / step.total) * 100)}%` : '—';

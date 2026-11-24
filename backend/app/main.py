@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import auth, courses, dashboard, financials, sync
 from app.config import get_settings
+from app.services.rate_limiter import close_redis
 from app.services.stepik_api import close_client
 from app.services.token_refresh import refresh_user_tokens
 
@@ -32,12 +33,16 @@ async def lifespan(app):
 
         logger.info("Startup tasks complete, data available via sync button")
 
-    asyncio.create_task(_startup_tasks())
+    startup_task = asyncio.create_task(_startup_tasks())
 
     yield
 
+    startup_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await startup_task
     scheduler.shutdown()
     await close_client()
+    await close_redis()
 
 
 app = FastAPI(
