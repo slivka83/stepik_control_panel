@@ -115,6 +115,7 @@ export default function Students() {
         rowsPerPage={table.rowsPerPage}
         tableRef={table.tableRef}
         totalPages={table.totalPages}
+        loading={table.loading}
         rowKey={(s) => s.student_id}
         emptyText="Нет данных о студентах"
         panelClassName="glass-panel p-4 flex-1 flex flex-col min-h-0 overflow-hidden"

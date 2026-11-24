@@ -46,12 +46,15 @@ async def transform_reviews(session: AsyncSession):
         if user_id is None:
             user_id = _to_int(data.get("user"))
         score = _to_float(data.get("score"))
+        review_id = _to_int(data.get("id"))
+        if review_id is None:
+            review_id = _to_int(review_id_raw)
         rows.append(
             {
                 "id": str(uuid.uuid4()),
                 "course_id": course_uuid,
                 "stepik_course_id": cid,
-                "review_id": _to_int(data.get("id")) if _to_int(data.get("id")) is not None else _to_int(review_id_raw),
+                "review_id": review_id,
                 "user_id": user_id,
                 "year": ym[0],
                 "month": ym[1],

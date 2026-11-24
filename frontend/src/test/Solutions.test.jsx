@@ -708,6 +708,58 @@ describe('Solutions', () => {
     });
   });
 
+  it('clears stale hardest rows while a new filter is loading', async () => {
+    const user = userEvent.setup();
+    api.get.mockReset();
+    api.get.mockResolvedValueOnce({
+      data: {
+        steps: [
+          {
+            stepik_step_id: 1,
+            lesson_id: 100,
+            step_number: 1,
+            course_title: 'Старый курс',
+            total: 3,
+            correct: 1,
+            wrong: 2,
+            success_pct: 20,
+            weighted_success_pct: 20,
+          },
+        ],
+      },
+    });
+    const first = makeSyncValue();
+    first.selectedCourseIds = ['c1'];
+    first.isFilterActive = true;
+    const view = render(
+      <MemoryRouter>
+        <AuthProvider>
+          <SyncContext.Provider value={first}>
+            <Solutions />
+          </SyncContext.Provider>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+    await user.click(screen.getByText('Самые сложные'));
+    await screen.findByText('Старый курс');
+
+    api.get.mockImplementation(() => new Promise(() => {}));
+    const second = makeSyncValue();
+    second.selectedCourseIds = ['c2'];
+    second.isFilterActive = true;
+    view.rerender(
+      <MemoryRouter>
+        <AuthProvider>
+          <SyncContext.Provider value={second}>
+            <Solutions />
+          </SyncContext.Provider>
+        </AuthProvider>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => expect(screen.queryByText('Старый курс')).not.toBeInTheDocument());
+  });
+
   it('shows chart toggle only on months tab', async () => {
     const user = userEvent.setup();
     renderSolutions();

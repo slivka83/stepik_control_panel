@@ -310,17 +310,18 @@ async def published_solutions_stats(
     placeholders, params = in_clause(selected_stepik_ids, "cid")
     rows = await db.execute(
         text(
-            "SELECT stepik_course_id, year, month FROM mart_comments "
-            f"WHERE is_solution = TRUE AND stepik_course_id IN ({placeholders})"
+            "SELECT stepik_course_id, year, month, COUNT(*) FROM mart_comments "
+            f"WHERE is_solution = TRUE AND stepik_course_id IN ({placeholders}) "
+            "GROUP BY stepik_course_id, year, month"
         ),
         params,
     )
-    for cid, year, month in rows:
+    for cid, year, month, count in rows:
         if year is None or month is None:
             continue
-        monthly[(year, month)] = monthly.get((year, month), 0) + 1
-        yearly[year] = yearly.get(year, 0) + 1
-        per_course[cid] = per_course.get(cid, 0) + 1
+        monthly[(year, month)] = monthly.get((year, month), 0) + count
+        yearly[year] = yearly.get(year, 0) + count
+        per_course[cid] = per_course.get(cid, 0) + count
     return monthly, yearly, per_course
 
 
@@ -358,25 +359,25 @@ async def filter_community(db: AsyncSession, data: dict, selected_stepik_ids: se
         placeholders, params = in_clause(selected_stepik_ids, "cid")
         rows = await db.execute(
             text(
-                "SELECT year, month, is_solution FROM mart_comments "
-                f"WHERE stepik_course_id IN ({placeholders})"
+                "SELECT year, month, is_solution, COUNT(*) FROM mart_comments "
+                f"WHERE stepik_course_id IN ({placeholders}) "
+                "GROUP BY year, month, is_solution"
             ),
             params,
         )
-        for year, month, is_solution in rows:
+        for year, month, is_solution, count in rows:
             if year is None or month is None:
                 continue
             # Published solutions are counted separately (total_solutions /
             # solutions_monthly); plain "comments" excludes them.
             if is_solution:
-                total_solutions += 1
-                solutions_monthly[f"{year}-{month:02d}"] = (
-                    solutions_monthly.get(f"{year}-{month:02d}", 0) + 1
-                )
+                total_solutions += count
+                key = f"{year}-{month:02d}"
+                solutions_monthly[key] = solutions_monthly.get(key, 0) + count
                 continue
             key = f"{year}-{month:02d}"
-            total_comments += 1
-            comments_monthly[key] = comments_monthly.get(key, 0) + 1
+            total_comments += count
+            comments_monthly[key] = comments_monthly.get(key, 0) + count
 
     return {
         "average_rating": average_rating,

@@ -133,6 +133,7 @@ export default function Comments() {
                 rowsPerPage={list.rowsPerPage}
                 tableRef={list.tableRef}
                 totalPages={list.totalPages}
+                loading={list.loading}
                 rowKey={(c) => c.comment_id}
                 emptyText="Нет комментариев"
               />

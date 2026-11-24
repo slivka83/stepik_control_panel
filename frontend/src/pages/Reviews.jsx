@@ -30,7 +30,7 @@ export default function Reviews() {
     <div className="flex flex-col flex-1 h-0 gap-4">
       {error && <ErrorBanner message={error} onRetry={refresh} />}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 shrink-0">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 shrink-0">
         <KpiCard title="Всего отзывов" value={totals.reviews || 0} color="white" />
         <KpiCard title="Студенты" value={totals.students || 0} color="white" />
         <KpiCard

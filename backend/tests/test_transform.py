@@ -384,6 +384,50 @@ class TestTransformSubmissions:
         s3 = next(s for s in submissions if s[0] == 1002)
         assert s3[4] == 500
 
+    @pytest.mark.asyncio
+    async def test_author_is_course_owner_when_env_user_id_is_zero(self, db_session):
+        """Regression: при STEPIK_USER_ID=0 (владелец из входа) авторские
+        решения считались решениями студента. Автор определяется по владельцу
+        курса, а не по глобальной настройке."""
+        from app.config import get_settings
+        from app.services.transform import transform_submissions
+
+        owner = _make_user(db_session, stepik_id=999)
+        await _make_course(db_session, owner.id, stepik_course_id=101)
+        await db_session.execute(
+            text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}')")
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_unit (unit_id, lesson_id, section_id, _raw_json) VALUES (1, 10, 1, '{}')")
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_section (section_id, course, units, _raw_json) VALUES (1, 101, '[1]', '{}')")
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_submission (submission_id, step, _raw_json) VALUES
+                (2001, 500, '{"id": 2001, "status": "correct", "time": "2026-07-15T10:00:00Z", "attempt": 21}'),
+                (2002, 500, '{"id": 2002, "status": "wrong", "time": "2026-07-15T11:00:00Z", "attempt": 22}')
+            """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_attempt (attempt_id, "user", step, _raw_json) VALUES
+                (21, 999, 500, '{}'),
+                (22, 5, 500, '{}')
+            """)
+        )
+        await db_session.commit()
+
+        with patch.object(get_settings(), "stepik_user_id", 0):
+            await transform_submissions(db_session)
+            await db_session.commit()
+
+        r = await db_session.execute(
+            text("SELECT stepik_submission_id, is_author FROM submissions ORDER BY stepik_submission_id")
+        )
+        assert [tuple(row) for row in r] == [(2001, True), (2002, False)]
+
     async def test_garbage_score_and_eta_do_not_kill_the_transform(self, db_session):
         """Regression: один мусорный score/eta (не число) ронял весь transform."""
         from app.services.transform import transform_submissions
@@ -617,6 +661,94 @@ class TestTransformFinancials:
         payment = data["recent_payments"][0]
         assert payment["promo_is_author"] is False
         assert payment["promo_is_stepik"] is None
+
+    @pytest.mark.asyncio
+    async def test_conflicting_promo_side_is_unknown(self, db_session):
+        """Один и тот же код у разных курсов с разной стороной — не угадываем."""
+        from app.services.transform import transform_financials
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=101, title="Python 101")
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course_benefit (course, amount, payment_amount, status, "time", promo_code, _raw_json)
+            VALUES (101, '1500', '2500', 'debited', '2026-07-01T10:00:00Z', 'SHARED', :j)
+        """),
+            {"j": json.dumps({"promo_code": "SHARED"})},
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_promo_code (promo_code_id, course, name, is_stepik_side, _raw_json)
+            VALUES ('1', '101', 'SHARED', 'false', '{}'),
+                   ('2', '102', 'SHARED', 'true', '{}')
+        """)
+        )
+        await db_session.commit()
+
+        await transform_financials(db_session)
+        await db_session.commit()
+
+        r = await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
+        snapshot = r.fetchone()[0]
+        data = json.loads(snapshot) if isinstance(snapshot, str) else snapshot
+        payment = data["recent_payments"][0]
+        assert payment["promo_is_author"] is False
+        assert payment["promo_is_stepik"] is None
+
+    @pytest.mark.asyncio
+    async def test_string_false_gift_is_not_gift(self, db_session):
+        """Regression: bool("false") == True — строка из raw-слоя дарила подарок."""
+        from app.services.transform import transform_financials
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=101, title="Python 101")
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course_benefit (course, amount, payment_amount, status, "time", _raw_json)
+            VALUES (101, '1500', '2500', 'debited', '2026-07-01T10:00:00Z', :j)
+        """),
+            {"j": json.dumps({"is_gift": "false"})},
+        )
+        await db_session.commit()
+
+        await transform_financials(db_session)
+        await db_session.commit()
+
+        r = await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
+        snapshot = r.fetchone()[0]
+        data = json.loads(snapshot) if isinstance(snapshot, str) else snapshot
+        assert data["recent_payments"][0]["is_gift"] is False
+
+    @pytest.mark.asyncio
+    async def test_garbage_raw_user_id_does_not_kill_names(self, db_session):
+        """Regression: не-числовой user_id в raw_user ронял transform финансов."""
+        from app.services.transform import transform_financials
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=101, title="Python 101")
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_course_benefit (course, amount, payment_amount, status, "time", buyer, _raw_json)
+            VALUES (101, '1500', '2500', 'debited', '2026-07-01T10:00:00Z', 1001, :j)
+        """),
+            {"j": json.dumps({"buyer": 1001})},
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_user (user_id, first_name, last_name, _raw_json) VALUES
+                ('1001', 'Иван', 'Петров', '{}'),
+                ('oops', 'Мусор', 'Мусоров', '{}')
+        """)
+        )
+        await db_session.commit()
+
+        await transform_financials(db_session)
+        await db_session.commit()
+
+        r = await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
+        snapshot = r.fetchone()[0]
+        data = json.loads(snapshot) if isinstance(snapshot, str) else snapshot
+        assert data["recent_payments"][0]["student"] == "Иван Петров"
 
     @pytest.mark.asyncio
     async def test_income_is_net_of_refunds_across_levels(self, db_session):

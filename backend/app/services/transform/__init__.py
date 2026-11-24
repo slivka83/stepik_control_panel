@@ -28,11 +28,10 @@ from app.services.transform.enrollments import transform_enrollments
 from app.services.transform.financials import transform_financials
 from app.services.transform.reviews import transform_reviews
 from app.services.transform.steps import transform_steps
-from app.services.transform.students import STATUS_RANK, transform_students
+from app.services.transform.students import transform_students
 from app.services.transform.submissions import transform_submissions
 
 __all__ = [
-    "STATUS_RANK",
     "_ensure_json",
     "_insert_rows",
     "_month_tuple",

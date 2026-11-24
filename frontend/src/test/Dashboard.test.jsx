@@ -172,6 +172,30 @@ describe('Dashboard', () => {
     expect(studentsTip.getAttribute('title')).toContain('Расчёт: (55 − 38) ÷ 38 × 100 = +45%');
   });
 
+  it('uses the absolute previous value in the trend formula (negative income)', () => {
+    const negative = {
+      ...fullSyncValue,
+      data: {
+        ...fullSyncValue.data,
+        kpi: {
+          ...mockKpi,
+          total_revenue: 0,
+          revenue_change_pct: 100,
+          revenue_change_detail: { current: 0, previous: -1000 },
+        },
+      },
+    };
+    render(
+      <TestRouter syncValue={negative}>
+        <Dashboard />
+      </TestRouter>,
+    );
+
+    const tip = screen.getAllByTitle(/Изменение за месяц/).find((el) => el.getAttribute('title').includes('Доход'));
+    expect(tip.getAttribute('title')).toContain('× 100 = +100%');
+    expect(tip.getAttribute('title')).not.toContain('÷ -');
+  });
+
   it('renders with zero KPI values', () => {
     const zeroValue = {
       ...fullSyncValue,

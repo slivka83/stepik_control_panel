@@ -95,7 +95,28 @@ async def transform_submissions(session: AsyncSession):
         if user_id is not None:
             attempt_user[aid] = user_id
 
-    author_uid = get_settings().stepik_user_id
+    # Автор решения — владелец курса, а не глобальный STEPIK_USER_ID.
+    # Regression: при STEPIK_USER_ID=0 (владелец определяется при входе)
+    # авторские решения попадали в статистику студентов как обычные.
+    # UUID сравниваем в нормализованном виде: SQLite хранит его без дефисов,
+    # а тестовые вставки — с дефисами.
+    def _uuid_key(value) -> str:
+        return str(value or "").strip().strip("{}").replace("-", "").lower()
+
+    r = await session.execute(text("SELECT id, stepik_id FROM users"))
+    user_stepik = {
+        _uuid_key(user_id): _to_int(stepik_user_id)
+        for user_id, stepik_user_id in r
+        if _to_int(stepik_user_id) is not None
+    }
+    r = await session.execute(text("SELECT stepik_course_id, user_id FROM courses"))
+    course_author: dict[int, int] = {}
+    for course_id, user_id in r:
+        cid = _to_int(course_id)
+        owner_uid = user_stepik.get(_uuid_key(user_id))
+        if cid is not None and owner_uid is not None:
+            course_author[cid] = owner_uid
+    fallback_author = get_settings().stepik_user_id
 
     total = 0
     batch = []
@@ -139,7 +160,11 @@ async def transform_submissions(session: AsyncSession):
         # int()/float() без защиты: одна мусорная запись (не-числовой user,
         # score или eta из API) поднимала ValueError и убивала весь этап
         sub_user_int = _to_int(sub_user)
-        is_author = bool(sub_user_int is not None and sub_user_int == author_uid) or bool(uid and uid == author_uid)
+        owner_uid = course_author.get(int(step_cid), fallback_author) if step_cid is not None else fallback_author
+        is_author = bool(owner_uid) and (
+            (sub_user_int is not None and sub_user_int == owner_uid)
+            or (uid is not None and uid == owner_uid)
+        )
         score = _to_float(sub.get("score")) or 0.0
         eta_val = _to_int(sub.get("eta")) or 0
 

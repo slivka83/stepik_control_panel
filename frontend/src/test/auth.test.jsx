@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import { AuthProvider, useAuth } from '../contexts/AuthContext';
 
 function TestConsumer() {
@@ -158,7 +158,7 @@ describe('AuthContext', () => {
     });
 
     global.fetch.mockResolvedValueOnce({ ok: true });
-    screen.getByTestId('logout-btn').click();
+    act(() => screen.getByTestId('logout-btn').click());
 
     await waitFor(() => {
       expect(screen.getByTestId('user').textContent).toBe('null');
@@ -183,7 +183,7 @@ describe('AuthContext', () => {
     });
 
     global.fetch.mockResolvedValueOnce({ ok: true });
-    screen.getByTestId('logout-btn').click();
+    act(() => screen.getByTestId('logout-btn').click());
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith('/api/auth/logout', {

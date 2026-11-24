@@ -337,7 +337,13 @@ class TestDashboardCohorts:
         try:
             response = client.get("/api/dashboard/cohorts")
             assert response.status_code == 200
-            assert response.json() == {"active": 0, "passive": 0, "fading": 0, "sleeping": 0}
+            assert response.json() == {
+                "active": 0,
+                "passive": 0,
+                "fading": 0,
+                "sleeping": 0,
+                "zombie": 0,
+            }
         finally:
             app.dependency_overrides.clear()
 

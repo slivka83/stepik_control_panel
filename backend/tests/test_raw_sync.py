@@ -112,6 +112,31 @@ class TestSyncCoursesStructure:
         assert await _count_rows(db_session, "raw_step") == 1
 
     @pytest.mark.asyncio
+    async def test_empty_courses_do_not_wipe_existing_data(self, db_session):
+        """Regression: пустой ответ /courses при непустой базе затирал все
+        курсы и витрины. Теперь синк останавливается, данные целы."""
+        from app.services.raw_sync import sync_courses_structure
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("INSERT INTO raw_course (course_id, title, _raw_json) VALUES ('101', 'Old', '{}')")
+        )
+        await db_session.commit()
+
+        async def empty_courses(*args, **kwargs):
+            return {"courses": [], "meta": {"has_next": False}}
+
+        with (
+            patch("app.services.raw_sync._request", side_effect=empty_courses),
+            patch("app.config.get_settings") as mock_settings,
+        ):
+            mock_settings.return_value.stepik_user_id = 12345
+            with pytest.raises(RuntimeError, match="пустой список курсов"):
+                await sync_courses_structure(db_session, "fake_token")
+
+        assert await _count_rows(db_session, "raw_course") == 1
+
+    @pytest.mark.asyncio
     async def test_writes_became_published_at_column(self, db_session):
         """Regression: колонка raw_course.became_published_at не заполнялась.
 
@@ -1060,6 +1085,46 @@ class TestSyncCommentsIncremental:
         assert json.loads(r.scalar())["vote_delta"] == 5, "правка комментария не обновилась"
 
     @pytest.mark.asyncio
+    async def test_fractional_and_timezone_times_compare_as_instants(self, db_session):
+        """Regression: строка `...00.500Z` считалась старее `...00Z`."""
+        from app.services.raw_sync import sync_community
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('comments', 'id', 'comment_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_course (course_id, review_summary_json, _raw_json) VALUES (101, NULL, '{}')")
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_sync_state (endpoint_name, key, value)
+            VALUES ('comments', 'last_time_course_101', '2026-07-15T10:00:00Z')
+        """)
+        )
+        await db_session.commit()
+
+        pages = [
+            [
+                {"id": 1, "user": 1001, "target": 500, "time": "2026-07-15T10:00:00.500000Z", "thread": ""},
+                {"id": 2, "user": 1001, "target": 500, "time": "2026-07-15T09:59:59.999999Z", "thread": ""},
+            ]
+        ]
+        with patch("app.services.raw_sync._request", side_effect=self._handler(pages, [])):
+            await sync_community(db_session, "fake_token")
+
+        r = await db_session.execute(text("SELECT comment_id FROM raw_comment"))
+        assert [str(row[0]) for row in r] == ["1"]
+        r = await db_session.execute(
+            text("SELECT value FROM raw_sync_state WHERE key = 'last_time_course_101'")
+        )
+        assert r.scalar() == "2026-07-15T10:00:00.500000Z"
+
+    @pytest.mark.asyncio
     async def test_stops_paging_at_cursor_boundary(self, db_session):
         """Не нужно качать весь курс, если на первой же странице дошли до
         уже сохранённого хвоста: курсор стоит, лишние страницы не запрашиваются."""
@@ -1449,3 +1514,43 @@ class TestSyncUsers:
             await raw_sync.sync_users(db_session, "token")
 
         assert fetched_ids == ["7"]
+
+    async def test_failed_batch_keeps_previous_profile(self, db_session):
+        """Regression: один упавший батч /users обрывал синк и стирал имена."""
+        import uuid as _uuid
+
+        from app.models import Course, StudentEnrollment
+        from app.services.stepik_api import StepikAPIError
+
+        user = _make_user(db_session)
+        course = Course(id=_uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="Python", status="Published")
+        db_session.add(course)
+        await db_session.flush()
+        now = datetime.now(UTC).replace(tzinfo=None)
+        for sid in range(1, 102):
+            db_session.add(StudentEnrollment(id=_uuid.uuid4(), course_id=course.id, student_id=sid, last_viewed_at=now))
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_user (user_id, first_name, last_name, _raw_json)
+            VALUES ('101', 'Old', 'Name', '{"id": 101, "first_name": "Old", "last_name": "Name"}')
+            """)
+        )
+        await self._seed_user_mapping(db_session)
+        await db_session.commit()
+
+        calls = 0
+
+        async def fake_fetch(path, token, key, extra=None):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return [{"id": 1, "first_name": "New", "last_name": "Name"}]
+            raise StepikAPIError(500, "boom")
+
+        with patch("app.services.raw_sync._paginated_fetch", side_effect=fake_fetch):
+            await raw_sync.sync_users(db_session, "token")
+
+        r = await db_session.execute(text("SELECT user_id, first_name FROM raw_user ORDER BY user_id"))
+        rows = [(str(row[0]), str(row[1])) for row in r]
+        assert ("1", "New") in rows
+        assert ("101", "Old") in rows

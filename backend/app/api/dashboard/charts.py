@@ -267,9 +267,12 @@ async def get_certificates(
     for year, month, ctype in rows:
         if year is None or month is None:
             continue
-        key = f"{year}-{month:02d}"
+        try:
+            key = f"{int(year)}-{int(month):02d}"
+        except (TypeError, ValueError):
+            continue
         monthly[key] = monthly.get(key, 0) + 1
-        if ctype == "distinction":
+        if str(ctype or "").strip().lower() == "distinction":
             distinction_monthly[key] = distinction_monthly.get(key, 0) + 1
 
     months_res = []

@@ -13,6 +13,7 @@ export default function CourseStepsTab({ courses, courseId, metric, lastSync }) 
     if (!courseId) {
       setStructure(null);
       setLoadError(null);
+      setLoading(false);
       return;
     }
     let cancelled = false;

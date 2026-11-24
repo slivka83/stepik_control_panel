@@ -41,6 +41,7 @@ async def transform_certificates(session: AsyncSession):
         if user_id is None:
             user_id = _to_int(data.get("user"))
         cert_id = _to_int(data.get("id")) or _to_int(cert_id_raw)
+        cert_type = str(data.get("type") or "").strip().lower() or None
         rows.append(
             {
                 "id": str(uuid.uuid4()),
@@ -50,7 +51,7 @@ async def transform_certificates(session: AsyncSession):
                 "user_id": user_id,
                 "year": ym[0],
                 "month": ym[1],
-                "type": data.get("type"),
+                "type": cert_type,
             }
         )
 

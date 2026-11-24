@@ -31,9 +31,10 @@ export function AuthProvider({ children }) {
         if (cancelled) return;
         if (res.ok) {
           const profile = await parseJsonResponse(res);
+          if (cancelled) return;
           setHasSession(true);
           setUser(profile);
-          if (!cancelled) setLoading(false);
+          setLoading(false);
           return;
         }
         if (res.status === 401 || res.status === 403) {
@@ -65,13 +66,14 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
+    // Сначала выходим в интерфейсе: сеть/бэкенд могут тормозить.
+    setUser(null);
+    setHasSession(false);
     try {
       await fetch(apiUrl('/auth/logout'), { method: 'POST', credentials: 'include' });
     } catch {
       // ignore
     }
-    setUser(null);
-    setHasSession(false);
   };
 
   return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>;

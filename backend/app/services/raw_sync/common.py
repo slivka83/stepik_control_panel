@@ -31,6 +31,10 @@ _NATURAL_KEYS = {
     "raw_promo_code": "promo_code_id",
 }
 
+# Контекстные колонки, которых нет в ответе API: их нельзя затирать NULL
+# upsert'ом из другого прохода (author pass не знает step).
+_CONTEXT_COLUMNS = {"step"}
+
 
 def _hub():
     """Return the package module (the stable public facade)."""
@@ -43,6 +47,29 @@ def _as_int(value) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _dedupe_by(objects: list[dict], *fields: str) -> list[dict]:
+    """Убрать повторы API-объектов по бизнес-ключу (страницы могли пересечься).
+
+    Объекты без полного ключа не склеиваем: иначе несколько записей с
+    отсутствующим id превратились бы в одну.
+    """
+    seen: set[tuple[str, ...]] = set()
+    result: list[dict] = []
+    for obj in objects:
+        if not isinstance(obj, dict):
+            continue
+        values = tuple(obj.get(field) for field in fields)
+        if not values or any(value is None for value in values):
+            result.append(obj)
+            continue
+        key = tuple(str(value) for value in values)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(obj)
+    return result
 
 
 def _query_params(extra: dict | None = None, page: int = 1) -> dict:
@@ -70,6 +97,10 @@ def _is_text_step(raw_json) -> bool:
     return isinstance(block, dict) and block.get("name") == "text"
 
 
+class RawSyncTruncatedError(RuntimeError):
+    """API kept saying has_next after the page cap — data would be incomplete."""
+
+
 async def _paginated_fetch(
     path: str,
     token: str,
@@ -77,17 +108,29 @@ async def _paginated_fetch(
     extra: dict | None = None,
     max_pages: int = 500,
 ) -> list[dict]:
-    all_items = []
+    all_items: list[dict] = []
     page = 1
     while page <= max_pages:
         data = await _hub()._request("GET", path, token, _query_params(extra, page))
+        if not isinstance(data, dict):
+            logger.error("  %s: unexpected response %r", path, type(data).__name__)
+            raise RawSyncTruncatedError(f"{path}: unexpected response {type(data).__name__}")
         items = data.get(key, [])
+        if not isinstance(items, list):
+            logger.error("  %s: unexpected %r payload (not a list)", path, type(items).__name__)
+            raise RawSyncTruncatedError(f"{path}: unexpected payload {type(items).__name__}")
         if not items:
-            break
-        all_items.extend(items)
-        if not data.get("meta", {}).get("has_next"):
-            break
+            return all_items
+        all_items.extend(item for item in items if isinstance(item, dict))
+        meta = data.get("meta") if isinstance(data, dict) else None
+        if not (isinstance(meta, dict) and meta.get("has_next")):
+            return all_items
         page += 1
+    else:
+        # Ответ оборвался на предохранителе. Не отдаём неполный список
+        # вызывающему full-reload: иначе он заменит таблицу частичными данными.
+        logger.error("  %s: page limit %d reached — refusing to replace with partial data", path, max_pages)
+        raise RawSyncTruncatedError(f"{path}: page limit {max_pages} reached")
     return all_items
 
 
@@ -270,7 +313,7 @@ async def _upsert_raw_table(
         for col in col_names:
             if col == id_field:
                 continue
-            if extra_columns and col in extra_columns:
+            if (extra_columns and col in extra_columns) or col in _CONTEXT_COLUMNS:
                 assignments.append(f'"{col}" = COALESCE(EXCLUDED."{col}", "{raw_table}"."{col}")')
             else:
                 assignments.append(f'"{col}" = EXCLUDED."{col}"')
@@ -298,7 +341,7 @@ async def _save_sync_state(session: AsyncSession, endpoint: str, key: str, value
 
 async def _raw_course_ids(session: AsyncSession) -> list[int]:
     r = await session.execute(text("SELECT course_id FROM raw_course"))
-    return [int(row[0]) for row in r if row[0] is not None]
+    return sorted({int(row[0]) for row in r if row[0] is not None})
 
 
 async def _previous_raw_objects(

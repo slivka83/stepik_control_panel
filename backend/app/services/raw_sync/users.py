@@ -5,7 +5,9 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .common import _hub
+from app.services.stepik_api import StepikAPIError
+
+from .common import _dedupe_by, _hub, _previous_raw_objects
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +48,27 @@ async def sync_users(session: AsyncSession, token: str):
         return
 
     users = []
+    failed_ids: list[str] = []
     id_list = sorted(ids, key=int)
     for i in range(0, len(id_list), 100):
         batch = id_list[i : i + 100]
-        u = await _hub()._paginated_fetch("/users", token, "users", {"ids[]": batch})
+        try:
+            u = await _hub()._paginated_fetch("/users", token, "users", {"ids[]": batch})
+        except StepikAPIError as e:
+            # Один упавший батч не должен обрывать многочасовой синк и не
+            # должен стирать имена уже сохранённых студентов.
+            failed_ids.extend(batch)
+            logger.warning("  users batch %d: %s — keep previous rows", i // 100, e)
+            continue
         users.extend(u)
         logger.info("  ... %d profiles", len(users))
 
+    if failed_ids and len(failed_ids) == len(id_list) and not users:
+        logger.warning("  all user batches failed — keeping previous rows")
+        return
+    if failed_ids:
+        users.extend(await _previous_raw_objects(session, "raw_user", "user_id", failed_ids))
+
+    users = _dedupe_by(users, "id")
     await _hub()._replace_raw_table(session, "raw_user", users, mapping)
     logger.info("  raw_user: %d rows", len(users))

@@ -210,6 +210,7 @@ async def get_kpi(
     refunds_count_change_pct = None
     current_month_income = 0
     current_month_payments = 0
+    current_month_turnover = 0
     current_month_refunds_amount = 0
     current_month_refunds_count = 0
     revenue_change_detail = None
@@ -229,9 +230,11 @@ async def get_kpi(
         # остаётся значение summary.
         current_month_income = _month_stat(months, cur_year, cur_month, "income")
         current_month_payments = _month_stat(months, cur_year, cur_month, "payments_count")
+        current_month_turnover = _month_stat(months, cur_year, cur_month, "turnover")
         if not months:
             current_month_income = summary.get("current_month_income", 0)
             current_month_payments = summary.get("current_month_payments", 0)
+            current_month_turnover = summary.get("current_month_turnover", 0)
         # refunds — сумма в рублях, refunds_count — количество возвратов.
         # Раньше поля были перепутаны по смыслу (refunds_count содержал рубли).
         current_month_refunds_amount = _month_stat(months, cur_year, cur_month, "refunds")
@@ -281,10 +284,10 @@ async def get_kpi(
     prev_enroll = enroll_by_month.get((prev_year, prev_month), 0)
 
     # Витрины — единый источник для KPI: те же строки, что на страницах
-    # Комментарии/Отзывы/Сертификаты. Пока витрина не пересобрана (пустая),
-    # остаётся fallback на снапшот/зачисления, чтобы карточки не обнулялись
-    # на старой базе.
-    mart_course_ids = selected_stepik_ids if is_filtered else None
+    # Комментарии/Отзывы/Сертификаты. Ограничиваем их курсами пользователя
+    # всегда (не только при активном фильтре): иначе KPI мог посчитать
+    # комментарии/отзывы/сертификаты чужих локальных аккаунтов.
+    mart_course_ids = selected_stepik_ids
     mart_certificates_total = await _count_mart_total(db, "mart_certificates", mart_course_ids)
     mart_reviews_total = await _count_mart_total(db, "mart_reviews", mart_course_ids)
     mart_comments_total = await _count_mart_total(
@@ -334,8 +337,14 @@ async def get_kpi(
 
     total_certificates = mart_certificates_total or certificates_issued
     total_reviews = mart_reviews_total or int(community.get("total_reviews", 0) or 0)
-    total_comments = mart_comments_total or int(community.get("total_comments", 0) or 0)
-    total_solutions = mart_solutions_total or int(community.get("total_solutions", 0) or 0)
+    if has_comment_mart:
+        # Витрина комментариев собрана: нулевые решения — это ноль, а не
+        # повод подставить устаревшее значение из старого снапшота.
+        total_comments = mart_comments_total
+        total_solutions = mart_solutions_total
+    else:
+        total_comments = int(community.get("total_comments", 0) or 0)
+        total_solutions = int(community.get("total_solutions", 0) or 0)
 
     if is_filtered:
         steps_average_grade = await filter_steps_average_grade(db, selected_stepik_ids)
@@ -384,7 +393,7 @@ async def get_kpi(
         "total_refunds": summary.get("total_refunds", 0),
         "total_refunds_count": summary.get("total_refunds_count", 0),
         "total_payments": summary.get("total_payments", 0),
-        "current_month_turnover": summary.get("current_month_turnover", 0),
+        "current_month_turnover": current_month_turnover,
         "total_comments": total_comments,
         "comments_prev_months": max(0, total_comments - cur_comments),
         "total_reviews": total_reviews,

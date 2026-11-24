@@ -12,6 +12,7 @@ from app.models import (
     Course,
     FinancialSnapshot,
     MartCertificate,
+    MartComment,
     MartReview,
     MartStep,
     StudentEnrollment,
@@ -555,3 +556,83 @@ async def test_empty_kpi_has_the_same_keys_as_a_filled_one(db_session):
     assert empty["total_refunds_count"] == 0
     assert empty["current_month_refunds_amount"] == 0
     assert empty["refunds_amount_change_detail"] is None
+
+class TestKpiMartScopedToOwner:
+    async def test_foreign_mart_rows_are_not_counted_without_filter(self, db_session):
+        """Regression: без фильтра KPI считал строки витрин всех локальных
+        аккаунтов. Витрины обязаны ограничиваться курсами текущего автора."""
+        user = await _seed_user(db_session)
+        own = await _owned_course(db_session, user, 100)
+
+        other = User(
+            id=uuid.uuid4(),
+            stepik_id=777,
+            access_token=encrypt_token("t"),
+            refresh_token=encrypt_token("t"),
+            token_expires_at=(datetime.now(UTC) + timedelta(hours=1)).replace(tzinfo=None),
+        )
+        db_session.add(other)
+        await db_session.flush()
+        foreign_course = Course(
+            id=uuid.uuid4(),
+            user_id=other.id,
+            stepik_course_id=200,
+            title="Foreign",
+            status="Published",
+        )
+        db_session.add(foreign_course)
+        await db_session.flush()
+
+        now = datetime.now(UTC)
+        for course, cid in ((own, 100), (foreign_course, 200)):
+            db_session.add(
+                MartComment(
+                    id=uuid.uuid4(),
+                    course_id=course.id,
+                    stepik_course_id=cid,
+                    comment_id=cid,
+                    year=now.year,
+                    month=now.month,
+                    is_solution=False,
+                )
+            )
+            db_session.add(
+                MartReview(
+                    id=uuid.uuid4(),
+                    course_id=course.id,
+                    stepik_course_id=cid,
+                    review_id=cid,
+                    year=now.year,
+                    month=now.month,
+                    score=5,
+                )
+            )
+            db_session.add(
+                MartCertificate(
+                    id=uuid.uuid4(),
+                    course_id=course.id,
+                    stepik_course_id=cid,
+                    certificate_id=cid,
+                    year=now.year,
+                    month=now.month,
+                    type="regular",
+                )
+            )
+        await db_session.commit()
+
+        async def override_db():
+            yield db_session
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
+        try:
+            data = client.get("/api/dashboard/kpi").json()
+        finally:
+            app.dependency_overrides.clear()
+
+        assert data["total_comments"] == 1
+        assert data["total_reviews"] == 1
+        assert data["certificates_issued"] == 1

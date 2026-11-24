@@ -30,6 +30,7 @@ export function useServerTable({
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const { tableRef, rowsPerPage } = useRowsPerPage();
   const { sort, onSort } = useSortState(columns, initialSort);
@@ -44,6 +45,7 @@ export function useServerTable({
 
   const fetchPage = useCallback(async () => {
     const id = ++reqIdRef.current;
+    setLoading(true);
     const filterParams = {};
     if (selectedCourseIds !== null) filterParams.course_ids = selectedCourseIds.join(',');
     try {
@@ -64,12 +66,16 @@ export function useServerTable({
     } catch (e) {
       if (reqIdRef.current !== id) return;
       setError(e.response?.data?.detail || e.message || 'Не удалось загрузить данные');
+    } finally {
+      if (reqIdRef.current === id) setLoading(false);
     }
   }, [endpoint, resultKey, safePage, rowsPerPage, sort.key, sort.dir, selectedCourseIds, extraKey]);
 
   useEffect(() => {
     if (!enabled) {
+      reqIdRef.current += 1;
       setError(null);
+      setLoading(false);
       return;
     }
     fetchPage();
@@ -102,6 +108,7 @@ export function useServerTable({
     rows,
     total,
     error,
+    loading,
     page,
     setPage,
     sort,

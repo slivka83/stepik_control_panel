@@ -44,23 +44,45 @@ def _apply_benefit(bucket: dict, benefit: dict) -> None:
         bucket["income"] += amount
 
 
-def _promo_side_map(rows) -> dict[str, bool]:
-    """name (нормализованное) → True, если промокод на стороне Stepik."""
-    result: dict[str, bool] = {}
+def _as_bool(value) -> bool | None:
+    """Разобрать bool из API/JSON/сырой TEXT-колонки без ложных True."""
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    text_value = str(value).strip().lower()
+    if text_value in ("true", "1", "yes"):
+        return True
+    if text_value in ("false", "0", "no"):
+        return False
+    return None
+
+
+def _promo_side_map(rows) -> dict[str, bool | None]:
+    """name (нормализованное) → True/False, если промокод на стороне Stepik.
+
+    None — владелец кода неизвестен или разные курсы дали противоречивые
+    данные: такой платёж не должен получать ложное предупреждение о комиссии.
+    """
+    result: dict[str, bool | None] = {}
     for name, is_stepik_side in rows:
         if name is None:
             continue
         key = str(name).strip().casefold()
         if not key:
             continue
-        result[key] = str(is_stepik_side).strip().lower() in ("true", "1")
+        side = _as_bool(is_stepik_side)
+        if key in result and side is not None and result[key] is not None and result[key] != side:
+            result[key] = None
+        elif key not in result:
+            result[key] = side
     return result
 
 
-def _promo_flags(code, promo_is_stepik: dict[str, bool]) -> tuple[bool, bool | None]:
+def _promo_flags(code, promo_is_stepik: dict[str, bool | None]) -> tuple[bool, bool | None]:
     """(авторский, на стороне Stepik) для кода платежа.
 
-    False/None — код неизвестен (промокоды не синканы): не выдаём его за
+    False/None — код неизвестен или данные противоречивы: не выдаём его за
     авторский и не выдаём за Stepik, чтобы не показывать ложные предупреждения
     о комиссии.
     """
@@ -70,6 +92,8 @@ def _promo_flags(code, promo_is_stepik: dict[str, bool]) -> tuple[bool, bool | N
     if key not in promo_is_stepik:
         return False, None
     is_stepik = promo_is_stepik[key]
+    if is_stepik is None:
+        return False, None
     return (not is_stepik), is_stepik
 
 
@@ -207,7 +231,7 @@ async def transform_financials(session: AsyncSession):
                 "promo_is_stepik": promo_is_stepik_flag,
                 "currency": b.get("currency_code", "RUB"),
                 "channel": channel,
-                "is_gift": bool(b.get("is_gift")),
+                "is_gift": _as_bool(b.get("is_gift")) is True,
                 "utm_source": utm_source,
                 "utm_source_label": UTM_SOURCE_LABELS.get(utm_source, utm_source),
                 "raw": b,

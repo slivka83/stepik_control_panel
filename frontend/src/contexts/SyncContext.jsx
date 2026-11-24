@@ -86,6 +86,9 @@ export function SyncProvider({ children }) {
       );
 
       if (myId !== fetchIdRef.current) return;
+      // Aborted request (filter switch, unmount, logout) must not overwrite the
+      // newer data or raise a stale error banner.
+      if (signal?.aborted) return;
 
       setData((prev) => {
         const next = { ...prev };
@@ -122,7 +125,7 @@ export function SyncProvider({ children }) {
         }
       }
     } finally {
-      setLoading(false);
+      if (myId === fetchIdRef.current && !signal?.aborted) setLoading(false);
     }
   }, []);
 
@@ -184,7 +187,10 @@ export function SyncProvider({ children }) {
   useEffect(() => {
     if (authLoading || !user) {
       if (!authLoading && !user) {
+        filterRef.current = null;
+        setSelectedCourseIds(null);
         setData(emptyData());
+        setError(null);
       }
       setLoading(false);
       return;

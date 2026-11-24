@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.services.stepik_api import StepikAPIError
 
-from .common import _hub, _previous_raw_objects
+from .common import _dedupe_by, _hub, _previous_raw_objects
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +24,18 @@ async def sync_financials(session: AsyncSession):
         logger.warning("  no finance token, skipping")
         return
 
-    by_months = await _hub()._paginated_fetch("/course-benefit-by-months", token, "course-benefit-by-months")
+    by_months = await _hub()._paginated_fetch(
+        "/course-benefit-by-months", token, "course-benefit-by-months"
+    )
+    by_months = _dedupe_by(by_months, "year", "month")
     mapping = await _hub()._get_fields_mapping(session, "course_benefit_by_months")
     await _hub()._replace_raw_table(session, "raw_course_benefit_by_month", by_months, mapping)
     logger.info("  raw_course_benefit_by_month: %d rows", len(by_months))
 
-    benefits = await _hub()._paginated_fetch("/course-benefits", token, "course-benefits")
+    benefits = await _hub()._paginated_fetch(
+        "/course-benefits", token, "course-benefits", max_pages=5000
+    )
+    benefits = _dedupe_by(benefits, "id")
     mapping = await _hub()._get_fields_mapping(session, "course_benefits")
     await _hub()._replace_raw_table(session, "raw_course_benefit", benefits, mapping)
     logger.info("  raw_course_benefit: %d rows", len(benefits))

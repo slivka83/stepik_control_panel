@@ -175,8 +175,12 @@ async def get_user_profile(token: str) -> dict:
     Regression: that fallback created phantom accounts on login.
     """
     data = await _request("GET", "/stepics/1", token)
-    stepics = data.get("stepics", [])
-    return stepics[0] if stepics else {}
+    stepics = data.get("stepics", []) if isinstance(data, dict) else []
+    if isinstance(stepics, list):
+        return stepics[0] if stepics and isinstance(stepics[0], dict) else {}
+    if isinstance(stepics, dict):
+        return stepics
+    return {}
 
 
 async def refresh_access_token(refresh_token: str, client_id: str, client_secret: str) -> dict:

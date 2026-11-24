@@ -18,7 +18,10 @@ function buildTrendTooltip(label, detail, pct, unit = '') {
   // При нуле в прошлом месяце процента нет (backend отдаёт pct=0 для 0→0);
   // формула с делением на ноль была бы математически неверной.
   if (detail.previous !== 0) {
-    lines.push(`Расчёт: (${cur} − ${prev}) ÷ ${prev} × 100 = ${sign}${Math.abs(pct)}%`);
+    // Backend считает изменение от модуля прошлого значения (доход может
+    // быть отрицательным из-за возвратов), поэтому и в формуле — |B|.
+    const prevAbs = Math.abs(detail.previous);
+    lines.push(`Расчёт: (${cur} − ${prev}) ÷ ${formatNumber(prevAbs)} × 100 = ${sign}${Math.abs(pct)}%`);
   }
   return lines.join('\n');
 }

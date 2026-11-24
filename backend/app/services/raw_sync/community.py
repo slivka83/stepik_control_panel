@@ -2,17 +2,35 @@
 
 import json
 import logging
+from datetime import UTC, datetime
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.stepik_api import StepikAPIError
 
-from .common import _as_int, _hub, _previous_raw_objects, _raw_course_ids, _save_sync_state
+from .common import _as_int, _dedupe_by, _hub, _previous_raw_objects, _raw_course_ids, _save_sync_state
 
 logger = logging.getLogger(__name__)
 
 COMMENTS_ENDPOINT = "comments"
+
+
+def _parse_time(value) -> datetime | None:
+    """ISO-время Stepik → aware datetime (None для мусора).
+
+    Сравнивать время строками нельзя: `...00.123Z` лексикографически меньше
+    `...00Z`, хотя это более новый комментарий, а часовые пояса дают ложный
+    порядок. Поэтому курсор и граница сравниваются как моменты времени.
+    """
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
 # Страховка от вечного has_next=true. С курсором синк останавливается на
 # первой странице, где встретил уже сохранённый комментарий; большой лимит
 # нужен только для догоняющей загрузки после долгого простоя.
@@ -64,6 +82,7 @@ async def _sync_review_summaries(session: AsyncSession, token: str) -> None:
             session, "raw_course_review_summary", "review_summary_id", failed_ids
         )
     )
+    review_summaries = _dedupe_by(review_summaries, "id")
     mapping = await _hub()._get_fields_mapping(session, "course_review_summaries")
     await _hub()._replace_raw_table(session, "raw_course_review_summary", review_summaries, mapping)
     logger.info("  raw_course_review_summary: %d rows", len(review_summaries))
@@ -80,7 +99,9 @@ async def _sync_reviews(session: AsyncSession, token: str, course_ids: list[int]
     failed_courses: list[int] = []
     for cid in course_ids:
         try:
-            reviews = await _hub()._paginated_fetch("/course-reviews", token, "course-reviews", {"course": cid})
+            reviews = await _hub()._paginated_fetch(
+                "/course-reviews", token, "course-reviews", {"course": cid}, max_pages=2000
+            )
         except StepikAPIError as e:
             failed_courses.append(cid)
             logger.warning("  course-reviews course %d: %s — skip", cid, e)
@@ -95,6 +116,7 @@ async def _sync_reviews(session: AsyncSession, token: str, course_ids: list[int]
     all_reviews.extend(
         await _previous_raw_objects(session, "raw_course_review", "course", failed_courses)
     )
+    all_reviews = _dedupe_by(all_reviews, "id")
     await _hub()._replace_raw_table(session, "raw_course_review", all_reviews, mapping_reviews)
     logger.info("  raw_course_review: %d rows total", len(all_reviews))
     await session.commit()
@@ -125,9 +147,11 @@ async def _sync_comments(session: AsyncSession, token: str, course_ids: list[int
     total_new = 0
     for cid in course_ids:
         last_time = last_times.get(f"last_time_course_{cid}", "")
+        last_dt = _parse_time(last_time)
         course_new = 0
         page = 1
         max_time_str = last_time
+        max_dt = last_dt
         reached_boundary = False
         while page <= COMMENTS_MAX_PAGES:
             try:
@@ -147,12 +171,20 @@ async def _sync_comments(session: AsyncSession, token: str, course_ids: list[int
                 t = obj.get("time", "") or ""
                 if not isinstance(t, str):
                     continue
-                if last_time and t < last_time:
+                t_dt = _parse_time(t)
+                # Сравниваем моменты времени, если оба разобрались; иначе —
+                # старый строковый порядок (для нестандартных значений API).
+                is_old = (t_dt < last_dt) if (t_dt is not None and last_dt is not None) else bool(
+                    last_time and t < last_time
+                )
+                if is_old:
                     # Дошли до уже сохранённого хвоста — дальше всё старое.
                     reached_boundary = True
-                if not last_time or t >= last_time:
+                if not is_old:
                     new_objects.append(obj)
-                    if t > max_time_str:
+                    newer = (t_dt > max_dt) if (t_dt is not None and max_dt is not None) else t > max_time_str
+                    if newer:
+                        max_dt = t_dt
                         max_time_str = t
 
             if new_objects:

@@ -36,6 +36,8 @@ export default function Solutions() {
   useEffect(() => {
     if (activeTab !== 'hardest') return undefined;
     let cancelled = false;
+    // Не показываем строки прошлого фильтра/синка под новым заголовком.
+    setHardestSteps([]);
     setHardestLoading(true);
     setHardestError(null);
     const params = { limit: 200, min_submissions: 1 };

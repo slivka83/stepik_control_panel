@@ -121,11 +121,11 @@ alembic current
 ### Тестирование
 
 ```bash
-# Backend — 520 тестов (нужен запущенный PostgreSQL)
+# Backend — 561 тест (live-PG проверки пропускаются без запущенного PostgreSQL)
 cd backend
 python -m pytest tests/ -v
 
-# Frontend — 397 тестов
+# Frontend — 446 тестов
 cd frontend
 npx vitest run
 ```
@@ -144,7 +144,7 @@ npx vitest run
 | `financial_snapshots` | Финансовая сводка по месяцам и курсам + community (JSONB) |
 | `mart_modules` / `mart_lessons` / `mart_steps` | Витрина структуры курса с метриками шагов |
 | `mart_comments` / `mart_reviews` / `mart_certificates` | Витрины комментариев, отзывов и сертификатов |
-| `raw_*` (24 шт.) | Сырые ответы Stepik API — источник для витрин |
+| `raw_*` (25 шт.) | Сырые ответы Stepik API — источник для витрин |
 | `raw_sync_state` | Инкрементальное состояние загрузки (PK: endpoint_name, key) |
 | `meta_endpoint` / `meta_field_mapping` | Реестр эндпоинтов и маппинг полей API → колонки |
 

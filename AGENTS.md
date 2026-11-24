@@ -20,7 +20,7 @@ Stepik Control Panel — CRM/BI-панель для авторов курсов 
 
 ```
 Stepik API ──► СЛОЙ СЫРЫХ ДАННЫХ ──► СЛОЙ ВИТРИН ──► API ──► Фронтенд
-               (24 таблицы raw_*)      (витрины)     (чтение ТОЛЬКО витрин)
+               (25 таблиц raw_*)      (витрины)     (чтение ТОЛЬКО витрин)
 ```
 
 1. **Слой сырых данных** — таблицы `raw_*` (raw_course, raw_comment, raw_certificate, raw_course_review, raw_step, raw_lesson, raw_unit, raw_section, raw_user, ...). Получаются из Stepik API через `raw_sync`/`sync_raw.py` и пишутся как есть (JSON в `_raw_json`).
@@ -151,7 +151,7 @@ curl -X POST \
 
 PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токены шифруются через `cryptography.fernet`, ключ `ENCRYPTION_KEY` из `.env`.
 
-Плюс служебные таблицы raw-слоя (`raw_*`, 24 шт.), реестр `meta_endpoint` и `meta_field_mapping` (создаются скриптами/mиграцией `20fc60296db6`).
+Плюс служебные таблицы raw-слоя (`raw_*`, 25 шт.), реестр `meta_endpoint` и `meta_field_mapping` (создаются скриптами/mиграцией `20fc60296db6`).
 
 ## Синхронизация (пайплайн API → raw → app)
 
@@ -173,7 +173,7 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 - `_replace_raw_table()` (DELETE + INSERT одной executemany-операцией) для full_reload; **пустой ответ очищает таблицу** (удалённые на Stepik сущности не остаются в raw и витринах навсегда)
 - `_upsert_raw_table()` (INSERT ON CONFLICT **DO UPDATE**) для incremental: правки комментариев (текст, `vote_delta`, ответы, `is_staff_replied`) доезжают; контекстные колонки вроде `step` не затираются пустым значением (COALESCE)
 - `_sync_id_sequence()` — после INSERT с явными id подтягивает serial-последовательность (PG; SQLite — no-op). Иначе следующий upsert-insert получит nextval из «прошлой жизни» и упадёт на pkey (регрессия `raw_comment_pkey`)
-- `sync_submissions()` не опрашивает теоретические text-шаги (`_raw_json.block.name == 'text'`, у них решений нет) — фильтр по свежим данным `raw_step` (full_reload), экономия ~60% запросов к `/submissions`; оставшиеся шаги скипаются при HTTP 404 (удалённые на Stepik) и HTTP 400 «Bad step parameter» — не убивают весь sync; step-pass качает до лимита **2000 страниц** (40000 строк на шаг, лимит защищает от вечного `has_next=true`) — при достижении лимита пишется warning
+- `sync_submissions()` не опрашивает теоретические text-шаги (`_raw_json.block.name == 'text'`, у них решений нет) — фильтр по свежим данным `raw_step` (full_reload), экономия ~60% запросов к `/submissions`; оставшиеся шаги скипаются при HTTP 404 (удалённые на Stepik) и HTTP 400 «Bad step parameter» — не убивают весь sync; step-pass качает до лимита **5000 страниц** (100000 строк на шаг, лимит защищает от вечного `has_next=true`) — при достижении лимита пишется warning
 - Все параметры для TEXT-колонок raw-слоя биндятся как `str()` (asyncpg строгая типизация: int в text-колонку → DataError)
 - Работает с маппингом полей из `meta_field_mapping` (API → raw columns)
 
@@ -214,7 +214,7 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 
 ## Фильтр по курсам (глобальный)
 
-Кнопка **«Фильтр»** в сайдбаре над «Обновить» (иконка-воронка, акцент `text-cyber-blue` при активном фильтре) открывает дропдаун со списком всех курсов автора — общая галка «Выбрать все курсы» (indeterminate при частичном выборе), чекбоксы курсов, счётчик «Выбрано: N из M» (надпись «Курсы» выровнена по названиям курсов). Меню закреплено у нижнего края экрана (fixed, `bottom-3`, правее сайдбара), закрывается повторным кликом на кнопку / Escape / кликом снаружи. Все 6 страниц показывают данные только по выбранным курсам — **кроме страницы Курсов**: она фильтром не затрагивается (всегда полный список и полные KPI, вычисляемые из `data.courses`).
+Кнопка **«Фильтр»** в сайдбаре над «Обновить» (иконка-воронка, акцент `text-cyber-blue` при активном фильтре) открывает дропдаун со списком всех курсов автора — общая галка «Выбрать все курсы» (indeterminate при частичном выборе), чекбоксы курсов, счётчик «Выбрано: N из M» (надпись «Курсы» выровнена по названиям курсов). Меню закреплено у нижнего края экрана (fixed, `bottom-3`, правее сайдбара), закрывается повторным кликом на кнопку / Escape / кликом снаружи. Все страницы с данными показывают данные только по выбранным курсам — **кроме страницы Курсов**: она фильтром не затрагивается (всегда полный список и полные KPI, вычисляемые из `data.courses`).
 
 ### Семантика (фронтенд)
 
@@ -233,8 +233,8 @@ PK — UUID (кроме `raw_sync_state`: PK `(endpoint_name, key)`). Токен
 - SQL-эндпоинты — `course_id IN (...)` в WHERE: `/dashboard/submissions`, `/active-students`, `/cohorts`, `/alerts`, `/hardest-steps`, KPI-части (студенты/сертификаты/решения), `/dashboard/students` — через `EXISTS (SELECT 1 FROM student_enrollments ...)` (у витрины нет course-колонки).
 - Снапшот-данные пересчитываются на лету (`course_filter.py`), т.к. `months`/`summary`/`comments_monthly` глобальны:
   - `filter_financials()` — из `recent_payments[i].raw` (у каждого платежа есть course + time): `summary`/`months`/`courses`/`promos`/`utms`/`recent_payments`. Месяц — из `time` платежа; возвраты вычитаются из turnover (как в `transform_financials`), поэтому отфильтрованный «все курсы» == глобальный снапшот (инвариант проверен тестом).
-  - `filter_community()` — рейтинг/отзывы/комментарии из `community.per_course` + помесячные `comments_monthly`/`solutions_monthly` пересобираются из `raw_comment` через step→course map (`raw_step JOIN raw_unit JOIN raw_section`).
-  - `filter_steps_average_grade()` — средняя оценка шагов по выбранным курсам (raw_step + step→course map).
+  - `filter_community()` — рейтинг/отзывы/комментарии из `community.per_course` + помесячные `comments_monthly`/`solutions_monthly` пересобираются SQL-группировкой из `mart_comments` (курс и год/месяц денормализованы витриной).
+  - `filter_steps_average_grade()` — средняя оценка шагов по выбранным курсам (mart_steps; шаг без привязки к курсу в подмножество не входит)
 - Без параметра — быстрый путь без изменений (значения снапшота как есть).
 
 ### Порядок этапов
@@ -589,14 +589,14 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 
 ## Тесты
 
-548 passed, 8 skipped (live-PG тесты пропускаются без запущенного PostgreSQL; остальные идут на SQLite-фикстурах). Frontend: 443 passed.
+561 passed, 8 skipped (live-PG тесты пропускаются без запущенного PostgreSQL; остальные идут на SQLite-фикстурах). Frontend: 446 passed.
 | Файл | Тестов | Что тестирует |
 |---|---|---|
 | `tests/test_stepik_api.py` | 26 | `_request`, `exchange_code`, `refresh_token`, `get_user_profile` (только `/stepics/1`, **без fallback на общий `/users`** — регрессия фантомной учётной записи), **изоляция event loop** (HTTP-клиент на каждый цикл — иначе sync падал с «bound to a different event loop»), **повтор при сетевом таймауте/обрыве соединения** (ReadTimeout не убивает многочасовой sync) |
 | `tests/test_stepik_api_comprehensive.py` | 14 | `get_finance_token`, 5xx retries, constants |
-| `tests/test_raw_sync.py` | 29 | `sync_courses_structure`, `sync_grades_and_certs` (+404-курс), `sync_submissions` (+404-шаги, 400-теоретические-шаги, **text-шаги не опрашиваются**, **step-pass докачивает до лимита 2000 страниц**, конфликтные upsert'ы), `sync_financials` (+промокоды), `sync_community` (**сами отзывы**, скип упавшего курса, **персистенция при +0 комментариев**, все запросы упали → старые строки целы), регрессии `became_published_at`, stale sequence, **пустой full reload очищает таблицу**, **комментарии одной секунды и правки не теряются**, **остановка на курсоре**, **инкремент author pass и delta попыток** |
-| `tests/test_raw_sync_edge_cases.py` | 12 | `_paginated_fetch`, пустые/ошибочные данные transform и raw_sync |
-| `tests/test_transform.py` | 26 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита, **курс без продаж с ценой**, **неизвестный промокод → `promo_is_stepik=null`**, **мусорные score/eta не роняют**), **курс другой учётки пропускается**, **удаление курса чистит дочерние строки**, **общий урок закрепляется за первым курсом**, **комментарий с неизвестным шагом привязывается по `course`** |
+| `tests/test_raw_sync.py` | 32 | `sync_courses_structure`, `sync_grades_and_certs` (+404-курс), `sync_submissions` (+404-шаги, 400-теоретические-шаги, **text-шаги не опрашиваются**, **step-pass докачивает до лимита 5000 страниц**, конфликтные upsert'ы), `sync_financials` (+промокоды), `sync_community` (**сами отзывы**, скип упавшего курса, **персистенция при +0 комментариев**, все запросы упали → старые строки целы), регрессии `became_published_at`, stale sequence, **пустой full reload очищает таблицу**, **комментарии одной секунды и правки не теряются**, **остановка на курсоре**, **инкремент author pass и delta попыток** |
+| `tests/test_raw_sync_edge_cases.py` | 16 | `_paginated_fetch`, пустые/ошибочные данные transform и raw_sync |
+| `tests/test_transform.py` | 30 | `transform_courses/enrollments/submissions/financials/community` (+ utms, channel/gift, student name, recent_payments без лимита, **курс без продаж с ценой**, **неизвестный промокод → `promo_is_stepik=null`**, **мусорные score/eta не роняют**), **курс другой учётки пропускается**, **удаление курса чистит дочерние строки**, **общий урок закрепляется за первым курсом**, **комментарий с неизвестным шагом привязывается по `course`** |
 | `tests/test_sync_integration.py` | 18 | `sync_all`, cohort status, интеграция raw_sync → transform, stepwise-коммиты raw_sync внутри sync-этапов |
 | `tests/test_sync_comprehensive.py` | 21 | `sync_all`, `sync_community_stats`, `sync_financials` |
 | `tests/test_sync_edge_cases.py` | 27 | Разрешение конфликтов, отсутствие данных, ошибки API, регрессии `_last_sync_error` (падение → error виден в статусе, успех → очищен, **пустой текст исключения не даёт пустой статус**), **персистенция статуса синка** (`TestSyncStatePersistence`: in_progress/error/после рестарта сервера) |
@@ -605,12 +605,12 @@ URL-ы Stepik: `STEPIK_API_BASE` и `STEPIK_OAUTH_TOKEN_URL` в `app/services/st
 | `tests/test_data_contract.py` | 5 | Глобальные контракты снапшота/API/фронта (price, per_course, поля страниц, recent_payments/utms) |
 | `tests/test_schema_contract.py` | 10 | Schema-contract: статический скан SQL трансформов, TEXT-типизация raw-слоя, live-PG parity (raw-схема, meta_field_mapping, покрытие mapping'ом читаемых колонок, полный пайплайн, снапшот), **live-PG свежесть данных** (трансформы на реальных данных производят строки и догоняют raw — регрессия «0 submissions upserted») |
 | `tests/test_architecture.py` | 21 | Архитектурные гарантии: один alembic head (022, merge 017 + 20fc60296db6), нет dead-артефактов (step_sync_state, orphan-скрипты), единый источник констант, дефолты конфига = docker-compose, сплит dashboard-пакета, rebuild_marts.py (все трансформы, без API) |
-| `tests/test_steps.py` | 36 | hardest-steps (читает `mart_steps`): `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id), `wilson_success_pct` (объём попыток: 1/5 → 3.6%, 200/1000 → 17.6%), `weighted_success_pct` (мусор с малым числом попыток не всплывает в топ), `module_number`/`lesson_number` (сквозная нумерация уроков по курсу), `module_title`/`lesson_title` |
+| `tests/test_steps.py` | 37 | hardest-steps (читает `mart_steps`): `_parse_step_positions` (jsonb/list vs TEXT-строка), lesson_id/step_number, сортировка, min_submissions, limit, чужие курсы, `students` (COUNT DISTINCT user_id), `wilson_success_pct` (объём попыток: 1/5 → 3.6%, 200/1000 → 17.6%), `weighted_success_pct` (мусор с малым числом попыток не всплывает в топ), `module_number`/`lesson_number` (сквозная нумерация уроков по курсу), `module_title`/`lesson_title` |
 | `tests/test_course_filter.py` | 30 | Фильтр по курсам: `parse_course_ids` (None/`[]`), безопасность (чужие UUID отбрасываются), SQL-эндпоинты (submissions/active-students/cohorts/alerts/hardest-steps/students), пересчёт снапшота (financials/revenue/kpi/community), `published` в submissions (в т.ч. по курсам, инвариант «фильтр = все курсы» == «без фильтра»), пустой `?course_ids=` = пустой выбор; `filter_financials` пропускает платёж без `raw`/не-dict `raw`/не из выбранных курсов, `filter_community` на пустом сообществе → нули, `filter_steps_average_grade` для выбранных курсов без шагов → 0 |
 | `tests/test_cohorts.py` | 7 | `/api/dashboard/cohorts`: границы сегментации 7/30/90 дней (ровно на границе), «Зомби» не попадает ни в один сегмент, `last_viewed_at IS NULL` не считается, NULL `cohort_status` не выпадает, будущая дата считается активной, нет курсов → нули |
 | `tests/test_alerts.py` | 5 | `/api/dashboard/alerts`: `points_earned == 100` → алерт, выданный сертификат исключается, `HAVING count > 10` на границе 10/11 студентов, оба типа алертов одновременно, нет курсов → пусто |
 | `tests/test_students.py` | 5 | `/api/dashboard/students`: неверный `limit` (0/201) и отрицательный `skip` → 422, `skip` за пределами списка → пусто при верном `total`, **при фильтре по курсам счётчики строки (решения/комментарии/сертификаты/курсы/статус) пересчитываются по выбранным курсам, а не берутся account-wide из `student_marts`** |
-| `tests/test_kpi.py` | 9 | `/api/dashboard/kpi`: январь корректно берёт предыдущий месяц = декабрь прошлого года, тренд при нуле в прошлом месяце = `None`, `max(0,…)` для «предыдущих месяцев», средняя оценка шагов = 0 без голосов, средний рейтинг = 0 без оценок, **пустое состояние содержит все ключи заполненного**, **после смены месяца не показывает доход из старого `summary.current_month_income`** |
+| `tests/test_kpi.py` | 10 | `/api/dashboard/kpi`: январь корректно берёт предыдущий месяц = декабрь прошлого года, тренд при нуле в прошлом месяце = `None`, `max(0,…)` для «предыдущих месяцев», средняя оценка шагов = 0 без голосов, средний рейтинг = 0 без оценок, **пустое состояние содержит все ключи заполненного**, **после смены месяца не показывает доход из старого `summary.current_month_income`** |
 | `tests/test_comments.py` | 14 | `/api/dashboard/comments` (читает `mart_comments`): months/years/by_course группировки, totals, Лайки/Дизлайки из `vote_delta`, distinct-студенты (OAuth-клиенты отбрасываются), атрибуция через mart_steps, инвариант «фильтр = все курсы» == «без фильтра»; `/comments/list`: фильтры `unanswered` (is_staff_replied + teacher + deleted) и `disliked` (vote_delta<0), имена из raw_user, пути шагов, HTML-стрип, фильтр курсов + инвариант, сортировка/пагинация/NULLS LAST, 400 на неверные параметры, пустые данные |
 | `tests/test_certificates.py` | 5 | `/api/dashboard/certificates/stats` (читает `mart_certificates`): months/years/by_course группировки, distinction/regular, distinct-студенты, фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |
 | `tests/test_reviews.py` | 5 | `/api/dashboard/reviews/stats` (читает `mart_reviews`): months/years/by_course группировки, avg_score (score без числа не входит), distinct-студенты (OAuth-клиенты отбрасываются), фильтр курсов, чужие курсы исключены, пустой выбор = пустые данные |

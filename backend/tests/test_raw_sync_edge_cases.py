@@ -47,6 +47,19 @@ async def _make_course(session, user_id, stepik_course_id=100, title="Test"):
 
 
 class TestPaginatedFetch:
+    def test_dedupe_by_keeps_first_and_unkeyed(self):
+        from app.services.raw_sync.common import _dedupe_by
+
+        objects = [
+            {"id": 1, "name": "first"},
+            {"id": 1, "name": "duplicate"},
+            {"id": 2, "name": "second"},
+            {"name": "no id"},
+            {"name": "no id 2"},
+        ]
+        result = _dedupe_by(objects, "id")
+        assert [o["name"] for o in result] == ["first", "second", "no id", "no id 2"]
+
     @pytest.mark.asyncio
     async def test_stops_when_empty(self, db_session):
         from app.services.raw_sync import _paginated_fetch
@@ -66,6 +79,46 @@ class TestPaginatedFetch:
         with patch("app.services.raw_sync._request", return_value=empty):
             result = await _paginated_fetch("/courses", "tok", "courses")
             assert result == []
+
+    @pytest.mark.asyncio
+    async def test_non_list_payload_and_meta_are_safe(self, db_session):
+        """Regression: dict вместо списка/строки вместо meta ронял синк
+        молчаливой порчей таблицы — теперь это явная ошибка."""
+        from app.services.raw_sync import _paginated_fetch
+        from app.services.raw_sync.common import RawSyncTruncatedError
+
+        async def bad_payload(*args, **kwargs):
+            return {"courses": {"id": 1}, "meta": "oops"}
+
+        with patch("app.services.raw_sync._request", side_effect=bad_payload):
+            with pytest.raises(RawSyncTruncatedError):
+                await _paginated_fetch("/courses", "tok", "courses")
+
+    @pytest.mark.asyncio
+    async def test_meta_string_still_stops_after_data(self, db_session):
+        """Если данные — список, а meta неожиданная, считаем пагинацию законченной."""
+        from app.services.raw_sync import _paginated_fetch
+
+        async def payload(*args, **kwargs):
+            return {"courses": [{"id": 1}], "meta": "oops"}
+
+        with patch("app.services.raw_sync._request", side_effect=payload):
+            assert await _paginated_fetch("/courses", "tok", "courses") == [{"id": 1}]
+
+    @pytest.mark.asyncio
+    async def test_page_limit_refuses_partial_data(self, db_session, caplog):
+        from app.services.raw_sync import _paginated_fetch
+        from app.services.raw_sync.common import RawSyncTruncatedError
+
+        async def endless_page(*args, **kwargs):
+            return {"courses": [{"id": 1}], "meta": {"has_next": True}}
+
+        with patch("app.services.raw_sync._request", side_effect=endless_page):
+            with caplog.at_level("ERROR"):
+                with pytest.raises(RawSyncTruncatedError, match="page limit 3 reached"):
+                    await _paginated_fetch("/courses", "tok", "courses", max_pages=3)
+
+        assert "refusing to replace with partial data" in caplog.text
 
 
 # ─── Transform: empty raw tables ──────────────────────────────────────

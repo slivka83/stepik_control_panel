@@ -21,9 +21,9 @@ export default function SubmissionsChart({
   title,
   primaryColor,
   secondaryColor,
-  hideCorrectLegend,
   hideTotalLegend,
   tooltipRight,
+  correctLabel = 'Правильные',
 }) {
   const [activeMonth, setActiveMonth] = useState(null);
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
@@ -92,12 +92,10 @@ export default function SubmissionsChart({
       <div className="flex items-center justify-between mb-2 shrink-0">
         <h3 className="text-white font-medium">{title || 'Решения'}</h3>
         <div className="flex items-center gap-4">
-          {!hideCorrectLegend && (
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: bright }}></div>
-              <span className="text-xs text-gray-400">Правильные</span>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: bright }}></div>
+            <span className="text-xs text-gray-400">{correctLabel}</span>
+          </div>
           {hasPublished && (
             <div className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: publishedColor }}></div>
@@ -110,14 +108,16 @@ export default function SubmissionsChart({
               <span className="text-xs text-gray-400">Не завершён</span>
             </div>
           )}
-          <div className="flex items-center gap-2">
-            <svg className="w-3 h-3" viewBox="0 0 12 12">
-              <line x1="0" y1="6" x2="6" y2="12" stroke="#94a3b8" strokeWidth="1.5" />
-              <line x1="0" y1="0" x2="12" y2="12" stroke="#94a3b8" strokeWidth="1.5" />
-              <line x1="6" y1="0" x2="12" y2="6" stroke="#94a3b8" strokeWidth="1.5" />
-            </svg>
-            <span className="text-xs text-gray-400">не завершён</span>
-          </div>
+          {!hideTotalLegend && (
+            <div className="flex items-center gap-2">
+              <svg className="w-3 h-3" viewBox="0 0 12 12">
+                <line x1="0" y1="6" x2="6" y2="12" stroke="#94a3b8" strokeWidth="1.5" />
+                <line x1="0" y1="0" x2="12" y2="12" stroke="#94a3b8" strokeWidth="1.5" />
+                <line x1="6" y1="0" x2="12" y2="6" stroke="#94a3b8" strokeWidth="1.5" />
+              </svg>
+              <span className="text-xs text-gray-400">не завершён</span>
+            </div>
+          )}
         </div>
       </div>
       <div className="flex-1 min-h-0">
@@ -226,7 +226,7 @@ export default function SubmissionsChart({
         <ChartTooltip x={tooltipPos.x} y={tooltipPos.y} anchor={tooltipRight ? 'right' : 'left'}>
           <ChartTooltipTitle>{activeEntry.month}</ChartTooltipTitle>
           <ChartTooltipRow
-            label={title || 'Правильные'}
+            label={correctLabel}
             value={(activeEntry.correctTotal ?? activeEntry.correct ?? 0).toLocaleString('ru-RU')}
             color={bright}
           />

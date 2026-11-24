@@ -213,12 +213,13 @@ async def _get_buyer_names(session: AsyncSession) -> dict[int, str]:
     rows = await session.execute(text("SELECT user_id, first_name, last_name FROM raw_user"))
     names: dict[int, str] = {}
     for row in rows:
-        if row[0] is None:
+        uid = _to_int(row[0])
+        if uid is None:
             continue
         first = (row[1] or "").strip()
         last = (row[2] or "").strip()
         if first or last:
-            names[int(row[0])] = f"{first} {last}".strip()
+            names[uid] = f"{first} {last}".strip()
     return names
 
 

@@ -46,9 +46,9 @@ export default function Activities() {
         <SubmissionsChart
           data={commentsChartData}
           title="Комментарии"
+          correctLabel="Комментарии"
           primaryColor="#b8860b"
           secondaryColor="#6b4f0a"
-          hideCorrectLegend
           hideTotalLegend
           tooltipRight
         />

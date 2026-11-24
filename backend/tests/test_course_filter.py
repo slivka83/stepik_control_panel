@@ -394,6 +394,15 @@ class TestFilterSubmissions:
 
             response = client.get("/api/dashboard/students?course_ids=")
             assert response.json()["total"] == 0
+
+            response = client.get("/api/dashboard/cohorts?course_ids=")
+            assert response.json() == {
+                "active": 0,
+                "passive": 0,
+                "fading": 0,
+                "sleeping": 0,
+                "zombie": 0,
+            }
         finally:
             app.dependency_overrides.clear()
 

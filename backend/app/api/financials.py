@@ -40,6 +40,7 @@ async def get_financials(
             "promos": [],
             "utms": [],
             "recent_payments": [],
+            "community": {},
         }
     snapshot_data = snapshot.data if isinstance(snapshot.data, dict) else {}
     if parsed is not None:

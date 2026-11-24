@@ -194,7 +194,7 @@ async def sync_courses_and_enrollments(user_id=None):
     _sync_progress = 15
     async with _session_factory()() as session:
         r = await session.execute(text("SELECT course_id FROM raw_course"))
-        course_ids = [int(row[0]) for row in r if row[0] is not None]
+        course_ids = sorted({int(row[0]) for row in r if row[0] is not None})
     async with _session_factory()() as session, session.begin():
         await raw_sync.sync_course_grades_and_certs(session, token, course_ids)
     logger.info("Course grades & certs synced")

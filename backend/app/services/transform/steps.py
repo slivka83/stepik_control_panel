@@ -114,11 +114,17 @@ async def transform_steps(session: AsyncSession):
                 # приписывали общий урок разным курсам.
                 if lesson_id is None or lesson_id in lesson_attr:
                     continue
-                lesson_number += 1
+                # Секция может ссылаться на урок, которого нет в raw_lesson
+                # (частичный синк/удалённый урок). Такой урок сохраняем для
+                # атрибуции шагов, но не занимаем номер: иначе в нумерации
+                # реальных уроков появлялась дыра (1, 3).
+                has_lesson = lesson_id in lesson_info
+                if has_lesson:
+                    lesson_number += 1
                 lesson_attr[lesson_id] = {
                     "course": course_int,
                     "module_number": module_number,
-                    "lesson_number": lesson_number,
+                    "lesson_number": lesson_number if has_lesson else None,
                     "module_title": info["title"],
                 }
 
@@ -145,7 +151,7 @@ async def transform_steps(session: AsyncSession):
             (
                 (attr["lesson_number"], lesson_id, attr)
                 for lesson_id, attr in lesson_attr.items()
-                if attr["course"] == course_int
+                if attr["course"] == course_int and lesson_id in lesson_info
             ),
             key=lambda item: item[0],
         )

@@ -165,7 +165,7 @@ export default function Financials() {
                 initialSort={SORT_INIT.recent}
                 sort={sorts.recent}
                 onSort={onSort('recent')}
-                rowKey={(p) => `payment-${p.id}`}
+                rowKey={(p) => `payment-${p.id ?? `${p.time}-${p.buyer ?? 'x'}-${p.amount}`}`}
               />
             )}
           </>

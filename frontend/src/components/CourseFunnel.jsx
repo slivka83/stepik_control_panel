@@ -90,6 +90,7 @@ export default function CourseFunnel({ courses = [], courseId, view = 'modules',
     if (!courseId) {
       setFunnel(null);
       setLoadError(null);
+      setLoading(false);
       return;
     }
     let cancelled = false;
@@ -143,9 +144,11 @@ export default function CourseFunnel({ courses = [], courseId, view = 'modules',
           <figcaption className="sr-only">Воронка прохождения курса {selectedCourse.title}</figcaption>
           <div className="flex-1 min-h-0">
             {rows.length === 0 ? (
-              <div className="flex-1 h-full flex items-center justify-center text-gray-500 text-sm">
-                Нет данных о прохождении
-              </div>
+              !loading && (
+                <div className="flex-1 h-full flex items-center justify-center text-gray-500 text-sm">
+                  Нет данных о прохождении
+                </div>
+              )
             ) : (
               <ResponsiveContainer width="100%" height="100%">
                 <FunnelChart margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>

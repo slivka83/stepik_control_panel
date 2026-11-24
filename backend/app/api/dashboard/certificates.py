@@ -63,7 +63,7 @@ async def get_certificates_stats(
             month=month,
             course_id=cid,
             student_id=user_id,
-            distinction=int(ctype == "distinction"),
+            distinction=int(str(ctype or "").strip().lower() == "distinction"),
         )
 
     months = [

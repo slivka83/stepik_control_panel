@@ -126,4 +126,13 @@ describe('SubmissionsChart', () => {
     };
     expect(() => render(<SubmissionsChart data={data} />)).not.toThrow();
   });
+
+  it('hides the incomplete hatch legend when the total series is hidden', () => {
+    const data = {
+      months: [{ month: 'Январь 2026', total: 10, correct: 10 }],
+    };
+    render(<SubmissionsChart data={data} hideTotalLegend correctLabel="Комментарии" />);
+    expect(screen.getByText('Комментарии')).toBeInTheDocument();
+    expect(screen.queryByText('не завершён')).not.toBeInTheDocument();
+  });
 });

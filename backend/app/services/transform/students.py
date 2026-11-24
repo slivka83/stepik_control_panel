@@ -13,9 +13,6 @@ from app.services.transform.common import _ensure_json, _to_int, is_published_so
 logger = logging.getLogger(__name__)
 
 
-STATUS_RANK = COHORT_RANK
-
-
 async def transform_students(session: AsyncSession):
     """Rebuild the student marts view layer — one row per student.
 
@@ -44,7 +41,7 @@ async def transform_students(session: AsyncSession):
     )
     best_status: dict[int, str] = {}
     for sid, st in status_rows:
-        if sid not in best_status or STATUS_RANK.get(st, 99) < STATUS_RANK.get(best_status[sid], 99):
+        if sid not in best_status or COHORT_RANK.get(st, 99) < COHORT_RANK.get(best_status[sid], 99):
             best_status[sid] = st
 
     sub_rows = await session.execute(
@@ -81,12 +78,13 @@ async def transform_students(session: AsyncSession):
     name_rows = await session.execute(text("SELECT user_id, first_name, last_name FROM raw_user"))
     names: dict[int, str] = {}
     for row in name_rows:
-        if row[0] is None:
+        uid = _to_int(row[0])
+        if uid is None:
             continue
         first = (row[1] or "").strip()
         last = (row[2] or "").strip()
         if first or last:
-            names[int(row[0])] = f"{first} {last}".strip()
+            names[uid] = f"{first} {last}".strip()
 
     rows = []
     for r in agg_rows:

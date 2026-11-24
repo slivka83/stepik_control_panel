@@ -13,9 +13,9 @@ from .common import _as_int, _hub, _raw_course_ids, _save_sync_state
 logger = logging.getLogger(__name__)
 
 STATE_ENDPOINT = "submissions"
-# 2000 страниц × 20 = 40 000 решений на шаг. Раньше лимит 500 (10 000)
-# молча навсегда отрезал хвост популярного шага.
-MAX_PAGES = 2000
+# 5000 страниц × 20 = 100 000 решений на шаг. Лимит защищает от вечного
+# has_next=true, но не отрезает популярный шаг на 40 000 (как прежние 2000).
+MAX_PAGES = 5000
 
 
 def _page_state_key(prefix: str, value: int) -> str:
