@@ -54,24 +54,38 @@ Stepik API ──► СЛОЙ СЫРЫХ ДАННЫХ ──► СЛОЙ ВИТ�
 - **БД:** PostgreSQL 16, Redis 7
 - **Шрифты:** Inter (текст), JetBrains Mono (строго для числовых показателей, ID, финансов)
 
-## Запуск
+## Запуск и сохранность данных (КРИТИЧЕСКИЙ ПРИОРИТЕТ)
 
 ```bash
+# Windows
+start.bat        # запуск (Podman, постоянные тома)
+stop.bat         # остановка (с бэкапом, тома сохраняются)
+backup.bat       # бэкап вручную
+
 # Linux/Mac / WSL
 ./start.sh
-
-# Windows
-start.bat
 ```
 
-PostgreSQL + Redis запускаются через **Podman** (`podman-compose` + тот же `docker-compose.yml`), поэтому Docker Desktop не нужен. Docker используется только как запасной вариант:
+**Жёсткие правила (нарушение = потеря данных):**
+
+- **Никогда не создавать новую базу или новый том, если уже есть рабочая база.** На Windows данные живут в томах Podman `stepik_pgdata` и `stepik_redisdata`; на Linux — в томах compose-проекта.
+- **Запрещено** выполнять `podman volume rm`, `podman volume prune`, `podman compose down -v`, `docker compose down -v`, `DROP DATABASE`, `initdb` по существующему каталогу.
+- **Перед запуском проверять порт БД (5433).** Если он занят посторонним процессом, запуск нужно остановить, а не поднимать вторую базу: иначе панель молча подключится к пустой БД и покажет нули.
+- Запуск — только через `start.bat` / `start.sh`. Ручной `podman run` с новым томом запрещён.
+- `start.bat` (через `scripts/start.ps1`) сам: запускает Podman machine, поднимает контейнеры с постоянными томами, проверяет занятость портов, при пропавшем томе восстанавливает базу из последнего дампа в `backups/`, делает бэкап старше суток, применяет миграции и запускает backend/frontend.
+- `stop.bat` делает бэкап и останавливает контейнеры, **не удаляя** их и тома.
+- Папка `backups/` содержит реальные данные, в Git не коммитится (`*.dump`, `backups/` в `.gitignore`). Хранятся последние 10 дампов.
+- Если для задачи нужны изменения в БД, работать с существующими контейнерами и до/после проверять `select count(*) from courses` (не должно стать 0).
+- В WSL осталась старая копия базы (`~/stepik-pgdata`, порт 5433) — это **резервная копия**, её нельзя запускать вместо рабочей: `start.bat` увидит занятый порт и откажется стартовать. Рабочая база — только том `stepik_pgdata` в Podman.
+
+PostgreSQL + Redis на Linux/WSL запускаются через **Podman** (`podman-compose` + `docker-compose.yml`), Docker Desktop не нужен. Docker — запасной вариант:
 
 ```bash
-CONTAINER_ENGINE=docker ./start.sh   # запуск через Docker Compose
+CONTAINER_ENGINE=docker ./start.sh
 CONTAINER_ENGINE=docker ./stop.sh
 ```
 
-`start.bat` сам выбирает ветку: если в WSL есть `podman-compose` — запускает всё через WSL/Podman (Docker Desktop не требуется), иначе fallback на Docker. Остановка в этом случае — `./stop.sh` внутри WSL.
+На Windows `start.bat` вызывает `scripts/start.ps1` и использует **Windows Podman** напрямую (без `podman-compose`): `podman-compose` в этой системе не установлен, а compose-провайдер Podman 5.8 сломан (win-sshproxy не поднимает Docker-API). Поэтому контейнеры создаются идемпотентно через `podman run`/`podman start` с фиксированными именами и томами.
 
 Требуется `.env` из `.env.example` (OAuth2 Client ID/Secret, `ENCRYPTION_KEY`, данные БД).
 

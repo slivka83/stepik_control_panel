@@ -40,16 +40,11 @@ cp .env.example .env
 # Заполните OAuth2 Client ID/Secret, ENCRYPTION_KEY и данные БД
 
 # 3. Запустите
-./start.sh        # Linux/Mac/WSL
-start.bat          # Windows
+start.bat          # Windows (Podman)
+./start.sh         # Linux/Mac/WSL
 ```
 
-PostgreSQL и Redis поднимаются через **Podman** (`podman-compose`) — Docker Desktop не требуется. В Windows `start.bat` сам запускает всё через WSL/Podman, если `podman-compose` установлен. Если нужен Docker вместо Podman:
-
-```bash
-CONTAINER_ENGINE=docker ./start.sh
-CONTAINER_ENGINE=docker ./stop.sh
-```
+PostgreSQL и Redis поднимаются через **Podman** — Docker Desktop не требуется. На Windows `start.bat` использует установленный Podman и постоянные тома; на Linux/WSL — `podman-compose` (или Docker: `CONTAINER_ENGINE=docker ./start.sh`).
 
 Порты настраиваются в `.env` (корень проекта):
 ```
@@ -59,7 +54,18 @@ FRONTEND_PORT=3000
 
 Откройте http://localhost:3000
 
-**Примечание:** Файл `.env` должен находиться **в корне проекта**. Скрипты запуска автоматически создают виртуальное окружение Python 3.12, устанавливают зависимости и применяют миграции при первом запуске.
+**Примечание:** Файл `.env` должен находиться **в корне проекта**. Скрипты запуска автоматически применяют миграции. Если виртуальное окружение или `node_modules` ещё не созданы, `start.bat` сообщит, чего не хватает.
+
+### Данные и бэкапы
+
+Данные панели живут в постоянных томах Podman (`stepik_pgdata`, `stepik_redisdata`) и **не удаляются** при остановке или перезапуске.
+
+- `start.bat` никогда не пересоздаёт базу. Если том пропал, а в `backups/` есть дамп — база восстанавливается из последнего бэкапа.
+- Если порт базы (5433) занят посторонним процессом, запуск останавливается с ошибкой: панель не подключится к чужой или пустой базе.
+- Бэкап делается автоматически при запуске (если последнему больше суток) и при остановке; вручную — `backup.bat`. Хранятся последние 10 дампов в `backups/` (в Git не попадают).
+- Остановка — `stop.bat` (контейнеры и тома сохраняются).
+
+> **Важно:** не выполняйте `podman volume rm`, `podman volume prune` и `podman compose down -v` — это удаляет данные панели.
 
 ### Миграции БД
 
@@ -115,11 +121,15 @@ alembic current
 │   │   └── test/         # Frontend тесты (vitest + jsdom)
 │   ├── vite.config.js
 │   └── package.json
-├── docker-compose.yml    # PostgreSQL + Redis
+├── docker-compose.yml    # PostgreSQL + Redis (Linux/WSL)
+├── scripts/              # Windows: start.ps1, stop.ps1, backup.ps1
+├── backups/              # Дампы базы (создаётся автоматически, не в Git)
 ├── .env.example          # Шаблон переменных окружения
 ├── start.sh              # Запуск (Linux/Mac/WSL, Podman)
 ├── stop.sh               # Остановка (Linux/Mac/WSL)
-└── start.bat             # Запуск (Windows)
+├── start.bat             # Запуск (Windows)
+├── stop.bat              # Остановка (Windows)
+└── backup.bat            # Бэкап базы (Windows)
 ```
 
 ### Тестирование

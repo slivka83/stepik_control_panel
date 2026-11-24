@@ -30,6 +30,10 @@ frontend/dist/
 
 # Database files
 *.db
+*.dump
+
+# Database backups (contain real data, never commit)
+backups/
 
 # OS
 .DS_Store
