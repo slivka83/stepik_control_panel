@@ -8,7 +8,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.constants import COHORT_RANK
-from app.services.transform.common import _ensure_json, _to_int, is_published_solution
+from app.services.transform.common import (
+    _ensure_json,
+    _month_tuple,
+    _to_int,
+    is_published_solution,
+    load_course_map,
+)
+from app.services.transform.courses import build_lesson_course_map, build_step_course_map
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +64,17 @@ async def transform_students(session: AsyncSession):
     subs_by_user = {int(r.user_id): (r.cnt, r.correct_cnt) for r in sub_rows}
 
     # Comments live in the raw layer; the real author is in _raw_json because
-    # the mapped `user` column may hold a stale OAuth client name
+    # the mapped `user` column may hold a stale OAuth client name. Course
+    # attribution is the same as transform_comments/transform_community:
+    # step→course first, the comment's own course as fallback. Comments from
+    # deleted/foreign courses must not inflate the student's counters.
+    course_map = await load_course_map(session)
+    if not course_map:
+        logger.warning("  no courses — clearing student_marts")
+        await session.execute(text("DELETE FROM student_marts"))
+        return
+    step_course = await build_step_course_map(session)
+    lesson_course = await build_lesson_course_map(session)
     comment_rows = await session.execute(text("SELECT _raw_json FROM raw_comment"))
     comments_by_user: dict[int, int] = {}
     solutions_by_user: dict[int, int] = {}
@@ -67,6 +84,20 @@ async def transform_students(session: AsyncSession):
             continue
         uid = _to_int(obj.get("user"))
         if uid is None:
+            continue
+        # transform_comments/mart_comments пропускают комментарий без
+        # разбираемой даты — счётчик студента должен считать те же строки.
+        if _month_tuple(obj.get("time")) is None:
+            continue
+        target = _to_int(obj.get("target"))
+        course_id = step_course.get(target) if target is not None else None
+        if course_id is None and target is not None:
+            course_id = lesson_course.get(target)
+        if course_id is None and target is not None and target in course_map:
+            course_id = target
+        if course_id is None:
+            course_id = _to_int(obj.get("course"))
+        if course_id not in course_map:
             continue
         if is_published_solution(obj):
             # Опубликованное решение — отдельная колонка «Опубликованные»;

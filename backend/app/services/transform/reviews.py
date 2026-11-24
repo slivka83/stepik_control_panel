@@ -24,7 +24,8 @@ async def transform_reviews(session: AsyncSession):
 
     course_map = await load_course_map(session)
     if not course_map:
-        logger.warning("  no courses, skipping")
+        logger.warning("  no courses — clearing mart_reviews")
+        await session.execute(text("DELETE FROM mart_reviews"))
         return
 
     r = await session.execute(text('SELECT review_id, "user", course, _raw_json FROM raw_course_review'))

@@ -67,6 +67,22 @@ _default_redis = redis_client
 _default_script = _token_bucket_script
 
 
+def bind_main_loop() -> None:
+    """Запомнить event loop приложения.
+
+    Вызывается из lifespan ДО первого синка. Без этого «главным» становился
+    первый цикл, который обратился к Redis: если это был поток синка, главный
+    цикл позже получал клиент/скрипт, привязанный к уже закрытому циклу.
+    """
+    global _main_loop
+    if redis_client is not _default_redis:
+        return
+    loop = asyncio.get_running_loop()
+    with _loop_lock:
+        if _main_loop is None or _main_loop.is_closed():
+            _main_loop = loop
+
+
 def _get_redis():
     """Redis-клиент текущего event loop (main loop — общий, sync — свой)."""
     global _main_loop
@@ -90,7 +106,11 @@ def _get_token_bucket_script():
     if _token_bucket_script is not _default_script:
         return _token_bucket_script
     loop = asyncio.get_running_loop()
-    if _main_loop is None or loop is _main_loop:
+    with _loop_lock:
+        if _main_loop is None or _main_loop.is_closed():
+            _main_loop = loop
+        main_loop = _main_loop
+    if loop is main_loop:
         return _token_bucket_script
     client = _get_redis()
     with _loop_lock:
@@ -107,8 +127,12 @@ async def close_redis() -> None:
     with _loop_lock:
         client = _loop_clients.pop(loop, None)
         _loop_scripts.pop(loop, None)
+        main_loop = _main_loop
     if client is not None:
         await client.aclose()
+    # The main loop uses the module-level client; close it on shutdown too.
+    if loop is main_loop and redis_client is _default_redis:
+        await redis_client.aclose()
 
 
 async def acquire_token() -> bool:

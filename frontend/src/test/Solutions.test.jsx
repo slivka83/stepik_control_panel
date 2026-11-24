@@ -447,9 +447,9 @@ describe('Solutions', () => {
       years: [],
       by_course: [],
     });
-    expect(screen.getAllByText('20.0%').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('25.0%').length).toBeGreaterThanOrEqual(1);
-    expect(screen.queryByText('3.6%')).toBeNull();
+    expect(screen.getAllByText('20,0%').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('25,0%').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('3,6%')).toBeNull();
   });
 
   it('sorts hardest steps by weighted success default (worst first) and by Всего', async () => {

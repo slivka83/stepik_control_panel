@@ -15,7 +15,7 @@ from app.api.dashboard.course_filter import (
     parse_course_ids,
 )
 from app.database import get_db
-from app.models import FinancialSnapshot, StudentEnrollment, Submission, User
+from app.models import Course, FinancialSnapshot, StudentEnrollment, Submission, User
 
 router = APIRouter()
 
@@ -288,6 +288,12 @@ async def get_kpi(
     # всегда (не только при активном фильтре): иначе KPI мог посчитать
     # комментарии/отзывы/сертификаты чужих локальных аккаунтов.
     mart_course_ids = selected_stepik_ids
+    # «Витрина собрана» — свойство всей таблицы, а не выбранного подмножества.
+    # Иначе пустой выбранный курс брал fallback из старого снапшота, и KPI
+    # расходился со страницей, которая читает ту же (пустую) витрину.
+    has_certificates_mart = (await _count_mart_total(db, "mart_certificates")) > 0
+    has_reviews_mart = (await _count_mart_total(db, "mart_reviews")) > 0
+    all_comments_mart = await _count_mart_total(db, "mart_comments")
     mart_certificates_total = await _count_mart_total(db, "mart_certificates", mart_course_ids)
     mart_reviews_total = await _count_mart_total(db, "mart_reviews", mart_course_ids)
     mart_comments_total = await _count_mart_total(
@@ -296,7 +302,7 @@ async def get_kpi(
     mart_solutions_total = await _count_mart_total(
         db, "mart_comments", mart_course_ids, is_solution=True
     )
-    has_comment_mart = (mart_comments_total + mart_solutions_total) > 0
+    has_comment_mart = all_comments_mart > 0
 
     cur_certificates = await _count_mart_month(
         db, "mart_certificates", cur_year, cur_month, mart_course_ids
@@ -335,8 +341,14 @@ async def get_kpi(
         cur_solutions = solutions_monthly.get(cur_comments_key, 0)
         prev_solutions = solutions_monthly.get(prev_comments_key, 0)
 
-    total_certificates = mart_certificates_total or certificates_issued
-    total_reviews = mart_reviews_total or int(community.get("total_reviews", 0) or 0)
+    total_certificates = (
+        mart_certificates_total if has_certificates_mart else certificates_issued
+    )
+    total_reviews = (
+        mart_reviews_total
+        if has_reviews_mart
+        else int(community.get("total_reviews", 0) or 0)
+    )
     if has_comment_mart:
         # Витрина комментариев собрана: нулевые решения — это ноль, а не
         # повод подставить устаревшее значение из старого снапшота.
@@ -346,7 +358,18 @@ async def get_kpi(
         total_comments = int(community.get("total_comments", 0) or 0)
         total_solutions = int(community.get("total_solutions", 0) or 0)
 
-    if is_filtered:
+    # «Фильтр = все курсы» обязан совпадать с «без фильтра», включая шаги без
+    # атрибуции к курсу (они питают KPI). Подмножество курсов их исключает.
+    all_user_stepik_ids = set(
+        (
+            await db.execute(
+                select(Course.stepik_course_id).where(Course.user_id == user.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if is_filtered and selected_stepik_ids != all_user_stepik_ids:
         steps_average_grade = await filter_steps_average_grade(db, selected_stepik_ids)
     else:
         steps_average_grade = await _steps_average_grade(db)

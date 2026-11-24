@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTabState } from '../hooks/useTabState';
 import { useSync } from '../contexts/SyncContext';
 import ErrorBanner from '../components/ErrorBanner';
 import KpiCard from '../components/KpiCard';
@@ -15,6 +16,8 @@ const TABS = [
   { key: 'steps', label: 'Шаги' },
   { key: 'funnel', label: 'Воронка' },
 ];
+
+const TAB_KEYS = TABS.map((t) => t.key);
 
 const FUNNEL_VIEWS = {
   modules: {
@@ -87,7 +90,7 @@ function MetricToggle({ items, active, onChange, ariaLabel }) {
 export default function Courses() {
   const { data, error, refresh, syncStatus } = useSync();
   const courses = data.courses || [];
-  const [activeTab, setActiveTab] = useState('courses');
+  const [activeTab, setActiveTab] = useTabState('courses', TAB_KEYS);
   const [courseId, setCourseId] = useState(null);
   const [metric, setMetric] = useState('grade');
   const [funnelView, setFunnelView] = useState('modules');

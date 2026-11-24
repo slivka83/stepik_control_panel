@@ -67,7 +67,7 @@ const num = (row, key) => numCell((row[key] || 0).toLocaleString('ru-RU'));
 
 const successCell = (pct) => (
   <td className="text-right font-mono text-xs pl-1 pr-1" style={{ color: successColor(pct) }}>
-    {pct.toFixed(1)}%
+    {pct.toLocaleString('ru-RU', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
   </td>
 );
 

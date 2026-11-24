@@ -126,16 +126,18 @@ def filter_financials(
     meta = course_meta or {}
     # Все выбранные курсы остаются в таблице «По курсам», даже без платежей:
     # иначе фильтр «все курсы» и «без фильтра» давали разные наборы строк.
+    def _course_field(cid: int, key: str):
+        original = (orig_courses.get(cid) or {}).get(key)
+        if original is not None:
+            return original
+        return (meta.get(cid) or {}).get(key)
+
     course_stats: dict[int, dict] = {
         cid: {
             "course_id": cid,
-            "title": (
-                (orig_courses.get(cid) or {}).get("title")
-                or (meta.get(cid) or {}).get("title")
-                or f"Курс #{cid}"
-            ),
-            "price": (orig_courses.get(cid) or {}).get("price")
-            or (meta.get(cid) or {}).get("price"),
+            "title": _course_field(cid, "title") or f"Курс #{cid}",
+            # 0 — валидная цена бесплатного курса, не «нет данных».
+            "price": _course_field(cid, "price"),
             "payments": 0,
             "turnover": 0.0,
             "income": 0.0,

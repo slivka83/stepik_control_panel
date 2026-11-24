@@ -26,6 +26,7 @@ OAuth2 токены хранятся в зашифрованном виде в �
 - **Frontend:** React 18+, Vite, Tailwind CSS v3, Recharts
 - **База данных:** PostgreSQL 16, Redis 7
 - **Шрифты:** Inter (текст), JetBrains Mono (числовые показателя, ID, финансы)
+- **Что установить:** Node.js + npm, [uv](https://docs.astral.sh/uv/) (ставит Python-окружение), Podman + podman-compose (или Docker)
 
 ## Быстрый старт
 
@@ -76,6 +77,7 @@ alembic current
 | Модуль | Описание |
 |---|---|
 | Дашборд | KPI-метрики, алерты, графики активности и когорт |
+| Активности | Графики решений, комментариев, активных студентов и сертификатов |
 | Курсы | Список курсов, тепловая карта шагов, воронка прохождения |
 | Решения | Отправки по месяцам/годам/курсам, самые сложные шаги |
 | Комментарии | Агрегаты по месяцам/годам/курсам, неотвеченные, дизлайки |
@@ -103,10 +105,12 @@ alembic current
 │   └── requirements-test.txt  # Тестовые зависимости
 ├── frontend/
 │   ├── src/
-│   │   ├── components/   # React компоненты
-│   │   ├── pages/        # Страницы (Dashboard, Courses, Solutions, Comments, Financials, Students, Activities, Certificates, Reviews)
+│   │   ├── components/   # React компоненты (таблицы, вкладки, графики)
+│   │   ├── pages/        # Страницы + конфигурации колонок (pages/*/columns.jsx)
+│   │   ├── hooks/        # useTabState, useTabSorts, useServerTable
 │   │   ├── contexts/     # AuthContext, SyncContext
-│   │   ├── utils/        # format, formatNumber, monthWindow
+│   │   ├── utils/        # format, formatNumber, monthWindow, financials
+│   │   ├── api.js / config.js / session.js
 │   │   ├── constants.jsx # Цвета (CHART_COLORS), лейблы, навигация, когорты
 │   │   └── test/         # Frontend тесты (vitest + jsdom)
 │   ├── vite.config.js
@@ -121,7 +125,7 @@ alembic current
 ### Тестирование
 
 ```bash
-# Backend — 561 тест (live-PG проверки пропускаются без запущенного PostgreSQL)
+# Backend — 576 тестов (live-PG проверки пропускаются без запущенного PostgreSQL)
 cd backend
 python -m pytest tests/ -v
 
@@ -144,7 +148,7 @@ npx vitest run
 | `financial_snapshots` | Финансовая сводка по месяцам и курсам + community (JSONB) |
 | `mart_modules` / `mart_lessons` / `mart_steps` | Витрина структуры курса с метриками шагов |
 | `mart_comments` / `mart_reviews` / `mart_certificates` | Витрины комментариев, отзывов и сертификатов |
-| `raw_*` (25 шт.) | Сырые ответы Stepik API — источник для витрин |
+| `raw_*` (17 базовых) | Сырые ответы Stepik API — источник для витрин; дополнительные зеркала создаёт `explore_endpoint.py` |
 | `raw_sync_state` | Инкрементальное состояние загрузки (PK: endpoint_name, key) |
 | `meta_endpoint` / `meta_field_mapping` | Реестр эндпоинтов и маппинг полей API → колонки |
 
@@ -169,5 +173,5 @@ alembic downgrade -1
 
 | Файл | Описание |
 |---|---|
-| [`docs/api_propose.md`](docs/api_propose.md) | Предложенные эндпоинты Stepik API |
+| [`docs/api_propose.md`](docs/api_propose.md) | Архивный каталог полей Stepik API (не схема БД) |
 | [`AGENTS.md`](AGENTS.md) | Архитектура, синхронизация, тесты |

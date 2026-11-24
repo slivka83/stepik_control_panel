@@ -1,4 +1,16 @@
 import '@testing-library/jest-dom';
+import { vi } from 'vitest';
+
+// AuthProvider calls /auth/me on mount. Tests that don't exercise auth should
+// not wait for the real network (or 15s of retries): default to "not logged in".
+if (!globalThis.fetch || !vi.isMockFunction(globalThis.fetch)) {
+  globalThis.fetch = vi.fn().mockResolvedValue({
+    ok: false,
+    status: 401,
+    headers: { get: () => 'application/json' },
+    json: () => Promise.resolve({}),
+  });
+}
 
 class ResizeObserver {
   constructor(callback) {

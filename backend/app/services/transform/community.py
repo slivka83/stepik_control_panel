@@ -15,7 +15,7 @@ from app.services.transform.common import (
     is_published_solution,
     load_course_map,
 )
-from app.services.transform.courses import build_step_course_map
+from app.services.transform.courses import build_lesson_course_map, build_step_course_map
 
 logger = logging.getLogger(__name__)
 
@@ -25,9 +25,12 @@ async def transform_community(session: AsyncSession):
 
     course_map = await load_course_map(session)
 
+    # Пустой course_map — не повод оставлять старую community в снапшоте:
+    # после удаления всех курсов KPI и страница «Активности» показывали бы
+    # комментарии/рейтинги несуществующих курсов. Ниже строится пустая
+    # community и записывается в снапшот (или создаёт его).
     if not course_map:
-        logger.warning("  no courses, skipping")
-        return
+        logger.warning("  no courses — writing empty community")
 
     r = await session.execute(
         text("""
@@ -81,6 +84,7 @@ async def transform_community(session: AsyncSession):
     per_course_comments = {}
 
     step_course = await build_step_course_map(session)
+    lesson_course = await build_lesson_course_map(session)
 
     for cm in comments:
         if cm.get("is_deleted"):
@@ -101,6 +105,14 @@ async def transform_community(session: AsyncSession):
         # не атрибутирован, то курс из самого комментария. Иначе один и тот же
         # комментарий попадал в KPI, но отсутствовал на странице Комментариев.
         step_cid = step_course.get(_to_int(target)) if (target and step_course) else None
+        if not step_cid and target:
+            # Комментарий к уроку: target — lesson_id, а не step_id.
+            step_cid = lesson_course.get(_to_int(target))
+        if not step_cid and target:
+            # Комментарий к курсу целиком.
+            target_cid = _to_int(target)
+            if target_cid in course_map:
+                step_cid = target_cid
         if not step_cid:
             step_cid = _to_int(cm.get("course"))
         if not step_cid or step_cid not in course_map:

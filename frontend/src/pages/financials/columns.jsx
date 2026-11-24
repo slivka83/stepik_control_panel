@@ -176,7 +176,7 @@ const COURSES_COLUMNS = [
     nullLast: true,
     render: (c) => (
       <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300">
-        {c.price ? formatCurrency(c.price) : '—'}
+        {c.price != null ? formatCurrency(c.price) : '—'}
       </td>
     ),
   },

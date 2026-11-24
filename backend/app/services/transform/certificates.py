@@ -17,7 +17,8 @@ async def transform_certificates(session: AsyncSession):
 
     course_map = await load_course_map(session)
     if not course_map:
-        logger.warning("  no courses, skipping")
+        logger.warning("  no courses — clearing mart_certificates")
+        await session.execute(text("DELETE FROM mart_certificates"))
         return
 
     r = await session.execute(

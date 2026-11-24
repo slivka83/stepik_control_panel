@@ -5,7 +5,8 @@ const ROW_HEIGHT = 35;
 function calcRowsPerPage(node) {
   const header = node.querySelector('thead');
   const headerH = header?.offsetHeight || 0;
-  const row = node.querySelector('tbody tr');
+  // Empty-state row has py-8 and must not define the page size.
+  const row = node.querySelector('tbody tr[data-row]');
   const rowH = row?.offsetHeight || ROW_HEIGHT;
   const avail = node.clientHeight - headerH - 4;
   return Math.max(1, Math.floor(avail / rowH));
@@ -55,25 +56,41 @@ export function useSortState(columns, initialSort) {
   return { sort, onSort };
 }
 
-export function useRowsPerPage() {
+export function useRowsPerPage(rowsLength = 0) {
   const [rowsPerPage, setRowsPerPage] = useState(10);
-  const tableRef = useRef(null);
+  const [node, setNode] = useState(null);
   const prevRows = useRef(0);
 
-  useEffect(() => {
-    prevRows.current = 0;
-    const node = tableRef.current;
+  // Callback ref (not a ref object): lazy tabs have no <table> at mount, and
+  // an effect with [] would never see the node when the tab is opened later.
+  const tableRef = useCallback((nextNode) => setNode(nextNode), []);
+
+  const measure = useCallback(() => {
     if (!node) return;
-    const ro = new ResizeObserver(() => {
-      const calc = calcRowsPerPage(node);
-      if (calc !== prevRows.current) {
-        prevRows.current = calc;
-        setRowsPerPage(calc);
-      }
-    });
+    const calc = calcRowsPerPage(node);
+    if (calc !== prevRows.current) {
+      prevRows.current = calc;
+      setRowsPerPage(calc);
+    }
+  }, [node]);
+
+  useEffect(() => {
+    if (!node) return undefined;
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(node);
-    return () => ro.disconnect();
-  }, []);
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [node, measure]);
+
+  // Server tables: rows arrive after the request; recalculate the page size
+  // for the now-known real row height.
+  useEffect(() => {
+    measure();
+  }, [rowsLength, measure]);
 
   return { tableRef, rowsPerPage };
 }
@@ -151,7 +168,7 @@ function DefaultCell({ column, row }) {
 
 const Row = memo(function Row({ columns, row }) {
   return (
-    <tr className="border-b border-gray-800">
+    <tr data-row="1" className="border-b border-gray-800">
       {columns.map((col) => (
         <Fragment key={col.key}>{col.render ? col.render(row) : <DefaultCell column={col} row={row} />}</Fragment>
       ))}
@@ -187,7 +204,7 @@ export default function DataTable({
   tableRef: tableRefProp,
   totalPages: totalPagesProp,
 }) {
-  const { tableRef: ownRef, rowsPerPage: ownRows } = useRowsPerPage();
+  const { tableRef: ownRef, rowsPerPage: ownRows } = useRowsPerPage(rows.length);
   const fallbackSort = useMemo(
     () => initialSort || { key: columns[0]?.key, dir: 'asc' },
     [initialSort, columns],
@@ -228,7 +245,7 @@ export default function DataTable({
   return (
     <div className={panelClassName}>
       <div ref={tableRef} className="overflow-hidden flex-1 min-h-0">
-        <table className="w-full text-sm table-fixed fin-table sol-table">
+        <table className="w-full text-sm table-fixed fin-table">
           <thead>
             <tr className="border-b border-gray-700">
               {columns.map((col) => (

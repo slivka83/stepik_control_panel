@@ -127,7 +127,11 @@ async def transform_financials(session: AsyncSession):
 
     total_turnover = sum(_to_float(m.get("total_turnover")) or 0.0 for m in by_months)
     total_income = sum(_to_float(m.get("total_user_income")) or 0.0 for m in by_months)
-    total_refunds = sum(_to_float(m.get("total_refunds")) or 0.0 for m in by_months)
+    # Возвраты — положительная величина во всех агрегатах (courses/promos/utms
+    # уже используют abs(amount)). API/старые выгрузки могут отдавать сумму
+    # возвратов со знаком минус; без abs «Возвраты» на дашборде меняли знак
+    # при переключении фильтра по курсам (там сумма считается из платежей).
+    total_refunds = sum(abs(_to_float(m.get("total_refunds")) or 0.0) for m in by_months)
     total_payments = sum(_to_int(m.get("count_payments")) or 0 for m in by_months)
     total_refunds_count = sum(_to_int(m.get("count_refunds")) or 0 for m in by_months)
 
@@ -155,7 +159,7 @@ async def transform_financials(session: AsyncSession):
                 "month_num": month_num,
                 "turnover": _to_float(m.get("total_turnover")) or 0.0,
                 "income": _to_float(m.get("total_user_income")) or 0.0,
-                "refunds": _to_float(m.get("total_refunds")) or 0.0,
+                "refunds": abs(_to_float(m.get("total_refunds")) or 0.0),
                 "payments_count": _to_int(m.get("count_payments")) or 0,
                 "refunds_count": _to_int(m.get("count_refunds")) or 0,
             }

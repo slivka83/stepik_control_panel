@@ -16,7 +16,15 @@ USER_ID_SOURCES = [
     "SELECT DISTINCT user_id FROM submissions WHERE user_id IS NOT NULL",
     "SELECT DISTINCT user_id FROM raw_course_grade WHERE user_id IS NOT NULL",
     "SELECT DISTINCT user_id FROM raw_certificate WHERE user_id IS NOT NULL",
-    "SELECT DISTINCT user FROM raw_course_review WHERE user IS NOT NULL",
+    # `user` — зарезервированное слово в PostgreSQL; без кавычек запрос может
+    # вернуть текущего пользователя БД вместо колонки.
+    'SELECT DISTINCT "user" FROM raw_course_review WHERE "user" IS NOT NULL',
+    # Авторы комментариев нужны для имён в списках «Не отвеченные»/«Дизлайки».
+    # Не-числовые значения (имя OAuth-клиента) отфильтровывает sync_users.
+    'SELECT DISTINCT "user" FROM raw_comment WHERE "user" IS NOT NULL',
+    # Покупатели (в том числе подарков) не всегда enroll/comments — без этого
+    # в «Последних операциях» вместо имени стояло «—».
+    "SELECT DISTINCT buyer FROM raw_course_benefit WHERE buyer IS NOT NULL",
 ]
 
 

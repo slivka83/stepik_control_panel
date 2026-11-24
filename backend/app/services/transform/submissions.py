@@ -23,12 +23,15 @@ _UPSERT_SUBMISSIONS = text("""
          :status, :score, :lang, :attempt, :uid, :eta,
          :stime, :author, :now)
     ON CONFLICT (stepik_submission_id) DO UPDATE SET
+        course_id = EXCLUDED.course_id,
+        stepik_step_id = EXCLUDED.stepik_step_id,
         status = EXCLUDED.status,
         score = EXCLUDED.score,
         language = EXCLUDED.language,
         attempt_id = EXCLUDED.attempt_id,
         user_id = EXCLUDED.user_id,
         eta = EXCLUDED.eta,
+        submission_time = EXCLUDED.submission_time,
         is_author = EXCLUDED.is_author
 """)
 
@@ -160,6 +163,11 @@ async def transform_submissions(session: AsyncSession):
         # int()/float() без защиты: одна мусорная запись (не-числовой user,
         # score или eta из API) поднимала ValueError и убивала весь этап
         sub_user_int = _to_int(sub_user)
+        # Attempt — основной источник автора (в /submissions?step= поле user
+        # всегда None), но если попытка ещё не догружена/удалена, не теряем
+        # автора из самого объекта submission.
+        if uid is None:
+            uid = sub_user_int
         owner_uid = course_author.get(int(step_cid), fallback_author) if step_cid is not None else fallback_author
         is_author = bool(owner_uid) and (
             (sub_user_int is not None and sub_user_int == owner_uid)

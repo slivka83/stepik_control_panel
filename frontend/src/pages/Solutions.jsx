@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTabState } from '../hooks/useTabState';
 import { useTabSorts } from '../hooks/useTabSorts';
+import { useAuth } from '../contexts/AuthContext';
 import { useSync } from '../contexts/SyncContext';
 import KpiCard from '../components/KpiCard';
 import ErrorBanner from '../components/ErrorBanner';
@@ -23,6 +24,7 @@ import {
 const TAB_KEYS = TABS.map((t) => t.key);
 
 export default function Solutions() {
+  const { loading: authLoading } = useAuth();
   const { data, error, refresh, selectedCourseIds, syncStatus } = useSync();
   const [activeTab, handleTabChange] = useTabState('months', TAB_KEYS);
   const { sorts, onSort } = useTabSorts(TAB_COLUMNS, SORT_INIT);
@@ -34,7 +36,7 @@ export default function Solutions() {
   const [hardestError, setHardestError] = useState(null);
 
   useEffect(() => {
-    if (activeTab !== 'hardest') return undefined;
+    if (activeTab !== 'hardest' || authLoading) return undefined;
     let cancelled = false;
     // Не показываем строки прошлого фильтра/синка под новым заголовком.
     setHardestSteps([]);
@@ -56,7 +58,7 @@ export default function Solutions() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, selectedCourseIds, syncStatus.last_sync]);
+  }, [activeTab, selectedCourseIds, syncStatus.last_sync, authLoading]);
 
   const submissions = data.submissions || {};
   const months = submissions.months || [];

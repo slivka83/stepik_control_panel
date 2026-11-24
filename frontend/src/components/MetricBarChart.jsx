@@ -20,7 +20,12 @@ function ratingTick(value) {
 
 function fmtValue(value, format) {
   if (format === 'money') return `${(value ?? 0).toLocaleString('ru-RU')} ₽`;
-  if (format === 'rating') return (value ?? 0).toFixed(2);
+  if (format === 'rating') {
+    return (value ?? 0).toLocaleString('ru-RU', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
   return (value ?? 0).toLocaleString('ru-RU');
 }
 
@@ -45,14 +50,18 @@ export default function MetricBarChart({ rows = [], xKey = 'month', metric, metr
 
   const format = cfg.format || 'count';
   const bars = cfg.bars || [];
+  const stacked = cfg.stacked !== false;
   const yTick = Y_TICKS[format] || countTick;
+  // Monthly charts keep the same 18-month horizon as the dashboard charts;
+  // 30-day ("day") charts are already bounded by the page.
+  const chartRows = xKey === 'month' && rows.length > 18 ? rows.slice(-18) : rows;
 
   const handleBarEnter = (key, cx, cy) => {
     setActiveKey(key);
     setTooltipPos({ x: cx, y: cy });
   };
 
-  const activeEntry = activeKey != null ? rows.find((r) => r[xKey] === activeKey) : null;
+  const activeEntry = activeKey != null ? chartRows.find((r) => r[xKey] === activeKey) : null;
 
   const shapeProps = {
     activeKey,
@@ -68,11 +77,11 @@ export default function MetricBarChart({ rows = [], xKey = 'month', metric, metr
       className="glass-panel p-4 flex flex-col flex-1 min-h-0"
     >
       <figcaption className="sr-only">
-        {cfg.label || ''} за {rows.length} периодов
+        {cfg.label || ''} за {chartRows.length} периодов
       </figcaption>
       <div className="flex-1 min-h-0">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={rows} margin={{ top: 15, right: 10, left: 0, bottom: 0 }}>
+          <BarChart data={chartRows} margin={{ top: 15, right: 10, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={CHART_COLORS.gridLine} />
             <XAxis
               dataKey={xKey}
@@ -95,11 +104,11 @@ export default function MetricBarChart({ rows = [], xKey = 'month', metric, metr
               <Bar
                 key={bar.dataKey}
                 dataKey={bar.dataKey}
-                stackId="a"
-                radius={i === bars.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                stackId={stacked ? 'a' : undefined}
+                radius={stacked && i === bars.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                 shape={(props) => <ChartBarShape {...shapeProps} {...props} />}
               >
-                {rows.map((entry) => (
+                {chartRows.map((entry) => (
                   <Cell key={`${bar.dataKey}-${entry[xKey]}`} fill={bar.color} fillOpacity={bar.fillOpacity} />
                 ))}
               </Bar>

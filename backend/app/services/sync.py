@@ -3,6 +3,7 @@ import logging
 import threading
 import time
 from contextvars import ContextVar
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -11,7 +12,8 @@ import app.database as _db
 from app.config import get_settings
 from app.models import User
 from app.services import raw_sync, transform
-from app.services.crypto import decrypt_token
+from app.services.crypto import decrypt_token, encrypt_token
+from app.services.stepik_api import refresh_access_token
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +117,9 @@ async def ensure_state_loaded():
     _state_loaded = True
 
 
+TOKEN_REFRESH_BEFORE_SECONDS = 300
+
+
 async def _get_user_token(user_id=None) -> str | None:
     async with _session_factory()() as session:
         if user_id:
@@ -125,7 +130,46 @@ async def _get_user_token(user_id=None) -> str | None:
         if not users:
             logger.warning("No user found")
             return None
-        return decrypt_token(users[0].access_token)
+        user = users[0]
+        settings = get_settings()
+
+        expires_at = user.token_expires_at
+        if expires_at is not None:
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if expires_at <= datetime.now(UTC) + timedelta(seconds=TOKEN_REFRESH_BEFORE_SECONDS):
+                # The periodic job may have missed the window (or the token
+                # expired during a long sync); refresh immediately instead of
+                # failing the very first request with 401.
+                try:
+                    old_refresh = decrypt_token(user.refresh_token)
+                    token_data = await refresh_access_token(
+                        refresh_token=old_refresh,
+                        client_id=settings.stepik_client_id,
+                        client_secret=settings.stepik_client_secret,
+                    )
+                    new_access = token_data.get("access_token")
+                    if not new_access:
+                        raise RuntimeError("refresh response has no access_token")
+                    new_refresh = token_data.get("refresh_token") or old_refresh
+                    try:
+                        expires_in = int(token_data.get("expires_in") or 3600)
+                    except (TypeError, ValueError):
+                        expires_in = 3600
+                    user.access_token = encrypt_token(new_access)
+                    user.refresh_token = encrypt_token(new_refresh)
+                    user.token_expires_at = datetime.now(UTC) + timedelta(seconds=expires_in)
+                    await session.commit()
+                    logger.info("Token refreshed before sync for user %s", user.stepik_id)
+                    return new_access
+                except Exception as e:
+                    logger.warning("Could not refresh token before sync: %s", e)
+                    if expires_at <= datetime.now(UTC):
+                        raise RuntimeError(
+                            "Токен Stepik истёк, обновить его не удалось — войдите заново"
+                        ) from e
+
+        return decrypt_token(user.access_token)
 
 
 def _pending_active() -> bool:

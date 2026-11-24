@@ -17,9 +17,17 @@ async def sync_financials(session: AsyncSession):
     logger.info("=== Raw: financials ===")
 
     settings = get_settings()
-    token = await _hub().get_finance_token(
-        settings.stepik_finance_client_id, settings.stepik_finance_client_secret
-    )
+    try:
+        token = await _hub().get_finance_token(
+            settings.stepik_finance_client_id, settings.stepik_finance_client_secret
+        )
+    except StepikAPIError as e:
+        # Нет доступа к финансовому API (не заполнены/отозваны креды) — это не
+        # повод валить весь sync: курсы, решения и сообщество должны обновиться.
+        if e.status_code in (400, 401, 403):
+            logger.warning("  finance token rejected (%s) — skipping financials", e.status_code)
+            return
+        raise
     if not token:
         logger.warning("  no finance token, skipping")
         return

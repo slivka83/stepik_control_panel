@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTabState } from '../hooks/useTabState';
 import { useTabSorts } from '../hooks/useTabSorts';
 import { useSync } from '../contexts/SyncContext';
@@ -33,8 +33,13 @@ export default function Financials() {
 
   const { summary, months, years, courses, promos, utms, recent_payments } = financials || {};
   // Ключ дня в зависимостях: после полуночи 30-дневное окно «По дням»
-  // должно пересчитаться, даже если платежи не менялись.
-  const todayKey = new Date().toDateString();
+  // должно пересчитаться, даже если платежи не менялись и вкладка открыта
+  // сутками (следим за календарным днём, а не только за рендером).
+  const [todayKey, setTodayKey] = useState(() => new Date().toDateString());
+  useEffect(() => {
+    const timer = setInterval(() => setTodayKey(new Date().toDateString()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
   const dailyRows = useMemo(() => buildDailyStats(recent_payments), [recent_payments, todayKey]);
   // Таблица показывает новые дни сверху, а график — хронологически слева направо.
   const dailyChartRows = useMemo(() => [...dailyRows].reverse(), [dailyRows]);

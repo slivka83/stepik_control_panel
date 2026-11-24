@@ -62,7 +62,11 @@ async def get_user_token() -> str | None:
     """Get decrypted user token from DB."""
     engine = create_async_engine(settings.database_url)
     async with engine.begin() as conn:
-        r = await conn.execute(text("SELECT access_token FROM users ORDER BY created_at DESC LIMIT 1"))
+        # First created user is the panel owner (same rule as sync/raw_sync):
+        # in a database with a rejected second login the newest token is wrong.
+        r = await conn.execute(
+            text("SELECT access_token FROM users ORDER BY created_at ASC, id ASC LIMIT 1")
+        )
         row = r.fetchone()
     await engine.dispose()
     if row:

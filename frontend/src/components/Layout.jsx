@@ -27,12 +27,13 @@ function formatDateTime(iso) {
 }
 
 function Sidebar() {
-  const { user, loading, login, logout } = useAuth();
+  const { user, loading, authError, login, logout } = useAuth();
   const { syncStatus, updateSyncStatus, data, isFilterActive, selectedCourseIds, refresh } =
     useSync();
   const [syncing, setSyncing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [syncError, setSyncError] = useState(null);
+  const [cooldownLeft, setCooldownLeft] = useState(0);
   const [filterOpen, setFilterOpen] = useState(false);
   const filterBtnRef = useRef(null);
   const startRef = useRef(null);
@@ -52,8 +53,15 @@ function Sidebar() {
     return () => clearInterval(t);
   }, [isSyncing]);
 
+  useEffect(() => {
+    if (cooldownLeft <= 0) return undefined;
+    const t = setInterval(() => setCooldownLeft((s) => Math.max(0, s - 1)), 1000);
+    return () => clearInterval(t);
+  }, [cooldownLeft]);
+
   const buildSyncTooltip = () => {
     if (lastError) return `Синхронизация не удалась:\n${lastError}`;
+    if (cooldownLeft > 0) return `Синхронизация будет доступна через ${cooldownLeft} с`;
     if (!isSyncing) {
       if (syncStatus.last_sync) return `Обновить\nПоследняя синхронизация: ${formatDateTime(syncStatus.last_sync)}`;
       return 'Обновить';
@@ -74,8 +82,12 @@ function Sidebar() {
     setSyncError(null);
     try {
       const { data: trigger } = await api.post('/sync');
-      if (trigger.status === 'cooldown' || trigger.status === 'already_in_progress') {
-        await new Promise((r) => setTimeout(r, 500));
+      if (trigger.status === 'cooldown') {
+        setCooldownLeft(trigger.cooldown_remaining_seconds || 60);
+        setSyncing(false);
+        return;
+      }
+      if (trigger.status === 'already_in_progress') {
         setSyncing(false);
         return;
       }
@@ -175,7 +187,7 @@ function Sidebar() {
               onClick={handleSync}
               title={buildSyncTooltip()}
               className="relative w-10 h-10 flex items-center justify-center border border-cyber-blue/30 rounded-lg overflow-hidden text-lg group"
-              disabled={isSyncing}
+              disabled={isSyncing || cooldownLeft > 0}
             >
               {isSyncing && (
                 <span
@@ -214,6 +226,16 @@ function Sidebar() {
   );
 }
 
+function AuthErrorBanner() {
+  const { user, authError } = useAuth();
+  if (user || !authError) return null;
+  return (
+    <div className="mb-3 px-4 py-3 rounded-lg bg-crimson-alert/10 border border-crimson-alert/30 text-crimson-alert text-sm">
+      {authError}
+    </div>
+  );
+}
+
 export default function Layout({ children }) {
   return (
     <div className="h-screen overflow-hidden bg-space-black">
@@ -223,6 +245,7 @@ export default function Layout({ children }) {
         aria-label="Основной контент"
         className="ml-16 h-full min-h-0 overflow-y-auto p-4 flex flex-col"
       >
+        <AuthErrorBanner />
         {children}
       </main>
     </div>

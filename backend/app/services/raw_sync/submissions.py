@@ -79,6 +79,17 @@ async def _sync_step_submissions(
                 raise
             objects = data.get("submissions", [])
             if not objects:
+                if page > 1 and last_page > 0:
+                    # Список сократился (удалённые решения): сохранённой
+                    # страницы больше нет. Идём назад, чтобы не пропустить
+                    # новые записи, которые заполняют хвост предыдущей.
+                    logger.info("  step %d: page %d empty — rewinding cursor", sid, page)
+                    last_page = 0
+                    page -= 1
+                    continue
+                if page == 1 and last_page > 0:
+                    await _save_sync_state(session, STATE_ENDPOINT, _page_state_key("step", sid), "0")
+                    await session.commit()
                 break
             # API не возвращает step в объекте submission — шаг известен
             # только из контекста запроса ?step=; пишем его в колонку step
@@ -92,6 +103,10 @@ async def _sync_step_submissions(
             total += len(objects)
 
             await _save_sync_state(session, STATE_ENDPOINT, _page_state_key("step", sid), str(page))
+            # Документированный принцип «пишем по мере поступления»: страница
+            # и её курсор коммитятся вместе. Иначе падение в конце шага
+            # откатывало часы загрузки (до 5000 страниц).
+            await session.commit()
 
             if not data.get("meta", {}).get("has_next"):
                 break
@@ -104,7 +119,6 @@ async def _sync_step_submissions(
 
         if step_new > 0:
             logger.info("  step %d: +%d (page %d+)", sid, step_new, last_page if last_page > 0 else 1)
-            await session.commit()
 
     if skipped_steps:
         logger.warning("  skipped %d steps (404/теория): %s", len(skipped_steps), skipped_steps[:10])
@@ -139,20 +153,28 @@ async def _sync_author_submissions(
                 raise
             objects = data.get("submissions", [])
             if not objects:
+                if page > 1 and last_page > 0:
+                    logger.info("    course %d: page %d empty — rewinding cursor", cid, page)
+                    last_page = 0
+                    page -= 1
+                    continue
+                if page == 1 and last_page > 0:
+                    await _save_sync_state(session, STATE_ENDPOINT, _page_state_key("course", cid), "0")
+                    await session.commit()
                 break
             await _hub()._upsert_raw_table(session, "raw_submission", objects, mapping_subs)
             course_new += len(objects)
             author_total += len(objects)
 
             await _save_sync_state(session, STATE_ENDPOINT, _page_state_key("course", cid), str(page))
-
+            # Страница и курсор — одной транзакцией (см. step-pass).
+            await session.commit()
             if not data.get("meta", {}).get("has_next"):
                 break
             page += 1
         if course_new > 0:
             start_page = last_page if last_page > 0 else 1
             logger.info("    course %d: +%d author subs (page %d+)", cid, course_new, start_page)
-            await session.commit()
     if skipped_courses:
         logger.warning("  skipped %d courses (404): %s", len(skipped_courses), skipped_courses[:10])
     logger.info("  raw_submission: +%d rows (author pass, incremental)", author_total)

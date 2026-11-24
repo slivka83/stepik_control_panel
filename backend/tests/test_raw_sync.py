@@ -550,6 +550,57 @@ class TestSyncSubmissions:
         assert await _count_rows(db_session, "raw_submission") == 2
 
     @pytest.mark.asyncio
+    async def test_step_pass_rewinds_when_cursor_page_disappeared(self, db_session):
+        """Regression: список решений сократился, сохранённой страницы больше
+        нет — синк начинал с неё, получал пусто и больше никогда не видел
+        новые решения в хвосте предыдущей страницы."""
+        from app.services.raw_sync import sync_submissions
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('submissions', 'id', 'submission_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}')")
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_sync_state (endpoint_name, key, value)
+            VALUES ('submissions', 'step_500', '2')
+        """)
+        )
+        await db_session.commit()
+
+        requested_pages: list[int] = []
+
+        def request_side_effect(method, path, token, params=None):
+            if "submissions" in path and "step" in str(params):
+                page = int(params.get("page", 1))
+                requested_pages.append(page)
+                objects = [{"id": 100, "status": "correct", "attempt": 10}] if page == 1 else []
+                return {"submissions": objects, "meta": {"has_next": False}}
+            if "attempts" in path:
+                return {"attempts": [], "meta": {"has_next": False}}
+            return {"submissions": [], "meta": {"has_next": False}}
+
+        with patch("app.services.raw_sync._request", side_effect=request_side_effect):
+            await sync_submissions(db_session, "fake_token")
+
+        assert requested_pages == [2, 1], requested_pages
+        assert await _count_rows(db_session, "raw_submission") == 1
+        state = await db_session.scalar(
+            text(
+                "SELECT value FROM raw_sync_state "
+                "WHERE endpoint_name='submissions' AND key='step_500'"
+            )
+        )
+        assert state == "1"
+
+    @pytest.mark.asyncio
     async def test_attempts_incremental_fetches_only_new_ids(self, db_session):
         """Regression: попытки должны докачиваться только по новым ID, а не
         перекачиваться целиком при каждом синке (было 36401 попыток каждый раз).
@@ -740,6 +791,19 @@ class TestSyncFinancials:
         from app.services.raw_sync import sync_financials
 
         with patch("app.services.raw_sync.get_finance_token", return_value=None):
+            await sync_financials(db_session)
+
+    @pytest.mark.asyncio
+    async def test_rejected_finance_credentials_do_not_kill_sync(self, db_session):
+        """Regression: отсутствие доступа к финансовому API валило весь sync,
+        хотя курсы/решения/сообщество могли обновиться."""
+        from app.services.raw_sync import sync_financials
+        from app.services.stepik_api import StepikAPIError
+
+        with patch(
+            "app.services.raw_sync.get_finance_token",
+            side_effect=StepikAPIError(401, "unauthorized"),
+        ):
             await sync_financials(db_session)
 
 
@@ -1083,6 +1147,127 @@ class TestSyncCommentsIncremental:
         assert await _count_rows(db_session, "raw_comment") == 3, "комментарии одной секунды потерялись"
         r = await db_session.execute(text("SELECT _raw_json FROM raw_comment WHERE comment_id = '1'"))
         assert json.loads(r.scalar())["vote_delta"] == 5, "правка комментария не обновилась"
+
+    @pytest.mark.asyncio
+    async def test_page_cap_is_resumed_on_next_sync(self, db_session):
+        """Regression: курс с >лимита комментариев каждый раз начинал с page 1
+        и никогда не догружал историю. Теперь сохраняется backfill-страница."""
+        from app.services.raw_sync import sync_community
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('comments', 'id', 'comment_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_course (course_id, review_summary_json, _raw_json) VALUES (101, NULL, '{}')")
+        )
+        await db_session.commit()
+
+        def comment(cid):
+            return {
+                "id": cid,
+                "user": 7,
+                "target": 500,
+                "time": f"2026-07-{cid:02d}T10:00:00Z",
+                "thread": "",
+            }
+
+        pages = [[comment(1), comment(2)], [comment(3)], [comment(4)]]
+        requested: list[int] = []
+        with patch(
+            "app.services.raw_sync.community.COMMENTS_MAX_PAGES", 2
+        ), patch("app.services.raw_sync._request", side_effect=self._handler(pages, requested)):
+            await sync_community(db_session, "fake_token")
+
+        assert await _count_rows(db_session, "raw_comment") == 3
+        state = await db_session.scalar(
+            text(
+                "SELECT value FROM raw_sync_state "
+                "WHERE endpoint_name='comments' AND key='backfill_page_course_101'"
+            )
+        )
+        assert state == "3"
+
+        requested.clear()
+        with patch(
+            "app.services.raw_sync.community.COMMENTS_MAX_PAGES", 2
+        ), patch("app.services.raw_sync._request", side_effect=self._handler(pages, requested)):
+            await sync_community(db_session, "fake_token")
+
+        assert requested == [1, 3], requested
+        assert await _count_rows(db_session, "raw_comment") == 4
+        state = await db_session.scalar(
+            text(
+                "SELECT value FROM raw_sync_state "
+                "WHERE endpoint_name='comments' AND key='backfill_page_course_101'"
+            )
+        )
+        assert state is None
+
+    @pytest.mark.asyncio
+    async def test_refreshes_latest_page_edits_older_than_cursor(self, db_session):
+        """Regression: правка/ответ на комментарий старше курсора не доезжали —
+        инкремент останавливался на первом старом комментарии. Первая страница
+        теперь перезаписывается целиком."""
+        from app.services.raw_sync import sync_community
+
+        _make_user(db_session)
+        await db_session.execute(
+            text("""
+            INSERT INTO meta_field_mapping
+                (endpoint_name, api_field, db_column, db_type, is_loaded)
+            VALUES ('comments', 'id', 'comment_id', 'bigint', TRUE)
+        """)
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_course (course_id, review_summary_json, _raw_json) VALUES (101, NULL, '{}')")
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_comment (comment_id, "user", target, "time", thread, _raw_json)
+            VALUES ('1', '7', '500', '2026-07-15T10:00:00Z', '', :j)
+        """),
+            {
+                "j": json.dumps(
+                    {
+                        "id": 1,
+                        "user": 7,
+                        "target": 500,
+                        "time": "2026-07-15T10:00:00Z",
+                        "thread": "",
+                        "vote_delta": 0,
+                    }
+                )
+            },
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_sync_state (endpoint_name, key, value)
+            VALUES ('comments', 'last_time_course_101', '2026-07-15T10:00:00Z')
+        """)
+        )
+        await db_session.commit()
+
+        edited = {
+            "id": 1,
+            "user": 7,
+            "target": 500,
+            "time": "2026-07-15T10:00:00Z",
+            "thread": "",
+            "vote_delta": 5,
+        }
+        pages = [[edited]]
+        requested_pages: list[int] = []
+        with patch("app.services.raw_sync._request", side_effect=self._handler(pages, requested_pages)):
+            await sync_community(db_session, "fake_token")
+
+        r = await db_session.execute(text("SELECT _raw_json FROM raw_comment WHERE comment_id = '1'"))
+        assert json.loads(r.scalar())["vote_delta"] == 5, "правка первой страницы не применилась"
+        assert requested_pages == [1]
 
     @pytest.mark.asyncio
     async def test_fractional_and_timezone_times_compare_as_instants(self, db_session):
@@ -1514,6 +1699,46 @@ class TestSyncUsers:
             await raw_sync.sync_users(db_session, "token")
 
         assert fetched_ids == ["7"]
+
+    async def test_includes_numeric_comment_authors(self, db_session):
+        """Regression: имена авторов комментариев не подтягивались, потому что
+        raw_comment."user" не входил в источники ID (в списках было «—»)."""
+        import uuid as _uuid
+
+        from app.models import Course, StudentEnrollment
+
+        user = _make_user(db_session)
+        course = Course(id=_uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="Python", status="Published")
+        db_session.add(course)
+        await db_session.flush()
+        db_session.add(
+            StudentEnrollment(
+                id=_uuid.uuid4(),
+                course_id=course.id,
+                student_id=7,
+                last_viewed_at=datetime.now(UTC).replace(tzinfo=None),
+            )
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_comment (comment_id, "user", _raw_json) VALUES
+                ('1', '8', '{"id": 1, "user": 8}'),
+                ('2', 'stepik_panel', '{"id": 2, "user": "stepik_panel"}')
+            """)
+        )
+        await self._seed_user_mapping(db_session)
+        await db_session.commit()
+
+        fetched_ids = []
+
+        async def fake_fetch(path, token, key, extra=None):
+            fetched_ids.extend(extra.get("ids[]", []))
+            return []
+
+        with patch("app.services.raw_sync._paginated_fetch", side_effect=fake_fetch):
+            await raw_sync.sync_users(db_session, "token")
+
+        assert sorted(fetched_ids, key=int) == ["7", "8"]
 
     async def test_failed_batch_keeps_previous_profile(self, db_session):
         """Regression: один упавший батч /users обрывал синк и стирал имена."""

@@ -174,11 +174,30 @@ async def transform_steps(session: AsyncSession):
 
     # mart_steps = объединение шагов из raw_lesson.steps (структура) и всех
     # строк raw_step (метрики/kpi), атрибуция пути через unit→section→course.
+    #
+    # Один шаг может встречаться в нескольких уроках (и даже курсах). У
+    # витрины один путь на шаг, поэтому первый найденный маршрут — источник
+    # истины. Обход идёт в том же порядке, что и build_step_course_map
+    # (курс → номер урока → lesson id), иначе структура и решения/комментарии
+    # приписывали общий шаг разным курсам.
+    def _lesson_order(lesson_id: int) -> tuple[int, int, int, int]:
+        attr = lesson_attr.get(lesson_id)
+        if attr is None:
+            return (1, 0, 0, lesson_id)
+        course = attr["course"]
+        # Сначала курсы, которые есть в витрине курсов; уроки «чужого»
+        # курса не должны забирать шаг у отображаемого курса.
+        known_course = 0 if course in course_map else 1
+        return (known_course, course, attr["lesson_number"] or 0, lesson_id)
+
     step_rows: dict[int, dict] = {}
-    for lesson_id, li in sorted(lesson_info.items()):
+    for lesson_id in sorted(lesson_info, key=_lesson_order):
+        li = lesson_info[lesson_id]
         attr = lesson_attr.get(lesson_id)
         for step_id, step_number in sorted(li["step_positions"].items()):
             row = step_rows.setdefault(step_id, {"step_id": step_id})
+            if "lesson_id" in row:
+                continue
             row["lesson_id"] = lesson_id
             row["step_number"] = step_number
             row["lesson_title"] = li["title"]
@@ -191,7 +210,8 @@ async def transform_steps(session: AsyncSession):
                     row["course_id"] = course_uuid
                     row["stepik_course_id"] = attr["course"]
     for step_id, lesson_id in sorted(raw_step_lesson.items()):
-        if step_id in step_rows and "lesson_id" in step_rows[step_id]:
+        if step_id in step_rows:
+            # Структура уже задала путь; raw_step.lesson — только fallback.
             continue
         row = step_rows.setdefault(step_id, {"step_id": step_id})
         row["lesson_id"] = lesson_id

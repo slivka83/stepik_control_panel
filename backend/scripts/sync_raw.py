@@ -12,6 +12,7 @@ import asyncio
 import json
 import re
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -22,9 +23,21 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from app.config import get_settings
 from app.services.crypto import decrypt_token
 from app.services.raw_sync.common import _NATURAL_KEYS
-from app.services.stepik_api import StepikAPIError, _request, get_finance_token
+from app.services.stepik_api import StepikAPIError, _request, get_finance_token, get_user_profile
 
 settings = get_settings()
+
+
+def _parse_time(value) -> datetime | None:
+    """ISO-время Stepik → aware datetime (сравнение строк даёт ложный порядок)."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
 
 IDS_SOURCE_MAP = {
     "sections": ("raw_course", "section_ids"),
@@ -82,7 +95,8 @@ async def resolve_ids(engine, endpoint_name: str) -> list[str]:
                 "SELECT DISTINCT user_id FROM submissions WHERE user_id IS NOT NULL",
                 "SELECT DISTINCT user_id FROM raw_course_grade WHERE user_id IS NOT NULL",
                 "SELECT DISTINCT user_id FROM raw_certificate WHERE user_id IS NOT NULL",
-                "SELECT DISTINCT user FROM raw_course_review WHERE user IS NOT NULL",
+                'SELECT DISTINCT "user" FROM raw_course_review WHERE "user" IS NOT NULL',
+                'SELECT DISTINCT "user" FROM raw_comment WHERE "user" IS NOT NULL',
             ],
         }
         seen = set()
@@ -151,20 +165,23 @@ async def sync_full_reload(
     raw_table: str,
     api_path: str,
 ):
-    """TRUNCATE + full paginated reload. Determines query mode from api_path."""
+    """Full paginated reload (DELETE + INSERT). Determines query mode from api_path."""
     clean = clean_path(api_path)
     ep_name = endpoint["endpoint_name"]
 
-    # Determine query mode from api_path in meta_endpoint
+    # Determine query mode from api_path in meta_endpoint. `/courses` seeded
+    # without `?teacher=` would otherwise take the bare branch and replace the
+    # table with the global Stepik catalogue (first ~400 courses), wiping the
+    # author's raw data.
     mode = None  # "ids", "course", "step", "teacher", None (bare)
-    if "?ids[]=" in api_path:
+    if ep_name == "courses" or "?teacher=" in api_path:
+        mode = "teacher"
+    elif "?ids[]=" in api_path:
         mode = "ids"
     elif "?course=" in api_path:
         mode = "course"
     elif "?step=" in api_path:
         mode = "step"
-    elif "?teacher=" in api_path:
-        mode = "teacher"
 
     if mode == "ids":
         ids = await resolve_ids(engine, ep_name)
@@ -273,7 +290,15 @@ async def sync_full_reload(
     if mode == "teacher":
         teacher_id = get_settings().stepik_user_id
         if not teacher_id:
-            print("  SKIP: STEPIK_USER_ID not set")
+            # Fresh install / STEPIK_USER_ID=0: владельца даёт токен
+            # (/stepics/1). ?teacher=0 вернул бы пустой список и затёр курсы.
+            profile = await get_user_profile(token)
+            try:
+                teacher_id = int(profile.get("user")) if isinstance(profile, dict) else 0
+            except (TypeError, ValueError):
+                teacher_id = 0
+        if not teacher_id:
+            print("  SKIP: cannot resolve course author (STEPIK_USER_ID/token)")
             return
         all_objects = []
         page = 1
@@ -325,7 +350,7 @@ async def sync_full_reload(
 
 
 async def _replace_table(engine, raw_table: str, objects: list[dict]):
-    """TRUNCATE + INSERT all objects (an empty answer clears the table)."""
+    """DELETE + INSERT all objects (an empty answer clears the table)."""
     if not objects:
         async with engine.begin() as conn:
             await conn.execute(text(f'DELETE FROM "{raw_table}"'))
@@ -376,8 +401,10 @@ async def _replace_table(engine, raw_table: str, objects: list[dict]):
         cols_str = ", ".join(f'"{c}"' for c in col_names)
         insert_sql = f'INSERT INTO "{raw_table}" ({cols_str}) VALUES ({placeholders})'
 
-        # TRUNCATE
-        await conn.execute(text(f'TRUNCATE TABLE "{raw_table}" RESTART IDENTITY CASCADE'))
+        # DELETE, как в app raw_sync: TRUNCATE ... CASCADE мог утащить
+        # зависимые raw-таблицы, а внутри транзакции его нельзя безопасно
+        # откатить в fallback.
+        await conn.execute(text(f'DELETE FROM "{raw_table}"'))
 
         for obj in objects:
             raw_json = json.dumps(obj, ensure_ascii=False)
@@ -543,9 +570,11 @@ async def sync_incremental_time(engine, token, endpoint: dict, raw_table: str, a
     total_new = 0
     for cid in course_ids:
         last_time = last_times.get(f"last_time_course_{cid}", "")
+        last_dt = _parse_time(last_time)
         course_new = 0
         page = 1
         max_time_str = last_time
+        max_dt = last_dt
         reached_boundary = False
 
         while page <= 500:
@@ -568,11 +597,17 @@ async def sync_incremental_time(engine, token, endpoint: dict, raw_table: str, a
                 t = obj.get("time", "") or ""
                 if not isinstance(t, str):
                     continue
-                if last_time and t < last_time:
+                t_dt = _parse_time(t)
+                is_old = (t_dt < last_dt) if (t_dt is not None and last_dt is not None) else bool(
+                    last_time and t < last_time
+                )
+                if is_old:
                     reached_boundary = True
-                if not last_time or t >= last_time:
+                if not is_old:
                     new_objects.append(obj)
-                    if t > max_time_str:
+                    newer = (t_dt > max_dt) if (t_dt is not None and max_dt is not None) else t > max_time_str
+                    if newer:
+                        max_dt = t_dt
                         max_time_str = t
 
             if new_objects:

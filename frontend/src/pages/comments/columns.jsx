@@ -25,6 +25,9 @@ export const CHART_METRICS = {
   likes_dislikes: {
     label: 'Лайки / Дизлайки',
     format: 'count',
+    // Лайки и дизлайки — независимые оценки, а не части одного целого:
+    // stacked-столбик показывал бы их сумму и делал высоту несравнимой.
+    stacked: false,
     bars: [
       { dataKey: 'likes', color: '#4ade80' },
       { dataKey: 'dislikes', color: '#f43f5e' },

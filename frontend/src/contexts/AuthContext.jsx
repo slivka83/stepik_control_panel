@@ -2,7 +2,14 @@ import { createContext, useContext, useState, useEffect } from 'react';
 import { setHasSession } from '../session';
 import { apiUrl } from '../config';
 
-const AuthContext = createContext(null);
+const noop = () => {};
+const AuthContext = createContext({
+  user: null,
+  loading: false,
+  authError: null,
+  login: noop,
+  logout: noop,
+});
 
 // Backend/database may still be booting when the tab opens right after start.
 // A network error or 5xx must not be mistaken for "logged out": retry quietly.
@@ -19,6 +26,7 @@ async function parseJsonResponse(res) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [authError, setAuthError] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -33,12 +41,28 @@ export function AuthProvider({ children }) {
           const profile = await parseJsonResponse(res);
           if (cancelled) return;
           setHasSession(true);
+          setAuthError(null);
           setUser(profile);
           setLoading(false);
           return;
         }
-        if (res.status === 401 || res.status === 403) {
+        if (res.status === 403) {
+          // Wrong Stepik account: keep the backend detail so the user is not
+          // silently returned to the login button in an endless loop.
+          let detail = 'Этот аккаунт Stepik не является владельцем панели';
+          try {
+            const body = await res.json();
+            if (body?.detail) detail = body.detail;
+          } catch {
+            // non-JSON body — keep generic message
+          }
+          if (cancelled) return;
           setHasSession(false);
+          setAuthError(detail);
+          loggedOut = true;
+        } else if (res.status === 401) {
+          setHasSession(false);
+          setAuthError(null);
           loggedOut = true;
         }
       } catch {
@@ -69,6 +93,7 @@ export function AuthProvider({ children }) {
     // Сначала выходим в интерфейсе: сеть/бэкенд могут тормозить.
     setUser(null);
     setHasSession(false);
+    setAuthError(null);
     try {
       await fetch(apiUrl('/auth/logout'), { method: 'POST', credentials: 'include' });
     } catch {
@@ -76,7 +101,11 @@ export function AuthProvider({ children }) {
     }
   };
 
-  return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={{ user, loading, authError, login, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

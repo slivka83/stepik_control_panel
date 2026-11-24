@@ -18,7 +18,10 @@ async def transform_enrollments(session: AsyncSession):
     course_map = await load_course_map(session)
 
     if not course_map:
-        logger.warning("  no courses, skipping")
+        # Курсов нет — зачислений быть не может. Явная очистка защищает от
+        # «фантомных» студентов, если transform вызван без transform_courses.
+        logger.warning("  no courses — clearing student_enrollments")
+        await session.execute(text("DELETE FROM student_enrollments"))
         return
 
     for stepik_cid, course_uuid in course_map.items():

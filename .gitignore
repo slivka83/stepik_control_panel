@@ -48,3 +48,6 @@ docker-compose.override.yml
 .coverage
 htmlcov/
 coverage/
+
+# Local one-off investigation artifacts (payments exports, proofs)
+reports/

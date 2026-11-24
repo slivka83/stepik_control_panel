@@ -241,3 +241,80 @@ class TestStudentsFilteredCounters:
         assert row["comments_count"] == 1
         assert row["published_solutions"] == 1
         assert row["cohort_status"] == "Passive"
+
+    async def test_sorting_uses_filtered_counters(self, db_session):
+        """Regression: при фильтре сортировка шла по account-wide счётчикам,
+        а в ячейках показывались значения выбранного курса — порядок и
+        страницы противоречили цифрам."""
+        user = await _seed_user(db_session)
+        c1 = Course(
+            id=uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="A", status="Published"
+        )
+        db_session.add(c1)
+        db_session.add_all(
+            [
+                StudentMart(
+                    id=uuid.uuid4(),
+                    student_id=7,
+                    name="Account-wide leader",
+                    cohort_status="Active",
+                    submissions_count=99,
+                ),
+                StudentMart(
+                    id=uuid.uuid4(),
+                    student_id=8,
+                    name="Filtered leader",
+                    cohort_status="Active",
+                    submissions_count=0,
+                ),
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=c1.id,
+                    student_id=7,
+                    cohort_status="Active",
+                    last_viewed_at=datetime.now(UTC).replace(tzinfo=None),
+                ),
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=c1.id,
+                    student_id=8,
+                    cohort_status="Active",
+                    last_viewed_at=datetime.now(UTC).replace(tzinfo=None),
+                ),
+            ]
+        )
+        for i in range(1, 5):
+            db_session.add(
+                Submission(
+                    id=uuid.uuid4(),
+                    stepik_submission_id=100 + i,
+                    stepik_step_id=10,
+                    course_id=c1.id,
+                    status="correct",
+                    score=1.0,
+                    submission_time=datetime.now(UTC).replace(tzinfo=None),
+                    user_id=7 if i == 1 else 8,
+                    is_author=False,
+                )
+            )
+        await db_session.commit()
+
+        async def override_db():
+            yield db_session
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
+        try:
+            data = client.get(
+                f"/api/dashboard/students?course_ids={c1.id}"
+                "&sort=submissions_count&order=desc"
+            ).json()
+        finally:
+            app.dependency_overrides.clear()
+
+        assert [row["student_id"] for row in data["students"]] == [8, 7]
+        assert data["students"][0]["submissions_count"] == 3
+        assert data["students"][1]["submissions_count"] == 1

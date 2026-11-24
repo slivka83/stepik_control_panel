@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../api';
 import { useRowsPerPage, useSortState } from '../components/DataTable';
+import { useAuth } from '../contexts/AuthContext';
 import { useSync } from '../contexts/SyncContext';
 
 /**
@@ -27,18 +28,25 @@ export function useServerTable({
   resetPageOnSync = false,
 }) {
   const { selectedCourseIds, syncStatus } = useSync();
+  const { loading: authLoading } = useAuth();
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
+  // Start as loading so the empty-state row is not rendered for one tick and
+  // then replaced by the first response (detached-node flakiness in tests).
+  const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const { tableRef, rowsPerPage } = useRowsPerPage();
+  const { tableRef, rowsPerPage } = useRowsPerPage(rows.length);
   const { sort, onSort } = useSortState(columns, initialSort);
 
   const reqIdRef = useRef(0);
   const firstRenderRef = useRef(true);
   const prevLastSyncRef = useRef(undefined);
   const extraKey = JSON.stringify(extraParams ?? {});
+  // A direct link (?tab=unanswered) or /students can mount before /auth/me
+  // resolves. Fetching then returns 401 and leaves a permanent error banner;
+  // wait for the session check to finish (it retries network errors itself).
+  const active = enabled && !authLoading;
 
   const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
   const safePage = Math.min(page, totalPages);
@@ -46,6 +54,7 @@ export function useServerTable({
   const fetchPage = useCallback(async () => {
     const id = ++reqIdRef.current;
     setLoading(true);
+    setError(null);
     const filterParams = {};
     if (selectedCourseIds !== null) filterParams.course_ids = selectedCourseIds.join(',');
     try {
@@ -74,12 +83,22 @@ export function useServerTable({
   useEffect(() => {
     if (!enabled) {
       reqIdRef.current += 1;
-      setError(null);
       setLoading(false);
       return;
     }
+    // Keep the table in loading state while /auth/me is unresolved (instead
+    // of flashing the empty-state row and removing it a tick later).
+    if (authLoading) return;
     fetchPage();
-  }, [enabled, fetchPage]);
+  }, [enabled, authLoading, fetchPage]);
+
+  useEffect(() => {
+    // Previous tab/filter rows must not be shown under the new heading while
+    // the request is in flight (or if it fails).
+    setRows([]);
+    setTotal(0);
+    setError(null);
+  }, [resetKey, extraKey, selectedCourseIds]);
 
   useEffect(() => {
     if (firstRenderRef.current) {
@@ -93,12 +112,12 @@ export function useServerTable({
     const changed =
       prevLastSyncRef.current !== undefined && syncStatus.last_sync !== prevLastSyncRef.current;
     prevLastSyncRef.current = syncStatus.last_sync;
-    if (!enabled || !changed) return;
+    if (!active || !changed) return;
     // setPage(1) на уже первой странице — no-op, поэтому явно перезапрашиваем:
     // иначе список остаётся со старыми строками после синка.
     if (resetPageOnSync && page !== 1) setPage(1);
     else fetchPage();
-  }, [syncStatus.last_sync, enabled, resetPageOnSync, fetchPage, page]);
+  }, [syncStatus.last_sync, active, resetPageOnSync, fetchPage, page]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);

@@ -16,6 +16,7 @@ from app.services.transform.common import (
     is_published_solution,
     load_course_map,
 )
+from app.services.transform.courses import build_lesson_course_map
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +32,10 @@ async def transform_comments(session: AsyncSession):
 
     course_map = await load_course_map(session)
     if not course_map:
-        logger.warning("  no courses, skipping")
+        # Витрину всё равно надо очистить: старые комментарии удалённых
+        # курсов не должны оставаться в ней после удаления курса.
+        logger.warning("  no courses — clearing mart_comments")
+        await session.execute(text("DELETE FROM mart_comments"))
         return
 
     r = await session.execute(
@@ -53,6 +57,7 @@ async def transform_comments(session: AsyncSession):
             "module_title": row[7],
             "lesson_title": row[8],
         }
+    lesson_course = await build_lesson_course_map(session)
 
     user_names = await _get_buyer_names(session)
 
@@ -73,6 +78,33 @@ async def transform_comments(session: AsyncSession):
         except (TypeError, ValueError):
             sid = None
         attr = step_attr.get(sid) if sid is not None else None
+        if attr is None and sid is not None:
+            # target может быть id урока, а не шага (Stepik не отдаёт тип).
+            lesson_cid = lesson_course.get(sid)
+            lesson_uuid = course_map.get(lesson_cid) if lesson_cid is not None else None
+            if lesson_uuid is not None:
+                attr = {
+                    "course_uuid": lesson_uuid,
+                    "stepik_course_id": lesson_cid,
+                    "lesson_id": sid,
+                    "step_number": None,
+                    "module_number": None,
+                    "lesson_number": None,
+                    "module_title": None,
+                    "lesson_title": None,
+                }
+        if attr is None and sid is not None and sid in course_map:
+            # target — id самого курса (комментарий к курсу целиком).
+            attr = {
+                "course_uuid": course_map[sid],
+                "stepik_course_id": sid,
+                "lesson_id": None,
+                "step_number": None,
+                "module_number": None,
+                "lesson_number": None,
+                "module_title": None,
+                "lesson_title": None,
+            }
         if attr is None:
             # Шаг не атрибутирован (нет в структуре) — но сам комментарий
             # знает свой курс. Такая же атрибуция используется в

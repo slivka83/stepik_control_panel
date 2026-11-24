@@ -71,6 +71,10 @@ export function SyncProvider({ children }) {
   const retryTimerRef = useRef(null);
   const retryDelayRef = useRef(LOAD_RETRY_INITIAL_MS);
   const fetchAllRef = useRef(null);
+  // Last last_sync the context has already reacted to. Manual status updates
+  // (the sync button) move it forward too, so the next idle poll does not
+  // trigger a second full dashboard reload.
+  const lastKnownSyncRef = useRef(null);
 
   const fetchAll = useCallback(async (signal) => {
     clearTimeout(retryTimerRef.current);
@@ -92,10 +96,17 @@ export function SyncProvider({ children }) {
 
       setData((prev) => {
         const next = { ...prev };
+        const empty = courseIds === null ? null : emptyData();
         ENDPOINTS.forEach((ep, i) => {
           const result = results[i];
           if (result.status === 'fulfilled') {
             next[ep.key] = ep.select ? ep.select(result.value.data) : result.value.data;
+          } else if (empty && !ep.unfiltered) {
+            // При активном фильтре нельзя оставлять данные «всех курсов»
+            // рядом с уже отфильтрованными: лучше пустая панель + баннер.
+            // Список курсов (источник фильтра) не трогаем: иначе временный
+            // сбой /courses сбросил бы выбранный фильтр.
+            next[ep.key] = empty[ep.key];
           }
         });
         return next;
@@ -133,6 +144,7 @@ export function SyncProvider({ children }) {
 
   const updateSyncStatus = useCallback((status) => {
     const next = normalizeSyncStatus(status);
+    lastKnownSyncRef.current = next.last_sync;
     setSyncStatus((prev) => {
       const unchanged = Object.keys(next).every((key) => prev[key] === next[key]);
       return unchanged ? prev : next;
@@ -200,7 +212,6 @@ export function SyncProvider({ children }) {
     abortRef.current = controller;
     fetchAll(controller.signal);
 
-    let lastKnownSync = null;
     let firstPoll = true;
     let backendWasDown = false;
     let timer = null;
@@ -208,17 +219,19 @@ export function SyncProvider({ children }) {
       try {
         const { data: status } = await api.get('/sync/status', { signal: controller.signal });
         const recovered = backendWasDown;
+        const previousLastSync = lastKnownSyncRef.current;
         backendWasDown = false;
         updateSyncStatus(status);
         // Reload after a restart even when last_sync did not change: the tab
         // may have loaded its data before the backend was ready. The first
         // poll only records the baseline — otherwise an empty first-ever sync
         // (last_sync was null, then a timestamp) never triggered a reload.
-        if (recovered || (!firstPoll && status.last_sync !== lastKnownSync)) {
+        // Compare with the value from BEFORE updateSyncStatus: a manual sync
+        // already updated the ref, so its next poll no longer reloads twice.
+        if (recovered || (!firstPoll && status.last_sync !== previousLastSync)) {
           fetchAll(controller.signal);
         }
         firstPoll = false;
-        lastKnownSync = status.last_sync;
         timer = setTimeout(poll, status.in_progress ? SYNC_POLL_INTERVAL_MS : pollIntervalRef.current);
       } catch {
         if (controller.signal.aborted) return;

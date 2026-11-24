@@ -877,6 +877,15 @@ class TestFilterFinancialsInvariant:
         filtered = _sum_months(filter_financials(data, {101, 102})["months"])
         assert filtered == unfiltered
 
+    def test_free_course_price_stays_zero(self):
+        """Regression: 0 ₽ — валидная цена бесплатного курса, а не «нет данных»."""
+        data = {
+            "courses": [{"course_id": 100, "title": "Free", "price": 0}],
+            "recent_payments": [],
+        }
+        out = filter_financials(data, {100})
+        assert out["courses"][0]["price"] == 0
+
     def test_empty_in_clause_is_safe(self):
         """Regression: `IN ()` — синтаксическая ошибка; пустой список → NULL."""
         from app.api.dashboard.common import in_clause

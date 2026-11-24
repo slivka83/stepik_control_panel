@@ -7,7 +7,12 @@ from datetime import UTC, datetime
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.transform.common import _parse_step_positions, get_course_status, parse_dt
+from app.services.transform.common import (
+    _parse_step_positions,
+    _to_int,
+    get_course_status,
+    parse_dt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +145,33 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
     logger.info("  %d upserted, %d deleted, %d skipped (owned by another user)", upserted, deleted, skipped)
 
 
+async def build_lesson_course_map(session: AsyncSession) -> dict[int, int]:
+    """lesson_id → stepik course id (first course by numeric id).
+
+    Нужна для комментариев, прикреплённых к уроку, а не к шагу: Stepik
+    возвращает `target` без типа, и id уроков/шагов могут совпадать.
+    """
+    r = await session.execute(
+        text("""
+        SELECT l.lesson_id, sec.course
+        FROM raw_lesson l
+        JOIN raw_unit u ON u.lesson_id = l.lesson_id
+        JOIN raw_section sec ON sec.section_id = u.section_id
+        WHERE l.lesson_id IS NOT NULL AND sec.course IS NOT NULL
+    """)
+    )
+    rows = []
+    for lesson_id, course in r:
+        lesson_int = _to_int(lesson_id)
+        course_int = _to_int(course)
+        if lesson_int is not None and course_int is not None:
+            rows.append((course_int, lesson_int))
+    result: dict[int, int] = {}
+    for course_int, lesson_int in sorted(rows):
+        result.setdefault(lesson_int, course_int)
+    return result
+
+
 async def build_step_course_map(session: AsyncSession) -> dict[int, int]:
     """step_id → stepik course id (первый по возрастанию course id).
 
@@ -150,6 +182,9 @@ async def build_step_course_map(session: AsyncSession) -> dict[int, int]:
     """
     result: dict[int, int] = {}
 
+    # raw_section.course — TEXT, поэтому SQL ORDER BY по нему сортирует
+    # лексикографически ("10" < "9"). Приводим в Python к int и только потом
+    # выбираем «первый курс» — ровно та же нумерация, что в transform_steps.
     r = await session.execute(
         text("""
         SELECT l.lesson_id, l.steps, sec.course
@@ -157,16 +192,18 @@ async def build_step_course_map(session: AsyncSession) -> dict[int, int]:
         JOIN raw_unit u ON u.lesson_id = l.lesson_id
         JOIN raw_section sec ON sec.section_id = u.section_id
         WHERE l.lesson_id IS NOT NULL AND sec.course IS NOT NULL
-        ORDER BY sec.course, l.lesson_id
     """)
     )
-    for _lesson_id, steps, course in r:
-        try:
-            course_int = int(course)
-        except (TypeError, ValueError):
+    structure_rows = []
+    for lesson_id, steps, course in r:
+        course_int = _to_int(course)
+        lesson_int = _to_int(lesson_id)
+        if course_int is None or lesson_int is None:
             continue
+        structure_rows.append((course_int, lesson_int, steps))
+    for _course, _lesson, steps in sorted(structure_rows, key=lambda row: (row[0], row[1])):
         for step_id in _parse_step_positions(steps):
-            result.setdefault(step_id, course_int)
+            result.setdefault(step_id, _course)
 
     # Fallback: шаг знает свой урок, но урок не попал в списки steps/юниты.
     r = await session.execute(
@@ -176,12 +213,14 @@ async def build_step_course_map(session: AsyncSession) -> dict[int, int]:
         JOIN raw_unit u ON u.lesson_id = s.lesson
         JOIN raw_section sec ON sec.section_id = u.section_id
         WHERE s.step_id IS NOT NULL AND sec.course IS NOT NULL
-        ORDER BY s.step_id, sec.course
     """)
     )
+    fallback_rows = []
     for step_id, course in r:
-        try:
-            result.setdefault(int(step_id), int(course))
-        except (TypeError, ValueError):
-            continue
+        step_int = _to_int(step_id)
+        course_int = _to_int(course)
+        if step_int is not None and course_int is not None:
+            fallback_rows.append((step_int, course_int))
+    for step_int, course_int in sorted(fallback_rows):
+        result.setdefault(step_int, course_int)
     return result

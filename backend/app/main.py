@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import auth, courses, dashboard, financials, sync
 from app.config import get_settings
-from app.services.rate_limiter import close_redis
+from app.services.rate_limiter import bind_main_loop, close_redis
 from app.services.stepik_api import close_client
 from app.services.token_refresh import refresh_user_tokens
 
@@ -21,9 +21,12 @@ scheduler = AsyncIOScheduler()
 
 @asynccontextmanager
 async def lifespan(app):
-    scheduler.add_job(refresh_user_tokens, "interval", minutes=50, id="token_refresh")
+    # Bind the main event loop before any sync thread touches Redis; otherwise
+    # the sync loop can become "main" and the app later reuses its client.
+    bind_main_loop()
+    scheduler.add_job(refresh_user_tokens, "interval", minutes=5, id="token_refresh")
     scheduler.start()
-    logger.info("Token auto-refresh started (every 50 min)")
+    logger.info("Token auto-refresh started (every 5 min, 15 min before expiry)")
 
     async def _startup_tasks():
         try:
@@ -81,4 +84,5 @@ async def health():
         await redis_client.ping()
         return {"status": "ok", "redis": "up"}
     except Exception as e:
-        return {"status": "degraded", "redis": "down", "detail": str(e)}
+        logger.warning("Health check: Redis unavailable: %s", e)
+        return {"status": "degraded", "redis": "down"}
