@@ -1,6 +1,6 @@
 export default function ErrorBanner({ message, onRetry }) {
   return (
-    <div className="glass-panel p-4 border border-crimson-alert/30 bg-crimson-alert/5">
+    <div role="alert" className="glass-panel p-4 border border-crimson-alert/30 bg-crimson-alert/5">
       <div className="flex items-center gap-3">
         <span className="text-crimson-alert text-lg">✕</span>
         <div className="flex-1">

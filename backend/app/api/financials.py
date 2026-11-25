@@ -63,9 +63,7 @@ async def get_financials(
             y = int(m.get("year"))
         except (TypeError, ValueError):
             continue
-        agg = year_stats.setdefault(
-            y, {"year": y, "payments_count": 0, "turnover": 0.0, "income": 0.0, "refunds": 0.0}
-        )
+        agg = year_stats.setdefault(y, {"year": y, "payments_count": 0, "turnover": 0.0, "income": 0.0, "refunds": 0.0})
         with contextlib.suppress(TypeError, ValueError):
             agg["payments_count"] += int(m.get("payments_count") or 0)
         for key in ("turnover", "income", "refunds"):

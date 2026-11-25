@@ -44,7 +44,6 @@ const makeSyncValue = (courses = [], extra = {}) => ({
     },
     cohorts: { active: 0, passive: 0, fading: 0, sleeping: 0 },
     revenue: { months: [] },
-    alerts: [],
     courses,
     financials: { summary: { total_payments: 0 }, months: [], courses: [], recent_payments: [] },
   },

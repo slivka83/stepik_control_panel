@@ -9,7 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.stepik_api import StepikAPIError
 
-from .common import _as_int, _dedupe_by, _hub, _previous_raw_objects, _raw_course_ids, _save_sync_state
+from .common import (
+    _as_int,
+    _dedupe_by,
+    _hub,
+    _previous_raw_objects,
+    _raw_course_ids,
+    _save_sync_state,
+    is_fatal_api_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +38,7 @@ def _parse_time(value) -> datetime | None:
     except (TypeError, ValueError):
         return None
     return dt.replace(tzinfo=UTC) if dt.tzinfo is None else dt.astimezone(UTC)
+
 
 # Страховка от вечного has_next=true. С курсором синк останавливается на
 # первой странице, где встретил уже сохранённый комментарий; большой лимит
@@ -67,6 +76,8 @@ async def _sync_review_summaries(session: AsyncSession, token: str) -> None:
                 {"ids[]": batch},
             )
         except StepikAPIError as e:
+            if is_fatal_api_error(e):
+                raise
             failed_batches += 1
             failed_ids.update(batch)
             logger.warning("  course-review-summaries batch %d: %s — skip", i // 100, e)
@@ -78,9 +89,7 @@ async def _sync_review_summaries(session: AsyncSession, token: str) -> None:
         return
     # Частичный сбой не должен удалять уже сохранённые сводки этого батча.
     review_summaries.extend(
-        await _previous_raw_objects(
-            session, "raw_course_review_summary", "review_summary_id", failed_ids
-        )
+        await _previous_raw_objects(session, "raw_course_review_summary", "review_summary_id", failed_ids)
     )
     review_summaries = _dedupe_by(review_summaries, "id")
     mapping = await _hub()._get_fields_mapping(session, "course_review_summaries")
@@ -103,6 +112,8 @@ async def _sync_reviews(session: AsyncSession, token: str, course_ids: list[int]
                 "/course-reviews", token, "course-reviews", {"course": cid}, max_pages=2000
             )
         except StepikAPIError as e:
+            if is_fatal_api_error(e):
+                raise
             failed_courses.append(cid)
             logger.warning("  course-reviews course %d: %s — skip", cid, e)
             continue
@@ -113,9 +124,7 @@ async def _sync_reviews(session: AsyncSession, token: str, course_ids: list[int]
         return
     # Частичный сбой не должен удалять отзывы упавшего курса: возвращаем их
     # из прошлой загрузки и заменяем таблицу целиком.
-    all_reviews.extend(
-        await _previous_raw_objects(session, "raw_course_review", "course", failed_courses)
-    )
+    all_reviews.extend(await _previous_raw_objects(session, "raw_course_review", "course", failed_courses))
     all_reviews = _dedupe_by(all_reviews, "id")
     await _hub()._replace_raw_table(session, "raw_course_review", all_reviews, mapping_reviews)
     logger.info("  raw_course_review: %d rows total", len(all_reviews))
@@ -144,9 +153,7 @@ async def _sync_comments(session: AsyncSession, token: str, course_ids: list[int
         ),
     )
     state = {row[0]: row[1] for row in r}
-    last_times = {
-        k: v for k, v in state.items() if k.startswith("last_time_course_")
-    }
+    last_times = {k: v for k, v in state.items() if k.startswith("last_time_course_")}
     backfill_pages: dict[int, int] = {}
     for key, value in state.items():
         if key.startswith("backfill_page_course_"):
@@ -178,10 +185,10 @@ async def _sync_comments(session: AsyncSession, token: str, course_ids: list[int
         reached_boundary = False
         for page in pages:
             try:
-                data = await _hub()._request(
-                    "GET", "/comments", token, {"course": cid, "page": page, "page_size": 20}
-                )
+                data = await _hub()._request("GET", "/comments", token, {"course": cid, "page": page, "page_size": 20})
             except StepikAPIError as e:
+                if is_fatal_api_error(e):
+                    raise
                 logger.warning("  comments course %d page %d: %s — skip", cid, page, e)
                 break
             objects = data.get("comments", [])
@@ -198,8 +205,10 @@ async def _sync_comments(session: AsyncSession, token: str, course_ids: list[int
                 t_dt = _parse_time(t)
                 # Сравниваем моменты времени, если оба разобрались; иначе —
                 # старый строковый порядок (для нестандартных значений API).
-                is_old = (t_dt < last_dt) if (t_dt is not None and last_dt is not None) else bool(
-                    last_time and t < last_time
+                is_old = (
+                    (t_dt < last_dt)
+                    if (t_dt is not None and last_dt is not None)
+                    else bool(last_time and t < last_time)
                 )
                 if is_old:
                     # Дошли до уже сохранённого хвоста — дальше всё старое.
@@ -220,16 +229,11 @@ async def _sync_comments(session: AsyncSession, token: str, course_ids: list[int
             refresh_objects = new_objects
             if page == 1 and objects:
                 existing_ids = set()
-                object_ids = {
-                    str(obj.get("id")) for obj in objects if obj.get("id") is not None
-                }
+                object_ids = {str(obj.get("id")) for obj in objects if obj.get("id") is not None}
                 if object_ids:
                     placeholders = ", ".join(f":c{i}" for i in range(len(object_ids)))
                     r = await session.execute(
-                        text(
-                            "SELECT comment_id FROM raw_comment "
-                            f"WHERE comment_id IN ({placeholders})"
-                        ),
+                        text(f"SELECT comment_id FROM raw_comment WHERE comment_id IN ({placeholders})"),
                         {f"c{i}": value for i, value in enumerate(sorted(object_ids))},
                     )
                     existing_ids = {str(row[0]) for row in r}
@@ -261,15 +265,10 @@ async def _sync_comments(session: AsyncSession, token: str, course_ids: list[int
         backfill_key = f"backfill_page_course_{cid}"
         if completed:
             if max_time_str:
-                await _save_sync_state(
-                    session, COMMENTS_ENDPOINT, f"last_time_course_{cid}", max_time_str
-                )
+                await _save_sync_state(session, COMMENTS_ENDPOINT, f"last_time_course_{cid}", max_time_str)
             else:
                 await session.execute(
-                    text(
-                        "DELETE FROM raw_sync_state "
-                        "WHERE endpoint_name = :ep AND key = :k"
-                    ),
+                    text("DELETE FROM raw_sync_state WHERE endpoint_name = :ep AND key = :k"),
                     {"ep": COMMENTS_ENDPOINT, "k": f"last_time_course_{cid}"},
                 )
             await session.execute(

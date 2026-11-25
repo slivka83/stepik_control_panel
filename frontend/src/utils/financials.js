@@ -101,11 +101,16 @@ export function commissionWarning(payment, expectedPct = AUTHOR_LINK_COMMISSION_
   const authorLink = payment?.channel === 'А-ссылка' || payment?.raw?.is_z_link_used === true;
   if (!authorLink) return null;
   if (payment?.promo_is_stepik === true || payment?.promo_is_stepik === null) return null;
-  if (commission.pct <= expectedPct) return null;
+  const paid = Number(payment.payment_amount);
+  const exactPct = paid > 0 ? (commission.amount / paid) * 100 : 0;
+  // Compare the exact rate: 7.4% must be flagged even though the table shows
+  // it rounded as 7%.
+  if (exactPct <= expectedPct + 1e-9) return null;
   return {
     ...commission,
+    pct: Math.round(exactPct * 10) / 10,
     expectedPct,
-    delta: commission.pct - expectedPct,
+    delta: Math.round((exactPct - expectedPct) * 10) / 10,
     severity: 'error',
   };
 }

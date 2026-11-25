@@ -70,7 +70,7 @@ const STUDENT_COLUMNS = [
     align: 'right',
     width: 'w-[14%]',
     nullLast: true,
-    naturalDir: 'asc',
+    naturalDir: 'desc',
     render: (s) => (
       <td className="text-right font-mono text-xs text-gray-400 pl-1 pr-1 whitespace-nowrap">
         {fmtDate(s.last_activity)}

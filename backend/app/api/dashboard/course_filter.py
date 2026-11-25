@@ -10,6 +10,7 @@ Mirrors the aggregation formulas in transform_financials/transform_community,
 so the filtered view keeps the same shape as the unfiltered snapshot.
 """
 
+import contextlib
 import uuid
 from datetime import UTC, datetime
 
@@ -102,9 +103,7 @@ def _filtered_payments(data: dict, selected_stepik_ids: set[int]) -> list[dict]:
     return payments
 
 
-def filter_financials(
-    data: dict, selected_stepik_ids: set[int], course_meta: dict[int, dict] | None = None
-) -> dict:
+def filter_financials(data: dict, selected_stepik_ids: set[int], course_meta: dict[int, dict] | None = None) -> dict:
     """Recompute summary/months/courses/promos/utms/recent_payments from
     per-payment records restricted to the selected courses.
 
@@ -124,6 +123,7 @@ def filter_financials(
         if cid is not None:
             orig_courses[cid] = c
     meta = course_meta or {}
+
     # Все выбранные курсы остаются в таблице «По курсам», даже без платежей:
     # иначе фильтр «все курсы» и «без фильтра» давали разные наборы строк.
     def _course_field(cid: int, key: str):
@@ -143,7 +143,7 @@ def filter_financials(
             "income": 0.0,
             "refunds": 0.0,
         }
-        for cid in selected_stepik_ids
+        for cid in sorted(selected_stepik_ids)
     }
 
     for b in payments:
@@ -211,18 +211,18 @@ def filter_financials(
                 us["last_used"] = time_raw
 
     months = []
-    for y, m in sorted(months_map):
-        ms = months_map[(y, m)]
+    for year, month_num in sorted(months_map):
+        month_bucket = months_map[(year, month_num)]
         months.append(
             {
-                "month": f"{MONTH_NAMES.get(m, str(m))} {y}",
-                "year": y,
-                "month_num": m,
-                "turnover": ms["turnover"],
-                "income": ms["income"],
-                "refunds": ms["refunds"],
-                "payments_count": ms["payments_count"],
-                "refunds_count": ms["refunds_count"],
+                "month": f"{MONTH_NAMES.get(month_num, str(month_num))} {year}",
+                "year": year,
+                "month_num": month_num,
+                "turnover": month_bucket["turnover"],
+                "income": month_bucket["income"],
+                "refunds": month_bucket["refunds"],
+                "payments_count": month_bucket["payments_count"],
+                "refunds_count": month_bucket["refunds_count"],
             }
         )
 
@@ -247,11 +247,11 @@ def filter_financials(
     current_month_turnover = 0.0
     current_month_income = 0.0
     current_month_payments = 0
-    for m in months:
-        if m["year"] == now.year and m["month_num"] == now.month:
-            current_month_turnover = m["turnover"]
-            current_month_income = m["income"]
-            current_month_payments = m["payments_count"]
+    for month_row in months:
+        if month_row["year"] == now.year and month_row["month_num"] == now.month:
+            current_month_turnover = month_row["turnover"]
+            current_month_income = month_row["income"]
+            current_month_payments = month_row["payments_count"]
 
     courses = [
         {
@@ -347,10 +347,11 @@ async def filter_community(db: AsyncSession, data: dict, selected_stepik_ids: se
     for key, info in per_course.items():
         if key not in selected_keys or not isinstance(info, dict):
             continue
-        total_reviews += int(info.get("reviews_count", 0) or 0)
-        avg = info.get("average_rating")
-        if avg:
-            ratings.append(float(avg))
+        with contextlib.suppress(TypeError, ValueError):
+            total_reviews += int(info.get("reviews_count", 0) or 0)
+        avg = _float_or_zero(info.get("average_rating"))
+        if avg > 0:
+            ratings.append(avg)
     average_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
 
     comments_monthly = {}
@@ -402,10 +403,7 @@ async def filter_steps_average_grade(db: AsyncSession, selected_stepik_ids: set[
         return 0.0
     placeholders, params = in_clause(selected_stepik_ids, "cid")
     rows = await db.execute(
-        text(
-        "SELECT grade, grade_votes FROM mart_steps "
-        f"WHERE stepik_course_id IN ({placeholders})"
-        ),
+        text(f"SELECT grade, grade_votes FROM mart_steps WHERE stepik_course_id IN ({placeholders})"),
         params,
     )
     return votes_weighted_grade(rows)

@@ -125,12 +125,8 @@ class TestStudentsFilteredCounters:
         """Regression: при фильтре по курсам строка показывала account-wide
         счётчики из student_marts (решения/комментарии/сертификаты всех курсов)."""
         user = await _seed_user(db_session)
-        c1 = Course(
-            id=uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="A", status="Published"
-        )
-        c2 = Course(
-            id=uuid.uuid4(), user_id=user.id, stepik_course_id=101, title="B", status="Published"
-        )
+        c1 = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="A", status="Published")
+        c2 = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=101, title="B", status="Published")
         db_session.add_all([c1, c2])
         db_session.add(
             StudentMart(
@@ -185,12 +181,8 @@ class TestStudentsFilteredCounters:
                     user_id=7,
                     is_author=False,
                 ),
-                MartCertificate(
-                    id=uuid.uuid4(), course_id=c1.id, stepik_course_id=100, certificate_id=1, user_id=7
-                ),
-                MartCertificate(
-                    id=uuid.uuid4(), course_id=c2.id, stepik_course_id=101, certificate_id=2, user_id=7
-                ),
+                MartCertificate(id=uuid.uuid4(), course_id=c1.id, stepik_course_id=100, certificate_id=1, user_id=7),
+                MartCertificate(id=uuid.uuid4(), course_id=c2.id, stepik_course_id=101, certificate_id=2, user_id=7),
                 MartComment(
                     id=uuid.uuid4(),
                     course_id=c1.id,
@@ -247,9 +239,7 @@ class TestStudentsFilteredCounters:
         а в ячейках показывались значения выбранного курса — порядок и
         страницы противоречили цифрам."""
         user = await _seed_user(db_session)
-        c1 = Course(
-            id=uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="A", status="Published"
-        )
+        c1 = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="A", status="Published")
         db_session.add(c1)
         db_session.add_all(
             [
@@ -308,10 +298,7 @@ class TestStudentsFilteredCounters:
         app.dependency_overrides[get_db] = override_db
         app.dependency_overrides[get_user] = override_user
         try:
-            data = client.get(
-                f"/api/dashboard/students?course_ids={c1.id}"
-                "&sort=submissions_count&order=desc"
-            ).json()
+            data = client.get(f"/api/dashboard/students?course_ids={c1.id}&sort=submissions_count&order=desc").json()
         finally:
             app.dependency_overrides.clear()
 

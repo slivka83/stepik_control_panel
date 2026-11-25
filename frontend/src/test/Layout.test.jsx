@@ -3,6 +3,8 @@ import { useState } from 'react';
 import { render, screen, waitFor, act, fireEvent } from '@testing-library/react';
 import TestRouter from './TestRouter';
 import Layout from '../components/Layout';
+import { AuthContext } from '../contexts/AuthContext';
+import { SyncContext } from '../contexts/SyncContext';
 import api from '../api';
 
 vi.mock('../api', () => ({
@@ -14,7 +16,7 @@ vi.mock('../api', () => ({
 
 const defaultSyncValue = {
   syncStatus: { in_progress: false, last_sync: '2026-07-21T10:00:00' },
-  data: { kpi: null, cohorts: {}, revenue: { months: [] }, alerts: [], courses: [], financials: null },
+  data: { kpi: null, cohorts: {}, revenue: { months: [] }, courses: [], financials: null },
   loading: false,
   error: null,
   refresh: vi.fn(),
@@ -166,12 +168,13 @@ describe('Layout', () => {
     expect(btn).toBeDisabled();
     expect(btn.querySelector('.animate-spin')).toBeInTheDocument();
     expect(btn.querySelector('span[style]')).toHaveStyle('height: 57%');
-    expect(btn.getAttribute('title')).toContain('Прошло: 0 с');
-    expect(btn.getAttribute('title')).toContain('Осталось: ~0 с');
+    expect(btn.getAttribute('title')).toContain('Наблюдаем: 0 с');
+    // No progress change observed yet: an ETA would be a wild guess.
+    expect(btn.getAttribute('title')).toContain('Осталось: …');
     expect(btn.getAttribute('title')).not.toContain('решения');
   });
 
-  it('updates elapsed and remaining time in tooltip while syncing', async () => {
+  it('updates observed elapsed time in tooltip while syncing', async () => {
     vi.useFakeTimers();
     try {
       const syncingValue = {
@@ -185,8 +188,42 @@ describe('Layout', () => {
       act(() => {
         vi.advanceTimersByTime(3000);
       });
-      const btn = screen.getByTitle(/Прошло: 3 с/);
-      expect(btn.getAttribute('title')).toContain('Осталось: ~2 с');
+      const btn = screen.getByTitle(/Наблюдаем: 3 с/);
+      expect(btn.getAttribute('title')).toContain('Осталось: …');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('estimates remaining time only after progress actually changes', async () => {
+    vi.useFakeTimers();
+    try {
+      function ProgressWrapper() {
+        const [status, setStatus] = useState({
+          in_progress: true,
+          progress: 0,
+          step: '',
+          last_sync: null,
+        });
+        const value = { ...defaultSyncValue, syncStatus: status };
+        return (
+          <AuthContext.Provider value={{ user: { id: 'u1' }, loading: false, authError: null }}>
+            <SyncContext.Provider value={value}>
+              <Layout>
+                <div>Content</div>
+              </Layout>
+            </SyncContext.Provider>
+            <button onClick={() => setStatus((s) => ({ ...s, progress: 10 }))}>progress</button>
+          </AuthContext.Provider>
+        );
+      }
+      render(<TestRouter><ProgressWrapper /></TestRouter>);
+      await act(async () => {});
+      act(() => vi.advanceTimersByTime(1000));
+      fireEvent.click(screen.getByText('progress'));
+      act(() => vi.advanceTimersByTime(1000));
+      const btn = screen.getByTitle(/Завершено: 10%/);
+      expect(btn.getAttribute('title')).toContain('Осталось: ~9 с');
     } finally {
       vi.useRealTimers();
     }

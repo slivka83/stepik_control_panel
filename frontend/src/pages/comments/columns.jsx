@@ -254,7 +254,7 @@ export const COMMENTS_LIST_COLUMNS = [
     label: 'Дата',
     width: 'w-[12%]',
     nullLast: true,
-    naturalDir: 'asc',
+    naturalDir: 'desc',
     render: dateCell,
   },
   {

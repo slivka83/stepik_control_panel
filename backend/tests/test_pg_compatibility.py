@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from sqlalchemy import text
 
-from app.services.transform import _ensure_json, _serialize_data, parse_dt
+from app.services.transform import _ensure_json, _serialize_data, _to_bool, parse_dt
 
 # ─── _ensure_json ──────────────────────────────────────────────────────────
 
@@ -42,6 +42,32 @@ class TestEnsureJson:
     def test_bool_str(self):
         assert _ensure_json("true") is True
         assert _ensure_json("false") is False
+
+
+class TestToBool:
+    """Raw TEXT booleans ("false"/"0") must not be treated as true."""
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            (True, True),
+            (False, False),
+            ("true", True),
+            ("True", True),
+            ("1", True),
+            ("yes", True),
+            ("false", False),
+            ("False", False),
+            ("0", False),
+            ("no", False),
+            (1, True),
+            (0, False),
+            (None, None),
+            ("garbage", None),
+        ],
+    )
+    def test_parsing(self, value, expected):
+        assert _to_bool(value) is expected
 
 
 # ─── _serialize_data ──────────────────────────────────────────────────────

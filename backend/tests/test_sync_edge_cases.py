@@ -281,6 +281,29 @@ class TestSyncProgressReset:
         assert "ReadTimeout" in sync_mod._last_sync_error
 
     @pytest.mark.asyncio
+    async def test_sync_all_reports_error_when_no_token(self):
+        """Regression: без токена все этапы молча возвращались, sync завершался
+        «ok» и обновлял last_sync — панель показывала успех без данных."""
+        import app.services.sync as sync_mod
+
+        sync_mod._sync_in_progress = False
+        sync_mod._last_sync_completed_at = 0
+        sync_mod._last_sync_error = None
+
+        with patch(
+            "app.services.sync.sync_courses_and_enrollments",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            result = await sync_all(force=True)
+
+        assert result["status"] == "error"
+        assert sync_mod._last_sync_error
+        assert "токен" in sync_mod._last_sync_error.lower()
+        assert sync_mod._last_sync_completed_at == 0
+        assert sync_mod._sync_in_progress is False
+
+    @pytest.mark.asyncio
     async def test_sync_all_success_clears_last_error(self):
         """Regression: a successful sync must clear the stale error from the sync button."""
         import app.services.sync as sync_mod

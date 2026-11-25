@@ -12,6 +12,7 @@ from app.services.transform.common import (
     _insert_rows,
     _month_tuple,
     _strip_html,
+    _to_bool,
     _to_int,
     is_published_solution,
     load_course_map,
@@ -65,7 +66,7 @@ async def transform_comments(session: AsyncSession):
     rows = []
     for (raw_json,) in r:
         cm = _ensure_json(raw_json)
-        if not isinstance(cm, dict) or cm.get("is_deleted"):
+        if not isinstance(cm, dict) or _to_bool(cm.get("is_deleted")) is True:
             continue
         time_raw = cm.get("time")
         if not time_raw:
@@ -73,10 +74,7 @@ async def transform_comments(session: AsyncSession):
         ym = _month_tuple(time_raw)
         if ym is None:
             continue
-        try:
-            sid = int(cm.get("target"))
-        except (TypeError, ValueError):
-            sid = None
+        sid = _to_int(cm.get("target"))
         attr = step_attr.get(sid) if sid is not None else None
         if attr is None and sid is not None:
             # target может быть id урока, а не шага (Stepik не отдаёт тип).
@@ -129,7 +127,9 @@ async def transform_comments(session: AsyncSession):
         user_id = _to_int(cm.get("user"))
         is_solution = is_published_solution(cm)
         vote_delta = _to_int(cm.get("vote_delta")) or 0
-        is_unanswered = not (cm.get("is_staff_replied") is True or cm.get("user_role") == "teacher")
+        staff_replied = _to_bool(cm.get("is_staff_replied")) is True
+        is_teacher = str(cm.get("user_role") or "").strip().lower() == "teacher"
+        is_unanswered = not (staff_replied or is_teacher)
         rows.append(
             {
                 "id": str(uuid.uuid4()),
@@ -148,7 +148,7 @@ async def transform_comments(session: AsyncSession):
                 "is_solution": bool(is_solution),
                 "is_unanswered": bool(is_unanswered),
                 "is_disliked": bool(vote_delta < 0),
-                "is_deleted": bool(cm.get("is_deleted")),
+                "is_deleted": _to_bool(cm.get("is_deleted")) is True,
                 "lesson_id": attr["lesson_id"],
                 "step_number": attr["step_number"],
                 "module_number": attr["module_number"],

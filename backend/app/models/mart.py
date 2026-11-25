@@ -17,9 +17,7 @@ class MartModule(Base):
     __tablename__ = "mart_modules"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    course_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False
-    )
+    course_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False)
     stepik_course_id: Mapped[int] = mapped_column(Integer, nullable=False)
     module_number: Mapped[int] = mapped_column(Integer, nullable=False)
     module_title: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -43,9 +41,7 @@ class MartLesson(Base):
     __tablename__ = "mart_lessons"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    course_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False
-    )
+    course_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False)
     stepik_course_id: Mapped[int] = mapped_column(Integer, nullable=False)
     lesson_id: Mapped[int] = mapped_column(Integer, nullable=False)
     lesson_number: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -74,9 +70,7 @@ class MartStep(Base):
     __tablename__ = "mart_steps"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    course_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("courses.id"), nullable=True
-    )
+    course_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("courses.id"), nullable=True)
     stepik_course_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     step_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
     lesson_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -111,9 +105,7 @@ class MartComment(Base):
     __tablename__ = "mart_comments"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    course_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False
-    )
+    course_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False)
     stepik_course_id: Mapped[int] = mapped_column(Integer, nullable=False)
     comment_id: Mapped[int] = mapped_column(Integer, nullable=False, unique=True)
     time: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -151,9 +143,7 @@ class MartCertificate(Base):
     __tablename__ = "mart_certificates"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    course_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False
-    )
+    course_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False)
     stepik_course_id: Mapped[int] = mapped_column(Integer, nullable=False)
     certificate_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -176,9 +166,7 @@ class MartReview(Base):
     __tablename__ = "mart_reviews"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    course_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False
-    )
+    course_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("courses.id"), nullable=False)
     stepik_course_id: Mapped[int] = mapped_column(Integer, nullable=False)
     review_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -127,6 +127,36 @@ class TestTransformCourses:
         assert rows[0][2] == "Draft"
 
     @pytest.mark.asyncio
+    async def test_unpublished_course_loses_published_at(self, db_session):
+        """Regression: снятый с публикации курс сохранял дату публикации и
+        сортировался среди опубликованных."""
+        from app.services.transform import transform_courses
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=101, title="Old")
+        await db_session.execute(text("UPDATE courses SET published_at = '2026-01-15T00:00:00+00:00'"))
+        await db_session.commit()
+
+        await self._populate_raw_courses(
+            db_session,
+            [
+                {
+                    "course_id": 101,
+                    "title": "Old",
+                    "is_public": 0,
+                    "became_published_at": "2026-01-15T00:00:00Z",
+                    "begin_date": None,
+                },
+            ],
+        )
+        await db_session.commit()
+
+        await transform_courses(db_session)
+        await db_session.commit()
+
+        assert await db_session.scalar(text("SELECT published_at FROM courses")) is None
+
+    @pytest.mark.asyncio
     async def test_removes_deleted_courses(self, db_session):
         """Regression: удаление курса падало на FK дочерних строк.
 
@@ -200,11 +230,7 @@ class TestTransformCourses:
         await transform_courses(db_session, user_id=str(other.id))
         await db_session.commit()
 
-        rows = list(
-            await db_session.execute(
-                text("SELECT user_id, title FROM courses WHERE stepik_course_id = 101")
-            )
-        )
+        rows = list(await db_session.execute(text("SELECT user_id, title FROM courses WHERE stepik_course_id = 101")))
         assert len(rows) == 1
         assert uuid.UUID(str(rows[0][0])) == owner_id
         assert rows[0][1] == "Owner Course"
@@ -394,9 +420,7 @@ class TestTransformSubmissions:
 
         owner = _make_user(db_session, stepik_id=999)
         await _make_course(db_session, owner.id, stepik_course_id=101)
-        await db_session.execute(
-            text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}')")
-        )
+        await db_session.execute(text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}')"))
         await db_session.execute(
             text("INSERT INTO raw_unit (unit_id, lesson_id, section_id, _raw_json) VALUES (1, 10, 1, '{}')")
         )
@@ -437,9 +461,7 @@ class TestTransformSubmissions:
         user = _make_user(db_session)
         await _make_course(db_session, user.id, stepik_course_id=101)
         await _make_course(db_session, user.id, stepik_course_id=102)
-        await db_session.execute(
-            text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}')")
-        )
+        await db_session.execute(text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}')"))
         await db_session.execute(
             text("INSERT INTO raw_unit (unit_id, lesson_id, section_id, _raw_json) VALUES (1, 10, 1, '{}')")
         )
@@ -461,9 +483,7 @@ class TestTransformSubmissions:
             text("SELECT course_id FROM submissions WHERE stepik_submission_id = 4001")
         )
 
-        await db_session.execute(
-            text("UPDATE raw_section SET course = '102' WHERE section_id = '1'")
-        )
+        await db_session.execute(text("UPDATE raw_section SET course = '102' WHERE section_id = '1'"))
         await db_session.commit()
         await transform_submissions(db_session)
         await db_session.commit()
@@ -472,12 +492,15 @@ class TestTransformSubmissions:
             text("SELECT course_id FROM submissions WHERE stepik_submission_id = 4001")
         )
         assert str(new_course) != str(old_course)
-        assert await db_session.scalar(
-            text(
-                "SELECT c.stepik_course_id FROM submissions s JOIN courses c ON c.id = s.course_id "
-                "WHERE s.stepik_submission_id = 4001"
+        assert (
+            await db_session.scalar(
+                text(
+                    "SELECT c.stepik_course_id FROM submissions s JOIN courses c ON c.id = s.course_id "
+                    "WHERE s.stepik_submission_id = 4001"
+                )
             )
-        ) == 102
+            == 102
+        )
 
     async def test_keeps_user_from_submission_when_attempt_is_missing(self, db_session):
         """Regression: без строки raw_attempt пользователь submission терялся,
@@ -486,9 +509,7 @@ class TestTransformSubmissions:
 
         owner = _make_user(db_session, stepik_id=999)
         await _make_course(db_session, owner.id, stepik_course_id=101)
-        await db_session.execute(
-            text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}')")
-        )
+        await db_session.execute(text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}')"))
         await db_session.execute(
             text("INSERT INTO raw_unit (unit_id, lesson_id, section_id, _raw_json) VALUES (1, 10, 1, '{}')")
         )
@@ -520,9 +541,7 @@ class TestTransformSubmissions:
 
         user = _make_user(db_session)
         await _make_course(db_session, user.id, stepik_course_id=101)
-        await db_session.execute(
-            text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}')")
-        )
+        await db_session.execute(text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}')"))
         await db_session.execute(
             text("INSERT INTO raw_unit (unit_id, lesson_id, section_id, _raw_json) VALUES (1, 10, 1, '{}')")
         )
@@ -546,6 +565,82 @@ class TestTransformSubmissions:
         assert row is not None
         assert row[0] == 0
         assert row[1] == 0
+
+    async def test_removes_submissions_of_deleted_steps(self, db_session):
+        """Regression: решения удалённого шага оставались в таблице навсегда
+        (инкрементальная загрузка не присылает «удалено»), завышая все счётчики."""
+        from app.services.transform import transform_submissions
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=101)
+        await db_session.execute(
+            text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}'), (501, 10, '{}')")
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_unit (unit_id, lesson_id, section_id, _raw_json) VALUES (1, 10, 1, '{}')")
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_section (section_id, course, units, _raw_json) VALUES (1, 101, '[1]', '{}')")
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_lesson (lesson_id, steps, title, _raw_json) VALUES (10, '[500, 501]', 'L', '{}')")
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_submission (submission_id, step, _raw_json) VALUES
+                (7001, 500, '{"id": 7001, "status": "correct", "time": "2026-07-15T10:00:00Z"}'),
+                (7002, 501, '{"id": 7002, "status": "correct", "time": "2026-07-15T10:00:00Z"}')
+        """)
+        )
+        await db_session.commit()
+
+        await transform_submissions(db_session)
+        await db_session.commit()
+        assert await db_session.scalar(text("SELECT count(*) FROM submissions")) == 2
+
+        # Step 500 removed from the lesson and from raw_step.
+        await db_session.execute(text("UPDATE raw_lesson SET steps = '[501]'"))
+        await db_session.execute(text("DELETE FROM raw_step WHERE step_id = '500'"))
+        await db_session.commit()
+
+        await transform_submissions(db_session)
+        await db_session.commit()
+
+        rows = await db_session.execute(
+            text("SELECT stepik_submission_id FROM submissions ORDER BY stepik_submission_id")
+        )
+        assert [row[0] for row in rows] == [7002]
+
+    async def test_garbage_step_does_not_kill_the_transform(self, db_session):
+        """Regression: нечисловой step в raw_submission ронял int() и весь
+        transform, хотя остальные решения были корректны."""
+        from app.services.transform import transform_submissions
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=101)
+        await db_session.execute(text("INSERT INTO raw_step (step_id, lesson, _raw_json) VALUES (500, 10, '{}')"))
+        await db_session.execute(
+            text("INSERT INTO raw_unit (unit_id, lesson_id, section_id, _raw_json) VALUES (1, 10, 1, '{}')")
+        )
+        await db_session.execute(
+            text("INSERT INTO raw_section (section_id, course, units, _raw_json) VALUES (1, 101, '[1]', '{}')")
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_submission (submission_id, step, _raw_json) VALUES
+                (5001, 'abc', '{"id": 5001, "status": "correct", "time": "2026-07-15T10:00:00Z"}'),
+                (5002, 500, '{"id": 5002, "status": "correct", "time": "2026-07-16T10:00:00Z"}')
+        """)
+        )
+        await db_session.commit()
+
+        await transform_submissions(db_session)
+        await db_session.commit()
+
+        rows = await db_session.execute(
+            text("SELECT stepik_submission_id FROM submissions ORDER BY stepik_submission_id")
+        )
+        assert [row[0] for row in rows] == [5002]
 
 
 # ─── transform_financials ──────────────────────────────────────────────
@@ -677,10 +772,7 @@ class TestTransformFinancials:
         assert data["recent_payments"][1]["utm_source_label"] == "Я.Директ"
         assert data["recent_payments"][1]["channel"] == "Stepik"
         assert data["recent_payments"][1]["is_gift"] is False
-        assert (
-            data["recent_payments"][1]["raw"]["last_course_click_utm"]["utm_campaign"]
-            == "rsya_yad_feed_stepik_rus"
-        )
+        assert data["recent_payments"][1]["raw"]["last_course_click_utm"]["utm_campaign"] == "rsya_yad_feed_stepik_rus"
 
     @pytest.mark.asyncio
     async def test_negative_api_refunds_are_stored_positive(self, db_session):
@@ -719,7 +811,7 @@ class TestTransformFinancials:
         await db_session.execute(
             text(
                 "INSERT INTO raw_course_benefit "
-                "(course, amount, payment_amount, status, \"time\", _raw_json) "
+                '(course, amount, payment_amount, status, "time", _raw_json) '
                 "VALUES ('101', '-300', '1000', 'refunded', :t, :j)"
             ),
             {"t": refund_raw["time"], "j": json.dumps(refund_raw)},
@@ -729,9 +821,7 @@ class TestTransformFinancials:
         await transform_financials(db_session)
         await db_session.commit()
 
-        data = (
-            await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
-        ).scalar_one()
+        data = (await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))).scalar_one()
         data = json.loads(data) if isinstance(data, str) else data
         assert data["summary"]["total_refunds"] == 300
         assert data["months"][0]["refunds"] == 300
@@ -1251,15 +1341,9 @@ class TestTransformCommunity:
 
         # Course structure so the comment's target (step 101) is attributable
         # to course 101 (mirrors build_step_course_map join).
-        await db_session.execute(
-            text("INSERT INTO raw_section (section_id, course) VALUES ('201', '101')")
-        )
-        await db_session.execute(
-            text("INSERT INTO raw_unit (lesson_id, section_id) VALUES ('301', '201')")
-        )
-        await db_session.execute(
-            text("INSERT INTO raw_step (step_id, lesson) VALUES ('101', '301')")
-        )
+        await db_session.execute(text("INSERT INTO raw_section (section_id, course) VALUES ('201', '101')"))
+        await db_session.execute(text("INSERT INTO raw_unit (lesson_id, section_id) VALUES ('301', '201')"))
+        await db_session.execute(text("INSERT INTO raw_step (step_id, lesson) VALUES ('101', '301')"))
         await db_session.commit()
 
         await db_session.execute(
@@ -1324,15 +1408,9 @@ class TestTransformCommunity:
         )
         await db_session.commit()
 
-        await db_session.execute(
-            text("INSERT INTO raw_section (section_id, course) VALUES ('201', '101')")
-        )
-        await db_session.execute(
-            text("INSERT INTO raw_unit (lesson_id, section_id) VALUES ('301', '201')")
-        )
-        await db_session.execute(
-            text("INSERT INTO raw_step (step_id, lesson) VALUES ('101', '301')")
-        )
+        await db_session.execute(text("INSERT INTO raw_section (section_id, course) VALUES ('201', '101')"))
+        await db_session.execute(text("INSERT INTO raw_unit (lesson_id, section_id) VALUES ('301', '201')"))
+        await db_session.execute(text("INSERT INTO raw_step (step_id, lesson) VALUES ('101', '301')"))
         await db_session.execute(
             text("""
             INSERT INTO raw_comment ("user", target, "time", thread, _raw_json)
@@ -1393,10 +1471,7 @@ class TestTransformCommunity:
             }
         }
         await db_session.execute(
-            text(
-                "INSERT INTO financial_snapshots (id, data, updated_at) "
-                "VALUES (:id, :d, :now)"
-            ),
+            text("INSERT INTO financial_snapshots (id, data, updated_at) VALUES (:id, :d, :now)"),
             {"id": str(uuid.uuid4()), "d": json.dumps(stale), "now": datetime.now(UTC)},
         )
         await db_session.commit()
@@ -1404,9 +1479,7 @@ class TestTransformCommunity:
         await transform_community(db_session)
         await db_session.commit()
 
-        data = (
-            await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))
-        ).scalar_one()
+        data = (await db_session.execute(text("SELECT data FROM financial_snapshots LIMIT 1"))).scalar_one()
         data = json.loads(data) if isinstance(data, str) else data
         assert data["community"]["total_comments"] == 0
         assert data["community"]["total_reviews"] == 0
@@ -1447,25 +1520,18 @@ class TestSharedLessonAttribution:
             VALUES ('10', '[500]', 'Shared lesson')
         """)
         )
-        await db_session.execute(
-            text("INSERT INTO raw_step (step_id, lesson) VALUES ('500', '10')")
-        )
+        await db_session.execute(text("INSERT INTO raw_step (step_id, lesson) VALUES ('500', '10')"))
         await db_session.commit()
 
         await transform_steps(db_session)
 
         step = (
             await db_session.execute(
-                text(
-                    "SELECT stepik_course_id, lesson_number, module_number "
-                    "FROM mart_steps WHERE step_id = 500"
-                )
+                text("SELECT stepik_course_id, lesson_number, module_number FROM mart_steps WHERE step_id = 500")
             )
         ).one()
         assert tuple(step) == (100, 1, 1)
-        lesson_courses = (
-            await db_session.execute(text("SELECT stepik_course_id FROM mart_lessons"))
-        ).scalars().all()
+        lesson_courses = (await db_session.execute(text("SELECT stepik_course_id FROM mart_lessons"))).scalars().all()
         assert lesson_courses == [100]
 
     @pytest.mark.asyncio
@@ -1497,17 +1563,75 @@ class TestSharedLessonAttribution:
             INSERT INTO raw_lesson (lesson_id, steps, title) VALUES ('10', '[500]', 'Shared')
         """)
         )
-        await db_session.execute(
-            text("INSERT INTO raw_step (step_id, lesson) VALUES ('500', '10')")
-        )
+        await db_session.execute(text("INSERT INTO raw_step (step_id, lesson) VALUES ('500', '10')"))
         await db_session.commit()
 
         await transform_steps(db_session)
 
         assert await build_step_course_map(db_session) == {500: 9}
-        assert await db_session.scalar(
-            text("SELECT stepik_course_id FROM mart_steps WHERE step_id = 500")
-        ) == 9
+        assert await db_session.scalar(text("SELECT stepik_course_id FROM mart_steps WHERE step_id = 500")) == 9
+
+    @pytest.mark.asyncio
+    async def test_same_lesson_in_two_units_keeps_both_rows(self, db_session):
+        """AGENTS: mart_lessons — одна строка на юнит. Повторный урок в
+        другом юните того же курса раньше терялся."""
+        from app.services.transform import transform_steps
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=100)
+        await db_session.execute(
+            text("INSERT INTO raw_section (section_id, course, position, title) VALUES ('s1', '100', '1', 'M')")
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_unit (unit_id, lesson_id, section_id, position) VALUES
+                ('u1', '10', 's1', '1'),
+                ('u2', '10', 's1', '2')
+        """)
+        )
+        await db_session.execute(text("INSERT INTO raw_lesson (lesson_id, title, steps) VALUES ('10', 'L', '[500]')"))
+        await db_session.commit()
+
+        await transform_steps(db_session)
+        await db_session.commit()
+
+        rows = await db_session.execute(text("SELECT lesson_number FROM mart_lessons ORDER BY lesson_number"))
+        assert [row[0] for row in rows] == [1, 2]
+        # Step keeps the first path.
+        assert await db_session.scalar(text("SELECT lesson_number FROM mart_steps WHERE step_id = 500")) == 1
+
+    @pytest.mark.asyncio
+    async def test_known_course_wins_over_unknown_in_step_map(self, db_session):
+        """Общий урок с «чужим» курсом: атрибуция должна совпадать со
+        структурой (transform_steps предпочитает курс из courses)."""
+        from app.services.transform import build_step_course_map, transform_steps
+
+        user = _make_user(db_session)
+        await _make_course(db_session, user.id, stepik_course_id=100)
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_section (section_id, course, position) VALUES
+                ('1', '50', '1'), ('2', '100', '1')
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_unit (lesson_id, section_id, position) VALUES
+                ('10', '1', '1'), ('10', '2', '1')
+        """)
+        )
+        await db_session.execute(
+            text("""
+            INSERT INTO raw_lesson (lesson_id, title, steps) VALUES ('10', 'L', '[500]')
+        """)
+        )
+        await db_session.commit()
+
+        assert await build_step_course_map(db_session) == {500: 100}
+
+        await transform_steps(db_session)
+        await db_session.commit()
+        assert await db_session.scalar(text("SELECT stepik_course_id FROM mart_steps WHERE step_id = 500")) == 100
 
     @pytest.mark.asyncio
     async def test_step_shared_by_two_lessons_keeps_first_course_path(self, db_session):
@@ -1540,19 +1664,14 @@ class TestSharedLessonAttribution:
                 ('20', '[500]', 'Second lesson')
         """)
         )
-        await db_session.execute(
-            text("INSERT INTO raw_step (step_id, lesson) VALUES ('500', '10')")
-        )
+        await db_session.execute(text("INSERT INTO raw_step (step_id, lesson) VALUES ('500', '10')"))
         await db_session.commit()
 
         await transform_steps(db_session)
 
         step = (
             await db_session.execute(
-                text(
-                    "SELECT stepik_course_id, lesson_id, lesson_number "
-                    "FROM mart_steps WHERE step_id = 500"
-                )
+                text("SELECT stepik_course_id, lesson_id, lesson_number FROM mart_steps WHERE step_id = 500")
             )
         ).one()
         assert tuple(step) == (100, 10, 1)
@@ -1627,11 +1746,7 @@ class TestStudentMartCommentAttribution:
         await transform_students(db_session)
         await db_session.commit()
 
-        row = (
-            await db_session.execute(
-                text("SELECT comments_count, published_solutions FROM student_marts")
-            )
-        ).one()
+        row = (await db_session.execute(text("SELECT comments_count, published_solutions FROM student_marts"))).one()
         assert tuple(row) == (2, 0)
 
 
@@ -1679,10 +1794,7 @@ class TestCommentCourseFallback:
 
         row = (
             await db_session.execute(
-                text(
-                    "SELECT stepik_course_id, lesson_id, step_number "
-                    "FROM mart_comments WHERE comment_id = 10"
-                )
+                text("SELECT stepik_course_id, lesson_id, step_number FROM mart_comments WHERE comment_id = 10")
             )
         ).one()
         assert tuple(row) == (100, 10, None)
@@ -1720,10 +1832,7 @@ class TestCommentCourseFallback:
 
         row = (
             await db_session.execute(
-                text(
-                    "SELECT stepik_course_id, lesson_id, step_number FROM mart_comments "
-                    "WHERE comment_id = 1"
-                )
+                text("SELECT stepik_course_id, lesson_id, step_number FROM mart_comments WHERE comment_id = 1")
             )
         ).one()
         assert tuple(row) == (100, None, None)
@@ -1876,6 +1985,34 @@ class TestTransformStudents:
         assert s9["name"] is None
         assert s9["courses_count"] == 1
         assert s9["certificates"] == 1
+
+    async def test_null_stored_status_is_derived_for_legacy_rows(self, db_session):
+        """Regression: старая строка без cohort_status получала в витрине
+        «Sleeping», а график когорт считал её активной по last_viewed."""
+        from app.models import Course, StudentEnrollment
+        from app.services.transform import transform_students
+
+        user = _make_user(db_session)
+        course = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="Python", status="Published")
+        db_session.add(course)
+        await db_session.flush()
+        db_session.add(
+            StudentEnrollment(
+                id=uuid.uuid4(),
+                course_id=course.id,
+                student_id=7,
+                last_viewed_at=datetime.now(UTC).replace(tzinfo=None),
+                cohort_status="Active",
+            )
+        )
+        await db_session.commit()
+        await db_session.execute(text("UPDATE student_enrollments SET cohort_status = NULL"))
+        await db_session.commit()
+
+        await transform_students(db_session)
+
+        status = await db_session.scalar(text("SELECT cohort_status FROM student_marts WHERE student_id = 7"))
+        assert status == "Active"
 
     async def test_rebuilds_mart_from_scratch(self, db_session):
         from app.models import Course, StudentEnrollment

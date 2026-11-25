@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.transform.common import (
     _parse_step_positions,
+    _to_bool,
     _to_int,
     get_course_status,
     parse_dt,
@@ -53,9 +54,7 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
             {"uid": uid_param},
         )
     else:
-        r = await session.execute(
-            text("SELECT id, stepik_course_id FROM courses ORDER BY created_at, id")
-        )
+        r = await session.execute(text("SELECT id, stepik_course_id FROM courses ORDER BY created_at, id"))
     existing = {row[1]: str(row[0]) for row in r}
 
     # stepik_course_id уникален глобально, поэтому нельзя вставлять курс,
@@ -81,21 +80,11 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
     upserted = 0
     skipped = 0
     for rc in raw_courses:
-        sid = rc["course_id"]
+        sid = _to_int(rc.get("course_id"))
         if sid is None:
             continue
-        sid = int(sid)
         seen_ids.add(sid)
-        is_pub_raw = rc.get("is_public")
-        if is_pub_raw is not None:
-            if isinstance(is_pub_raw, bool):
-                is_pub = is_pub_raw
-            elif isinstance(is_pub_raw, (int, float)):
-                is_pub = bool(is_pub_raw)
-            else:
-                is_pub = str(is_pub_raw).lower() in ("true", "1")
-        else:
-            is_pub = None
+        is_pub = _to_bool(rc.get("is_public"))
         pub_dt = None
         if is_pub:
             pub_raw = rc.get("became_published_at")
@@ -109,7 +98,12 @@ async def transform_courses(session: AsyncSession, user_id: str | None = None):
                     UPDATE courses
                     SET title = :t,
                         status = COALESCE(:s, status),
-                        published_at = COALESCE(:p, published_at)
+                        -- Снятая с публикации работа не должна сохранять
+                        -- дату публикации и попадать в «опубликованные».
+                        published_at = CASE
+                            WHEN :s = 'Draft' THEN NULL
+                            ELSE COALESCE(:p, published_at)
+                        END
                     WHERE stepik_course_id = :sid
                 """),
                 {"t": title, "s": status, "p": pub_dt, "sid": sid},
@@ -194,6 +188,9 @@ async def build_step_course_map(session: AsyncSession) -> dict[int, int]:
         WHERE l.lesson_id IS NOT NULL AND sec.course IS NOT NULL
     """)
     )
+    known_rows = await session.execute(text("SELECT stepik_course_id FROM courses"))
+    known_courses = {cid for row in known_rows if (cid := _to_int(row[0])) is not None}
+
     structure_rows = []
     for lesson_id, steps, course in r:
         course_int = _to_int(course)
@@ -201,7 +198,11 @@ async def build_step_course_map(session: AsyncSession) -> dict[int, int]:
         if course_int is None or lesson_int is None:
             continue
         structure_rows.append((course_int, lesson_int, steps))
-    for _course, _lesson, steps in sorted(structure_rows, key=lambda row: (row[0], row[1])):
+    # A course that exists in the panel wins over a foreign/unknown course:
+    # transform_steps uses the same known-course priority for the mart path.
+    for _course, _lesson, steps in sorted(
+        structure_rows, key=lambda row: (0 if row[0] in known_courses else 1, row[0], row[1])
+    ):
         for step_id in _parse_step_positions(steps):
             result.setdefault(step_id, _course)
 
@@ -221,6 +222,8 @@ async def build_step_course_map(session: AsyncSession) -> dict[int, int]:
         course_int = _to_int(course)
         if step_int is not None and course_int is not None:
             fallback_rows.append((step_int, course_int))
-    for step_int, course_int in sorted(fallback_rows):
+    for step_int, course_int in sorted(
+        fallback_rows, key=lambda row: (0 if row[1] in known_courses else 1, row[0], row[1])
+    ):
         result.setdefault(step_int, course_int)
     return result

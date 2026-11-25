@@ -6,7 +6,6 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import select
 from starlette.requests import Request
-from starlette.responses import Response
 
 from app.api.auth import _profile_stepik_id, callback
 from app.api.auth import settings as auth_settings
@@ -70,7 +69,7 @@ class TestAuthCallback:
             {"id": 1, "user": 64381531, "first_name": "Test"}
         )
         with rate_limit, exchange, profile, panel:
-            response = await callback("test-code", _callback_request(), Response(), db_session)
+            response = await callback("test-code", _callback_request(), db_session)
 
         assert response.status_code == 302
         user = (await db_session.execute(select(User))).scalar_one()
@@ -93,7 +92,7 @@ class TestAuthCallback:
 
         rate_limit, exchange, profile, panel = _token_exchange_patches({"id": 1, "user": 64381531})
         with rate_limit, exchange, profile, panel:
-            response = await callback("test-code", _callback_request(), Response(), db_session)
+            response = await callback("test-code", _callback_request(), db_session)
 
         assert response.status_code == 302
         users = list((await db_session.execute(select(User))).scalars())
@@ -107,7 +106,7 @@ class TestAuthCallback:
         """Regression: профиль без поля `user` не должен превращаться в id=1."""
         rate_limit, exchange, profile, panel = _token_exchange_patches({"id": 1, "first_name": "Test"})
         with rate_limit, exchange, profile, panel, pytest.raises(HTTPException) as exc_info:
-            await callback("test-code", _callback_request(), Response(), db_session)
+            await callback("test-code", _callback_request(), db_session)
 
         assert exc_info.value.status_code == 401
         users = list((await db_session.execute(select(User))).scalars())
@@ -117,7 +116,7 @@ class TestAuthCallback:
     async def test_callback_rejects_empty_profile(self, db_session):
         rate_limit, exchange, profile, panel = _token_exchange_patches({})
         with rate_limit, exchange, profile, panel, pytest.raises(HTTPException) as exc_info:
-            await callback("test-code", _callback_request(), Response(), db_session)
+            await callback("test-code", _callback_request(), db_session)
 
         assert exc_info.value.status_code == 401
         assert list((await db_session.execute(select(User))).scalars()) == []
@@ -129,7 +128,7 @@ class TestAuthCallback:
             {"id": 1, "user": 99999999}, panel_owner=64381531
         )
         with rate_limit, exchange, profile, panel, pytest.raises(HTTPException) as exc_info:
-            await callback("test-code", _callback_request(), Response(), db_session)
+            await callback("test-code", _callback_request(), db_session)
 
         assert exc_info.value.status_code == 403
         assert list((await db_session.execute(select(User))).scalars()) == []
@@ -177,10 +176,9 @@ class TestSessionRefresh:
             patch("app.api.auth._is_blacklisted", new_callable=AsyncMock, return_value=False),
             patch("app.api.auth._blacklist_token", new_callable=AsyncMock) as blacklist,
         ):
-            response = await auth_module.refresh_session(request, Response(), db_session)
+            response = await auth_module.refresh_session(request, db_session)
 
         assert response.status_code == 200
         blacklist.assert_awaited_once()
         assert blacklist.await_args.args[0] == token
         assert blacklist.await_args.args[1] == auth_module._session_ttl_hours() * 3600
-

@@ -23,13 +23,23 @@ def _page_state_key(prefix: str, value: int) -> str:
 
 
 async def _load_page_state(session: AsyncSession, prefix: str) -> dict[int, int]:
+    """Read per-step / per-course page cursors, ignoring corrupt rows.
+
+    A single bad value in raw_sync_state must not abort the whole sync: the
+    cursor is only an optimisation, and the page will be re-read from 1.
+    """
     r = await session.execute(
-        text(
-            "SELECT key, value FROM raw_sync_state "
-            f"WHERE endpoint_name = '{STATE_ENDPOINT}' AND key LIKE '{prefix}_%'"
-        ),
+        text("SELECT key, value FROM raw_sync_state WHERE endpoint_name = :ep AND key LIKE :prefix"),
+        {"ep": STATE_ENDPOINT, "prefix": f"{prefix}_%"},
     )
-    return {int(row[0].split("_", 1)[1]): int(row[1]) for row in r}
+    state: dict[int, int] = {}
+    for key, value in r:
+        try:
+            _, raw_id = str(key).split("_", 1)
+            state[int(raw_id)] = int(value)
+        except (TypeError, ValueError):
+            logger.warning("  ignoring corrupt sync cursor %r=%r", key, value)
+    return state
 
 
 async def _step_ids(session: AsyncSession) -> list[int]:
@@ -55,14 +65,18 @@ async def _sync_step_submissions(
     total = 0
     skipped_steps = []
     for sid in step_ids:
-        last_page = page_state.get(int(sid), 0)
+        stored_page = page_state.get(int(sid), 0)
+        last_page = stored_page
         # Продолжаем С последней сохранённой страницы, а не со следующей:
         # API отдаёт решения oldest-first, и новые записи сначала заполняют
         # хвост последней скачанной страницы (она могла быть неполной).
         # Старт с last_page+1 пропускал бы их навсегда (upsert дедупит повторы).
         page = last_page if last_page > 0 else 1
+        # Лимит — не «всего страниц», а «сколько просмотреть за один запуск»:
+        # иначе шаг на >100k решений навсегда застревал на странице 5000.
+        page_limit = max(MAX_PAGES, stored_page + MAX_PAGES)
         step_new = 0
-        while page <= MAX_PAGES:
+        while page <= page_limit:
             try:
                 data = await _hub()._request(
                     "GET", "/submissions", token, {"step": sid, "page": page, "page_size": 500}
@@ -87,7 +101,11 @@ async def _sync_step_submissions(
                     last_page = 0
                     page -= 1
                     continue
-                if page == 1 and last_page > 0:
+                if page == 1 and stored_page > 0:
+                    # Решений у шага не осталось вовсе (все удалены): без
+                    # сброса курсора каждый следующий синк снова перечитывал
+                    # бы несуществующие страницы до самого page=1.
+                    logger.info("  step %d: no submissions left — resetting cursor", sid)
                     await _save_sync_state(session, STATE_ENDPOINT, _page_state_key("step", sid), "0")
                     await session.commit()
                 break
@@ -112,9 +130,11 @@ async def _sync_step_submissions(
                 break
             page += 1
 
-        if page > MAX_PAGES and step_new > 0:
+        if page > page_limit and step_new > 0:
             logger.warning(
-                "  step %d: достигнут лимит %d страниц — хвост решений не догружен", sid, MAX_PAGES
+                "  step %d: просмотрено %d страниц за запуск — продолжение со следующего синка",
+                sid,
+                page_limit,
             )
 
         if step_new > 0:
@@ -135,12 +155,14 @@ async def _sync_author_submissions(
     author_total = 0
     skipped_courses = []
     for cid in course_ids:
-        last_page = course_page_state.get(cid, 0)
+        stored_page = course_page_state.get(cid, 0)
+        last_page = stored_page
         # Инкремент с последней страницы (не +1): новые записи заполняют хвост
         # последней страницы; upsert дедуплит уже загруженные строки
         page = last_page if last_page > 0 else 1
+        page_limit = max(MAX_PAGES, stored_page + MAX_PAGES)
         course_new = 0
-        while page <= MAX_PAGES:
+        while page <= page_limit:
             try:
                 data = await _hub()._request(
                     "GET", "/submissions", token, {"course": cid, "page": page, "page_size": 500}
@@ -158,7 +180,8 @@ async def _sync_author_submissions(
                     last_page = 0
                     page -= 1
                     continue
-                if page == 1 and last_page > 0:
+                if page == 1 and stored_page > 0:
+                    logger.info("    course %d: no author submissions left — resetting cursor", cid)
                     await _save_sync_state(session, STATE_ENDPOINT, _page_state_key("course", cid), "0")
                     await session.commit()
                 break
@@ -172,6 +195,12 @@ async def _sync_author_submissions(
             if not data.get("meta", {}).get("has_next"):
                 break
             page += 1
+        if page > page_limit and course_new > 0:
+            logger.warning(
+                "    course %d: просмотрено %d страниц за запуск — продолжение со следующего синка",
+                cid,
+                page_limit,
+            )
         if course_new > 0:
             start_page = last_page if last_page > 0 else 1
             logger.info("    course %d: +%d author subs (page %d+)", cid, course_new, start_page)
@@ -180,10 +209,11 @@ async def _sync_author_submissions(
     logger.info("  raw_submission: +%d rows (author pass, incremental)", author_total)
     return author_total, skipped_courses
 
+
 async def _sync_attempts(session: AsyncSession, token: str, mapping_attempts: dict[str, str]) -> int:
     """Download only attempts newly referenced by submissions (attempts are immutable)."""
     r = await session.execute(text("SELECT _raw_json FROM raw_submission"))
-    attempt_ids = set()
+    referenced_ids: set[int] = set()
     for (raw_json,) in r:
         try:
             data = raw_json if isinstance(raw_json, dict) else json.loads(raw_json)
@@ -191,8 +221,8 @@ async def _sync_attempts(session: AsyncSession, token: str, mapping_attempts: di
         except (json.JSONDecodeError, TypeError):
             continue
         if aid is not None:
-            attempt_ids.add(aid)
-    attempt_ids = sorted(attempt_ids)
+            referenced_ids.add(aid)
+    attempt_ids = sorted(referenced_ids)
 
     if attempt_ids:
         r = await session.execute(text("SELECT attempt_id FROM raw_attempt WHERE attempt_id IS NOT NULL"))

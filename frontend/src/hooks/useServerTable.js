@@ -28,7 +28,7 @@ export function useServerTable({
   resetPageOnSync = false,
 }) {
   const { selectedCourseIds, syncStatus } = useSync();
-  const { loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [error, setError] = useState(null);
@@ -42,17 +42,32 @@ export function useServerTable({
   const reqIdRef = useRef(0);
   const firstRenderRef = useRef(true);
   const prevLastSyncRef = useRef(undefined);
+  const lastRequestKeyRef = useRef('');
   const extraKey = JSON.stringify(extraParams ?? {});
   // A direct link (?tab=unanswered) or /students can mount before /auth/me
   // resolves. Fetching then returns 401 and leaves a permanent error banner;
   // wait for the session check to finish (it retries network errors itself).
-  const active = enabled && !authLoading;
+  // After logout the table must be empty and no protected endpoint is called.
+  const active = enabled && !authLoading && Boolean(user);
 
   const totalPages = Math.max(1, Math.ceil(total / rowsPerPage));
   const safePage = Math.min(page, totalPages);
 
   const fetchPage = useCallback(async () => {
+    if (!user) return;
     const id = ++reqIdRef.current;
+    // New page/sort: do not show the previous ordering under the new heading.
+    // rowsPerPage is intentionally not part of the key: an auto-measured size
+    // change is not a navigation, and the same rows stay valid meanwhile.
+    const requestKey = `${endpoint}|${safePage}|${sort.key}|${sort.dir}|${extraKey}|${JSON.stringify(
+      selectedCourseIds,
+    )}`;
+    if (lastRequestKeyRef.current !== requestKey) {
+      lastRequestKeyRef.current = requestKey;
+      // Keep the known total: zeroing it would make the page clamp effect
+      // reset a just-requested page 2 back to page 1.
+      setRows([]);
+    }
     setLoading(true);
     setError(null);
     const filterParams = {};
@@ -78,11 +93,14 @@ export function useServerTable({
     } finally {
       if (reqIdRef.current === id) setLoading(false);
     }
-  }, [endpoint, resultKey, safePage, rowsPerPage, sort.key, sort.dir, selectedCourseIds, extraKey]);
+  }, [endpoint, resultKey, safePage, rowsPerPage, sort.key, sort.dir, selectedCourseIds, extraKey, user]);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || !user) {
       reqIdRef.current += 1;
+      setRows([]);
+      setTotal(0);
+      setError(null);
       setLoading(false);
       return;
     }
@@ -90,7 +108,7 @@ export function useServerTable({
     // of flashing the empty-state row and removing it a tick later).
     if (authLoading) return;
     fetchPage();
-  }, [enabled, authLoading, fetchPage]);
+  }, [enabled, authLoading, user, fetchPage]);
 
   useEffect(() => {
     // Previous tab/filter rows must not be shown under the new heading while

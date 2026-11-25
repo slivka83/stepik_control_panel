@@ -41,9 +41,7 @@ async def _count_mart_month(db, table, year, month, course_ids=None, is_solution
     if is_solution is not None and table == "mart_comments":
         where.append("is_solution = :sol")
         params["sol"] = is_solution
-    rows = await db.execute(
-        text(f"SELECT count(*) FROM {table} WHERE {' AND '.join(where)}"), params
-    )
+    rows = await db.execute(text(f"SELECT count(*) FROM {table} WHERE {' AND '.join(where)}"), params)
     return rows.scalar() or 0
 
 
@@ -168,8 +166,13 @@ async def get_kpi(
     if not selected_course_ids:
         return dict(_EMPTY_KPI)
 
+    # «Студенты» — уникальные люди, а не строки зачислений: один студент на
+    # двух курсах не должен считаться дважды (страница «Студенты» тоже
+    # показывает его одной строкой).
     students_result = await db.execute(
-        select(func.count(StudentEnrollment.id)).where(StudentEnrollment.course_id.in_(selected_course_ids))
+        select(func.count(func.distinct(StudentEnrollment.student_id))).where(
+            StudentEnrollment.course_id.in_(selected_course_ids)
+        )
     )
     total_students = students_result.scalar() or 0
 
@@ -244,13 +247,9 @@ async def get_kpi(
         prev_payments = _month_stat(months, prev_year, prev_month, "payments_count")
         payments_change_pct, payments_change_detail = _trend(current_month_payments, prev_payments)
         prev_refunds = _month_stat(months, prev_year, prev_month, "refunds")
-        refunds_amount_change_pct, refunds_amount_change_detail = _trend(
-            current_month_refunds_amount, prev_refunds
-        )
+        refunds_amount_change_pct, refunds_amount_change_detail = _trend(current_month_refunds_amount, prev_refunds)
         prev_refunds_count = _month_stat(months, prev_year, prev_month, "refunds_count")
-        refunds_count_change_pct, refunds_count_change_detail = _trend(
-            current_month_refunds_count, prev_refunds_count
-        )
+        refunds_count_change_pct, refunds_count_change_detail = _trend(current_month_refunds_count, prev_refunds_count)
 
     sub_result = await db.execute(
         select(
@@ -263,25 +262,34 @@ async def get_kpi(
     )
     sub_by_month = {(int(r.y), int(r.m)): r.cnt for r in sub_result.all()}
 
-    enroll_result = await db.execute(
+    # «Новые студенты» = первый раз записались на любой из выбранных курсов
+    # именно в этом месяце. Возвращающийся студент (был записан раньше, взял
+    # ещё один курс) не считается новым — иначе счётчик завышался.
+    first_join = (
         select(
-            extract("year", StudentEnrollment.date_joined).label("y"),
-            extract("month", StudentEnrollment.date_joined).label("m"),
-            func.count(StudentEnrollment.id).label("cnt"),
+            StudentEnrollment.student_id,
+            func.min(StudentEnrollment.date_joined).label("first_joined"),
         )
         .where(StudentEnrollment.course_id.in_(selected_course_ids))
-        .group_by("y", "m")
+        .group_by(StudentEnrollment.student_id)
+        .subquery()
     )
-    enroll_by_month = {
-        (int(r.y), int(r.m)): r.cnt
-        for r in enroll_result.all()
-        if r.y is not None and r.m is not None
-    }
+
+    async def _first_joined_in(year: int, month: int) -> int:
+        result = await db.execute(
+            select(func.count())
+            .select_from(first_join)
+            .where(
+                extract("year", first_join.c.first_joined) == year,
+                extract("month", first_join.c.first_joined) == month,
+            )
+        )
+        return result.scalar() or 0
 
     cur_subs = sub_by_month.get((cur_year, cur_month), 0)
     prev_subs = sub_by_month.get((prev_year, prev_month), 0)
-    cur_enroll = enroll_by_month.get((cur_year, cur_month), 0)
-    prev_enroll = enroll_by_month.get((prev_year, prev_month), 0)
+    cur_enroll = await _first_joined_in(cur_year, cur_month)
+    prev_enroll = await _first_joined_in(prev_year, prev_month)
 
     # Витрины — единый источник для KPI: те же строки, что на страницах
     # Комментарии/Отзывы/Сертификаты. Ограничиваем их курсами пользователя
@@ -296,20 +304,12 @@ async def get_kpi(
     all_comments_mart = await _count_mart_total(db, "mart_comments")
     mart_certificates_total = await _count_mart_total(db, "mart_certificates", mart_course_ids)
     mart_reviews_total = await _count_mart_total(db, "mart_reviews", mart_course_ids)
-    mart_comments_total = await _count_mart_total(
-        db, "mart_comments", mart_course_ids, is_solution=False
-    )
-    mart_solutions_total = await _count_mart_total(
-        db, "mart_comments", mart_course_ids, is_solution=True
-    )
+    mart_comments_total = await _count_mart_total(db, "mart_comments", mart_course_ids, is_solution=False)
+    mart_solutions_total = await _count_mart_total(db, "mart_comments", mart_course_ids, is_solution=True)
     has_comment_mart = all_comments_mart > 0
 
-    cur_certificates = await _count_mart_month(
-        db, "mart_certificates", cur_year, cur_month, mart_course_ids
-    )
-    prev_certificates = await _count_mart_month(
-        db, "mart_certificates", prev_year, prev_month, mart_course_ids
-    )
+    cur_certificates = await _count_mart_month(db, "mart_certificates", cur_year, cur_month, mart_course_ids)
+    prev_certificates = await _count_mart_month(db, "mart_certificates", prev_year, prev_month, mart_course_ids)
     cur_reviews = await _count_mart_month(db, "mart_reviews", cur_year, cur_month, mart_course_ids)
     prev_reviews = await _count_mart_month(db, "mart_reviews", prev_year, prev_month, mart_course_ids)
 
@@ -341,14 +341,8 @@ async def get_kpi(
         cur_solutions = solutions_monthly.get(cur_comments_key, 0)
         prev_solutions = solutions_monthly.get(prev_comments_key, 0)
 
-    total_certificates = (
-        mart_certificates_total if has_certificates_mart else certificates_issued
-    )
-    total_reviews = (
-        mart_reviews_total
-        if has_reviews_mart
-        else int(community.get("total_reviews", 0) or 0)
-    )
+    total_certificates = mart_certificates_total if has_certificates_mart else certificates_issued
+    total_reviews = mart_reviews_total if has_reviews_mart else int(community.get("total_reviews", 0) or 0)
     if has_comment_mart:
         # Витрина комментариев собрана: нулевые решения — это ноль, а не
         # повод подставить устаревшее значение из старого снапшота.
@@ -361,13 +355,7 @@ async def get_kpi(
     # «Фильтр = все курсы» обязан совпадать с «без фильтра», включая шаги без
     # атрибуции к курсу (они питают KPI). Подмножество курсов их исключает.
     all_user_stepik_ids = set(
-        (
-            await db.execute(
-                select(Course.stepik_course_id).where(Course.user_id == user.id)
-            )
-        )
-        .scalars()
-        .all()
+        (await db.execute(select(Course.stepik_course_id).where(Course.user_id == user.id))).scalars().all()
     )
     if is_filtered and selected_stepik_ids != all_user_stepik_ids:
         steps_average_grade = await filter_steps_average_grade(db, selected_stepik_ids)

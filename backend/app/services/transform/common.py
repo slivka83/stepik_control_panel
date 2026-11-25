@@ -114,6 +114,27 @@ def _to_float(value):
         return None
 
 
+def _to_bool(value) -> bool | None:
+    """Parse a bool from API JSON / PostgreSQL jsonb / SQLite TEXT.
+
+    The raw layer stores booleans as text ("True"/"false"/"1"), so a plain
+    truthiness check would treat "false" as True and show wrong flags.
+    None means "unknown" — callers decide the fallback.
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text_value = str(value).strip().lower()
+    if text_value in ("true", "1", "yes"):
+        return True
+    if text_value in ("false", "0", "no"):
+        return False
+    return None
+
+
 def _month_tuple(time_raw) -> tuple[int, int] | None:
     dt = parse_dt(time_raw)
     if dt is None:
@@ -146,7 +167,7 @@ def is_published_solution(comment: dict) -> bool:
     """
     if not isinstance(comment, dict) or not is_solution_thread(comment.get("thread")):
         return False
-    return comment.get("user_role") != "teacher"
+    return str(comment.get("user_role") or "").strip().lower() != "teacher"
 
 
 _TAG_RE = re.compile(r"<[^>]+>")

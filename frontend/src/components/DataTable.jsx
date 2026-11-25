@@ -1,44 +1,20 @@
 import { memo, Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { firstSortDir, makeComparator, naturalDirOf } from '../utils/sorting';
 
 const ROW_HEIGHT = 35;
 
-function calcRowsPerPage(node) {
+function calcRowsPerPage(node, rowHeight = ROW_HEIGHT) {
   const header = node.querySelector('thead');
   const headerH = header?.offsetHeight || 0;
   // Empty-state row has py-8 and must not define the page size.
   const row = node.querySelector('tbody tr[data-row]');
-  const rowH = row?.offsetHeight || ROW_HEIGHT;
+  const rowH = row?.offsetHeight || rowHeight;
   const avail = node.clientHeight - headerH - 4;
   return Math.max(1, Math.floor(avail / rowH));
 }
 
-function naturalDirOf(column) {
-  return column.naturalDir != null ? column.naturalDir : column.numeric ? 'asc' : 'desc';
-}
-
-// Generic comparator honoring the column config: numeric/nullLast/getValue.
-export function makeComparator(columns) {
-  const byKey = Object.fromEntries(columns.map((c) => [c.key, c]));
-  return (a, b, key, dir) => {
-    const cfg = byKey[key];
-    const va = cfg.getValue ? cfg.getValue(a) : a[key];
-    const vb = cfg.getValue ? cfg.getValue(b) : b[key];
-    if (cfg.nullLast) {
-      if (va == null && vb == null) return 0;
-      if (va == null) return 1;
-      if (vb == null) return -1;
-    }
-    let diff;
-    if (cfg.numeric) {
-      diff = (va ?? 0) - (vb ?? 0);
-    } else {
-      diff = String(va ?? '')
-        .toLowerCase()
-        .localeCompare(String(vb ?? '').toLowerCase(), 'ru');
-    }
-    return dir === 'asc' ? diff : -diff;
-  };
-}
+// Re-exported for pages/tests that historically imported it from DataTable.
+export { makeComparator };
 
 export function useSortState(columns, initialSort) {
   const [sort, setSort] = useState(initialSort);
@@ -48,7 +24,7 @@ export function useSortState(columns, initialSort) {
       setSort((state) =>
         state.key === key
           ? { key, dir: state.dir === 'asc' ? 'desc' : 'asc' }
-          : { key, dir: columnsByKey[key]?.numeric ? 'desc' : 'asc' },
+          : { key, dir: firstSortDir(columnsByKey[key]) },
       );
     },
     [columnsByKey],
@@ -60,6 +36,10 @@ export function useRowsPerPage(rowsLength = 0) {
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [node, setNode] = useState(null);
   const prevRows = useRef(0);
+  // Remember the real row height. When a new page is loading the table may be
+  // briefly empty; falling back to 35px then made the page size oscillate
+  // (clear → measure 35 → fetch → rows at 20 → clear …).
+  const rowHeightRef = useRef(ROW_HEIGHT);
 
   // Callback ref (not a ref object): lazy tabs have no <table> at mount, and
   // an effect with [] would never see the node when the tab is opened later.
@@ -67,7 +47,9 @@ export function useRowsPerPage(rowsLength = 0) {
 
   const measure = useCallback(() => {
     if (!node) return;
-    const calc = calcRowsPerPage(node);
+    const row = node.querySelector('tbody tr[data-row]');
+    if (row?.offsetHeight) rowHeightRef.current = row.offsetHeight;
+    const calc = calcRowsPerPage(node, rowHeightRef.current);
     if (calc !== prevRows.current) {
       prevRows.current = calc;
       setRowsPerPage(calc);
@@ -99,7 +81,7 @@ const SortableTh = memo(function SortableTh({ column, sort, onSort }) {
   const active = sort.key === column.key;
   const arrow = (
     <span className={`shrink-0 ${active ? 'text-cyber-blue' : 'invisible'}`}>
-      {sort.dir === naturalDirOf(column) ? '↓' : '↑'}
+      {sort.dir === naturalDirOf(column) ? '↑' : '↓'}
     </span>
   );
   const activate = () => onSort(column.key);
@@ -206,7 +188,11 @@ export default function DataTable({
 }) {
   const { tableRef: ownRef, rowsPerPage: ownRows } = useRowsPerPage(rows.length);
   const fallbackSort = useMemo(
-    () => initialSort || { key: columns[0]?.key, dir: 'asc' },
+    () =>
+      initialSort || {
+        key: columns[0]?.key,
+        dir: firstSortDir(columns[0]),
+      },
     [initialSort, columns],
   );
   const { sort: ownSort, onSort: ownOnSort } = useSortState(columns, fallbackSort);
@@ -241,6 +227,7 @@ export default function DataTable({
   }, [sort.key, sort.dir, server, setPage]);
 
   const showEmpty = !loading && !error && rows.length === 0 && emptyText;
+  const displayPage = Math.min(Math.max(1, page), view.totalPages);
 
   return (
     <div className={panelClassName}>
@@ -273,7 +260,7 @@ export default function DataTable({
           <div className="flex items-center justify-center h-full text-crimson-alert text-sm">{error}</div>
         )}
       </div>
-      <Pagination page={page} totalPages={view.totalPages} setPage={setPage} />
+      <Pagination page={displayPage} totalPages={view.totalPages} setPage={setPage} />
     </div>
   );
 }

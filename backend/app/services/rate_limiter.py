@@ -8,6 +8,7 @@ import asyncio
 import logging
 import threading
 import time
+import uuid
 import weakref
 
 import redis.asyncio as redis
@@ -168,9 +169,12 @@ async def check_auth_rate_limit(ip: str, max_requests: int = 5, window_seconds: 
 
     try:
         client = _get_redis()
+        # Unique member: two requests within the same float timestamp must be
+        # counted separately (a shared "str(now)" member silently merged them).
+        member = f"{now}:{uuid.uuid4().hex}"
         pipe = client.pipeline()
         pipe.zremrangebyscore(key, 0, window_start)
-        pipe.zadd(key, {str(now): now})
+        pipe.zadd(key, {member: now})
         pipe.zcard(key)
         pipe.expire(key, window_seconds)
         results = await pipe.execute()

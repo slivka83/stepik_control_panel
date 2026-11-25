@@ -1,9 +1,12 @@
 export default function Tabs({ items, active, onChange }) {
   return (
-    <div className="inline-flex self-start gap-2 pb-0 shrink-0">
+    <div role="tablist" className="inline-flex self-start gap-2 pb-0 shrink-0">
       {items.map((tab) => (
         <button
           key={tab.key}
+          type="button"
+          role="tab"
+          aria-selected={active === tab.key}
           onClick={() => onChange(tab.key)}
           className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
             active === tab.key

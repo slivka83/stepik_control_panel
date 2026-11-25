@@ -131,9 +131,7 @@ class TestNetworkRetry:
                     mock_response.json.return_value = {"data": "ok"}
 
                     instance = mock_client.return_value
-                    instance.request = AsyncMock(
-                        side_effect=[httpx.ReadTimeout("timed out"), mock_response]
-                    )
+                    instance.request = AsyncMock(side_effect=[httpx.ReadTimeout("timed out"), mock_response])
 
                     result = await _request("GET", "/test")
                     assert result == {"data": "ok"}

@@ -69,6 +69,23 @@ async def transform_submissions(session: AsyncSession):
 
     app_course_map = await load_course_map(session)
 
+    # Submissions are loaded incrementally, so a step/lesson removed on Stepik
+    # never sends a "deleted" signal. Drop rows whose step no longer belongs to
+    # any of the author's courses — otherwise totals/hardest-steps keep
+    # counting deleted content forever.
+    valid_steps = {sid for sid, cid in step_course.items() if cid in app_course_map}
+    existing_steps = (await session.execute(text("SELECT DISTINCT stepik_step_id FROM submissions"))).scalars().all()
+    stale_steps = [int(sid) for sid in existing_steps if sid is not None and int(sid) not in valid_steps]
+    for start in range(0, len(stale_steps), 500):
+        chunk = stale_steps[start : start + 500]
+        placeholders = ", ".join(f":s{i}" for i in range(len(chunk)))
+        await session.execute(
+            text(f"DELETE FROM submissions WHERE stepik_step_id IN ({placeholders})"),
+            {f"s{i}": value for i, value in enumerate(chunk)},
+        )
+    if stale_steps:
+        logger.info("  deleted %d stale submissions (steps no longer in structure)", len(stale_steps))
+
     r = await session.execute(
         text("""
         SELECT submission_id, step, attempt, status, time, score, _raw_json
@@ -137,9 +154,11 @@ async def transform_submissions(session: AsyncSession):
                 step_id = attempt_step.get(int(attempt_id))
             except (TypeError, ValueError):
                 step_id = None
-        if not sid or not step_id:
+        sid_int = _to_int(sid)
+        step_int = _to_int(step_id)
+        if sid_int is None or step_int is None:
             continue
-        step_cid = step_course.get(int(step_id))
+        step_cid = step_course.get(step_int)
         if step_cid not in app_course_map:
             continue
         course_uuid = app_course_map[step_cid]
@@ -170,8 +189,7 @@ async def transform_submissions(session: AsyncSession):
             uid = sub_user_int
         owner_uid = course_author.get(int(step_cid), fallback_author) if step_cid is not None else fallback_author
         is_author = bool(owner_uid) and (
-            (sub_user_int is not None and sub_user_int == owner_uid)
-            or (uid is not None and uid == owner_uid)
+            (sub_user_int is not None and sub_user_int == owner_uid) or (uid is not None and uid == owner_uid)
         )
         score = _to_float(sub.get("score")) or 0.0
         eta_val = _to_int(sub.get("eta")) or 0
@@ -179,8 +197,8 @@ async def transform_submissions(session: AsyncSession):
         batch.append(
             {
                 "id": str(uuid.uuid4()),
-                "ssid": int(sid),
-                "step_id": int(step_id),
+                "ssid": sid_int,
+                "step_id": step_int,
                 "cid": course_uuid,
                 "status": status,
                 "score": score,

@@ -11,6 +11,7 @@ from app.services.transform.common import (
     _ensure_json,
     _month_tuple,
     _serialize_data,
+    _to_bool,
     _to_int,
     is_published_solution,
     load_course_map,
@@ -87,7 +88,7 @@ async def transform_community(session: AsyncSession):
     lesson_course = await build_lesson_course_map(session)
 
     for cm in comments:
-        if cm.get("is_deleted"):
+        if _to_bool(cm.get("is_deleted")) is True:
             continue
         ym = _month_tuple(cm.get("time"))
         if ym is None:

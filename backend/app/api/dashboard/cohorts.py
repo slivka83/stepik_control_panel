@@ -1,19 +1,33 @@
-"""Cohort segmentation counts."""
-
-from datetime import UTC, datetime, timedelta
+"""Cohort segmentation counts (one student = one segment)."""
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.auth import get_user
 from app.api.dashboard.common import get_courses_for_user
 from app.api.dashboard.course_filter import parse_course_ids
-from app.constants import COHORT_ACTIVE_DAYS, COHORT_FADING_DAYS, COHORT_PASSIVE_DAYS
+from app.constants import COHORT_RANK
 from app.database import get_db
 from app.models import StudentEnrollment, User
+from app.services.transform.common import calculate_cohort_status
 
 router = APIRouter()
+
+SEGMENTS = ("active", "passive", "fading", "sleeping", "zombie")
+
+
+def _segment_for(stored_status, last_viewed_at, date_joined) -> str:
+    """Best status of ONE enrollment.
+
+    Stored Zombie is authoritative (it encodes "opened only in the first days
+    after joining" — time alone cannot reproduce that without date_joined).
+    Other stored statuses are intentionally recomputed from the latest
+    activity, so the bar stays fresh between syncs.
+    """
+    if str(stored_status or "").strip().lower() == "zombie" or last_viewed_at is None:
+        return "Zombie"
+    return calculate_cohort_status(last_viewed_at, date_joined)
 
 
 @router.get("/cohorts")
@@ -22,62 +36,34 @@ async def get_cohorts(
     db: AsyncSession = Depends(get_db),
     course_ids: str = Query(None),
 ):
-    _, course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
+    _, selected_course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
 
-    if not course_ids:
-        return {"active": 0, "passive": 0, "fading": 0, "sleeping": 0, "zombie": 0}
+    # An empty dict must still contain every segment key (the bar expects all).
+    cohorts = dict.fromkeys(SEGMENTS, 0)
+    if not selected_course_ids:
+        return cohorts
 
-    now = datetime.now(UTC)
-
-    def _cut(days: int) -> datetime:
-        # Те же +1 с, что в calculate_cohort_status: ровно на границе 7/30/90
-        # дней запись не должна «перескакивать» в соседний сегмент из-за
-        # микросекунд между расчётом и запросом.
-        return now - timedelta(days=days, seconds=1)
-
-    cohorts = {}
-    # NULL status (старые строки) не должен выпадать из всех сегментов:
-    # `status != 'Zombie'` для NULL даёт NULL (false).
-    not_zombie = or_(
-        StudentEnrollment.cohort_status.is_(None),
-        StudentEnrollment.cohort_status != "Zombie",
+    rows = await db.execute(
+        select(
+            StudentEnrollment.student_id,
+            StudentEnrollment.cohort_status,
+            StudentEnrollment.last_viewed_at,
+            StudentEnrollment.date_joined,
+        ).where(StudentEnrollment.course_id.in_(selected_course_ids))
     )
 
-    for label, days_min, days_max in [
-        ("active", 0, COHORT_ACTIVE_DAYS),
-        ("passive", COHORT_ACTIVE_DAYS, COHORT_PASSIVE_DAYS),
-        ("fading", COHORT_PASSIVE_DAYS, COHORT_FADING_DAYS),
-    ]:
-        conditions = [
-            StudentEnrollment.course_id.in_(course_ids),
-            not_zombie,
-            StudentEnrollment.last_viewed_at >= _cut(days_max),
-        ]
-        if days_min:
-            # Для active верхней границы нет: запись ровно «сейчас» (или с
-            # небольшим сдвигом часов вперёд) иначе выпадала из всех сегментов.
-            conditions.append(StudentEnrollment.last_viewed_at < _cut(days_min))
-        result = await db.execute(select(func.count(StudentEnrollment.id)).where(*conditions))
-        cohorts[label] = result.scalar() or 0
+    # One student may study several courses with different activity. Collapse
+    # to the best status (Active > Passive > …), exactly like student_marts.
+    best: dict[int, tuple[int, str]] = {}
+    for student_id, stored_status, last_viewed, joined in rows:
+        status = _segment_for(stored_status, last_viewed, joined)
+        rank = COHORT_RANK.get(status, 99)
+        current = best.get(student_id)
+        if current is None or rank < current[0]:
+            best[student_id] = (rank, status)
 
-    sleeping_result = await db.execute(
-        select(func.count(StudentEnrollment.id)).where(
-            StudentEnrollment.course_id.in_(course_ids),
-            StudentEnrollment.last_viewed_at < _cut(COHORT_FADING_DAYS),
-            not_zombie,
-        )
-    )
-    cohorts["sleeping"] = sleeping_result.scalar() or 0
-
-    zombie_result = await db.execute(
-        select(func.count(StudentEnrollment.id)).where(
-            StudentEnrollment.course_id.in_(course_ids),
-            or_(
-                StudentEnrollment.cohort_status == "Zombie",
-                StudentEnrollment.last_viewed_at.is_(None),
-            ),
-        )
-    )
-    cohorts["zombie"] = zombie_result.scalar() or 0
-
+    for _rank, status in best.values():
+        key = status.lower()
+        if key in cohorts:
+            cohorts[key] += 1
     return cohorts

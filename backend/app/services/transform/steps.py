@@ -47,9 +47,7 @@ async def transform_steps(session: AsyncSession):
     for lesson_id, section_id, position in r:
         if lesson_id is None or section_id is None:
             continue
-        units_by_section.setdefault(str(section_id), []).append(
-            (_to_int(position) or 0, _to_int(lesson_id))
-        )
+        units_by_section.setdefault(str(section_id), []).append((_to_int(position) or 0, _to_int(lesson_id)))
 
     lesson_info: dict[int, dict] = {}
     r = await session.execute(text("SELECT lesson_id, steps, title FROM raw_lesson"))
@@ -92,7 +90,12 @@ async def transform_steps(session: AsyncSession):
 
     module_info: dict[str, dict] = {}
     lesson_attr: dict[int, dict] = {}
-    for course_int in sorted(course_sections):
+    # One row per UNIT (a lesson may be added to two units of one course).
+    # lesson_attr keeps only the first path of a lesson — steps have one path.
+    unit_entries: list[dict] = []
+    # Known courses first: a lesson shared with a course missing from the
+    # panel must belong to the displayed course (same rule as the step map).
+    for course_int in sorted(course_sections, key=lambda cid: (0 if cid in course_map else 1, cid)):
         sec_ids = sorted(
             course_sections[course_int],
             key=lambda s: (sections[s]["position"] if sections[s]["position"] is not None else 0, s),
@@ -106,13 +109,12 @@ async def transform_steps(session: AsyncSession):
                 "course": course_int,
             }
             for _unit_pos, lesson_id in sorted(units_by_section.get(section_id, [])):
-                # Один урок может стоять в курсе несколько раз (или в двух
-                # курсах): у витрины один путь на шаг, поэтому первый по
-                # порядку модуль/курс — источник истины. Первый = минимальный
-                # course id (курсы обходятся по возрастанию), как в
-                # build_step_course_map — иначе структура и решения/комментарии
-                # приписывали общий урок разным курсам.
-                if lesson_id is None or lesson_id in lesson_attr:
+                if lesson_id is None:
+                    continue
+                existing = lesson_attr.get(lesson_id)
+                # The same lesson in another course belongs to the first
+                # (known-priority) course only.
+                if existing is not None and existing["course"] != course_int:
                     continue
                 # Секция может ссылаться на урок, которого нет в raw_lesson
                 # (частичный синк/удалённый урок). Такой урок сохраняем для
@@ -121,12 +123,16 @@ async def transform_steps(session: AsyncSession):
                 has_lesson = lesson_id in lesson_info
                 if has_lesson:
                     lesson_number += 1
-                lesson_attr[lesson_id] = {
+                attr = {
                     "course": course_int,
                     "module_number": module_number,
                     "lesson_number": lesson_number if has_lesson else None,
                     "module_title": info["title"],
                 }
+                if existing is None:
+                    lesson_attr[lesson_id] = attr
+                if has_lesson:
+                    unit_entries.append({"lesson_id": lesson_id, **attr})
 
     module_rows = []
     lesson_rows = []
@@ -134,9 +140,7 @@ async def transform_steps(session: AsyncSession):
         course_uuid = course_map.get(course_int)
         if course_uuid is None:
             continue
-        for section_id in sorted(
-            course_sections[course_int], key=lambda s: (module_info[s]["module_number"], s)
-        ):
+        for section_id in sorted(course_sections[course_int], key=lambda s: (module_info[s]["module_number"], s)):
             info = module_info[section_id]
             module_rows.append(
                 {
@@ -147,16 +151,12 @@ async def transform_steps(session: AsyncSession):
                     "module_title": info["module_title"],
                 }
             )
-        course_lessons = sorted(
-            (
-                (attr["lesson_number"], lesson_id, attr)
-                for lesson_id, attr in lesson_attr.items()
-                if attr["course"] == course_int and lesson_id in lesson_info
-            ),
-            key=lambda item: item[0],
+        course_units = sorted(
+            (entry for entry in unit_entries if entry["course"] == course_int),
+            key=lambda entry: (entry["module_number"], entry["lesson_number"]),
         )
-        for _number, lesson_id, attr in course_lessons:
-            li = lesson_info.get(lesson_id)
+        for entry in course_units:
+            li = lesson_info.get(entry["lesson_id"])
             if li is None:
                 continue
             lesson_rows.append(
@@ -164,10 +164,10 @@ async def transform_steps(session: AsyncSession):
                     "id": str(uuid.uuid4()),
                     "course_id": course_uuid,
                     "stepik_course_id": course_int,
-                    "lesson_id": lesson_id,
-                    "lesson_number": attr["lesson_number"],
-                    "module_number": attr["module_number"],
-                    "module_title": attr["module_title"],
+                    "lesson_id": entry["lesson_id"],
+                    "lesson_number": entry["lesson_number"],
+                    "module_number": entry["module_number"],
+                    "module_title": entry["module_title"],
                     "lesson_title": li["title"],
                 }
             )

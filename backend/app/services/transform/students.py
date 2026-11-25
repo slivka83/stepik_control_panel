@@ -11,9 +11,12 @@ from app.constants import COHORT_RANK
 from app.services.transform.common import (
     _ensure_json,
     _month_tuple,
+    _to_bool,
     _to_int,
+    calculate_cohort_status,
     is_published_solution,
     load_course_map,
+    parse_dt,
 )
 from app.services.transform.courses import build_lesson_course_map, build_step_course_map
 
@@ -42,14 +45,17 @@ async def transform_students(session: AsyncSession):
 
     status_rows = await session.execute(
         text("""
-        SELECT student_id, cohort_status FROM student_enrollments
-        WHERE cohort_status IS NOT NULL
+        SELECT student_id, cohort_status, last_viewed_at, date_joined
+        FROM student_enrollments
     """)
     )
     best_status: dict[int, str] = {}
-    for sid, st in status_rows:
-        if sid not in best_status or COHORT_RANK.get(st, 99) < COHORT_RANK.get(best_status[sid], 99):
-            best_status[sid] = st
+    for sid, stored_status, last_viewed, joined in status_rows:
+        # Legacy rows may have no stored status: derive it so the student card
+        # and the /cohorts bar use the same segmentation.
+        status = stored_status or calculate_cohort_status(parse_dt(last_viewed), parse_dt(joined))
+        if sid not in best_status or COHORT_RANK.get(status, 99) < COHORT_RANK.get(best_status[sid], 99):
+            best_status[sid] = status
 
     sub_rows = await session.execute(
         text("""
@@ -80,7 +86,7 @@ async def transform_students(session: AsyncSession):
     solutions_by_user: dict[int, int] = {}
     for (raw_json,) in comment_rows:
         obj = _ensure_json(raw_json)
-        if not isinstance(obj, dict) or obj.get("is_deleted"):
+        if not isinstance(obj, dict) or _to_bool(obj.get("is_deleted")) is True:
             continue
         uid = _to_int(obj.get("user"))
         if uid is None:

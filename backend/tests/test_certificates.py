@@ -50,15 +50,22 @@ async def _seed(db, user, with_certs=True):
             ("c2", "2", "100", {"issue_date": "2026-07-11T10:00:00Z", "type": "regular", "user": 2}),
             # course 200: август, 1 regular, автор 1; distinction с не-числовым user_id — в students не входит
             ("c3", "1", "200", {"issue_date": "2026-08-01T10:00:00Z", "type": "regular", "user": 1}),
-            ("c4", "stepik_panel", "200", {"issue_date": "2026-08-02T10:00:00Z", "type": "distinction", "user": "stepik_panel"}),
+            (
+                "c4",
+                "stepik_panel",
+                "200",
+                {"issue_date": "2026-08-02T10:00:00Z", "type": "distinction", "user": "stepik_panel"},
+            ),
             # без type → обычные; без issue_date → пропускается
             ("c5", "3", "100", {"issue_date": "2026-07-15T10:00:00Z", "user": 3}),
             ("c6", "4", "100", {"type": "regular", "user": 4}),
         ]
         for cid, uid, course, payload in certs:
             await db.execute(
-                text("INSERT INTO raw_certificate (certificate_id, user_id, course_id, _raw_json) "
-                     "VALUES (:cid, :uid, :course, :j)"),
+                text(
+                    "INSERT INTO raw_certificate (certificate_id, user_id, course_id, _raw_json) "
+                    "VALUES (:cid, :uid, :course, :j)"
+                ),
                 {"cid": cid, "uid": uid, "course": course, "j": json.dumps(payload)},
             )
     await db.flush()
@@ -94,13 +101,23 @@ async def test_certificates_aggregates_months_years_courses(db_session):
     months = {m["month"]: m for m in data["months"]}
     july = months["Июль 2026"]
     assert july == {
-        "month": "Июль 2026", "year": 2026, "month_num": 7,
-        "students": 3, "total": 3, "distinction": 1, "regular": 2,
+        "month": "Июль 2026",
+        "year": 2026,
+        "month_num": 7,
+        "students": 3,
+        "total": 3,
+        "distinction": 1,
+        "regular": 2,
     }
     aug = months["Август 2026"]
     assert aug == {
-        "month": "Август 2026", "year": 2026, "month_num": 8,
-        "students": 1, "total": 2, "distinction": 1, "regular": 1,
+        "month": "Август 2026",
+        "year": 2026,
+        "month_num": 8,
+        "students": 1,
+        "total": 2,
+        "distinction": 1,
+        "regular": 1,
     }
 
     assert data["years"] == [{"year": 2026, "students": 3, "total": 5, "distinction": 2, "regular": 3}]
@@ -109,12 +126,22 @@ async def test_certificates_aggregates_months_years_courses(db_session):
 
     by_course = {b["stepik_course_id"]: b for b in data["by_course"]}
     assert by_course[100] == {
-        "course_id": str(c1.id), "stepik_course_id": 100, "title": "Python",
-        "students": 3, "total": 3, "distinction": 1, "regular": 2,
+        "course_id": str(c1.id),
+        "stepik_course_id": 100,
+        "title": "Python",
+        "students": 3,
+        "total": 3,
+        "distinction": 1,
+        "regular": 2,
     }
     assert by_course[200] == {
-        "course_id": str(c2.id), "stepik_course_id": 200, "title": "Java",
-        "students": 1, "total": 2, "distinction": 1, "regular": 1,
+        "course_id": str(c2.id),
+        "stepik_course_id": 200,
+        "title": "Java",
+        "students": 1,
+        "total": 2,
+        "distinction": 1,
+        "regular": 1,
     }
 
 
@@ -123,7 +150,9 @@ async def test_certificates_empty_db(db_session):
     await _seed(db_session, user, with_certs=False)
     data = _get_stats(db_session, user)
     assert data == {
-        "months": [], "years": [], "by_course": [],
+        "months": [],
+        "years": [],
+        "by_course": [],
         "totals": {"certificates": 0, "students": 0, "distinction": 0, "regular": 0},
     }
 
@@ -158,15 +187,19 @@ async def test_certificates_foreign_course_excluded(db_session):
     c1, _ = await _seed(db_session, user)
 
     other = User(
-        id=uuid.uuid4(), stepik_id=999,
-        access_token=encrypt_token("t"), refresh_token=encrypt_token("t"),
+        id=uuid.uuid4(),
+        stepik_id=999,
+        access_token=encrypt_token("t"),
+        refresh_token=encrypt_token("t"),
         token_expires_at=(datetime.now(UTC) + timedelta(hours=1)).replace(tzinfo=None),
     )
     db_session.add(other)
     await db_session.flush()
     await db_session.execute(
-        text("INSERT INTO raw_certificate (certificate_id, user_id, course_id, _raw_json) "
-             "VALUES ('c_foreign', '5', '300', :j)"),
+        text(
+            "INSERT INTO raw_certificate (certificate_id, user_id, course_id, _raw_json) "
+            "VALUES ('c_foreign', '5', '300', :j)"
+        ),
         {"j": json.dumps({"issue_date": "2026-07-01T10:00:00Z", "type": "regular"})},
     )
 

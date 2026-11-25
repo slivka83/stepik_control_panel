@@ -26,9 +26,9 @@ async def get_hardest_steps(
     min_submissions: int = Query(10, ge=1),
     course_ids: str = Query(None),
 ):
-    course_uuids, course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
+    course_uuids, selected_course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
 
-    if not course_ids:
+    if not selected_course_ids:
         return {"steps": []}
 
     course_map = {c.id: c.title for c in course_uuids}
@@ -42,7 +42,7 @@ async def get_hardest_steps(
             func.count(func.distinct(Submission.user_id)).label("students"),
         )
         .where(
-            Submission.course_id.in_(course_ids),
+            Submission.course_id.in_(selected_course_ids),
             Submission.is_author.is_(False),
         )
         .group_by(Submission.stepik_step_id, Submission.course_id)

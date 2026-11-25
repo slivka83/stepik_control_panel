@@ -54,9 +54,7 @@ def _simulate_migrations() -> tuple[dict[str, set[str]], list[str]]:
         for rev, info in revisions.items():
             if rev in placed:
                 continue
-            parents = info["down"] if isinstance(info["down"], tuple) else (
-                (info["down"],) if info["down"] else ()
-            )
+            parents = info["down"] if isinstance(info["down"], tuple) else ((info["down"],) if info["down"] else ())
             if all(p in placed for p in parents):
                 order.append(rev)
                 placed.add(rev)
@@ -298,7 +296,6 @@ class TestConfigDefaults:
 
 class TestDashboardPackage:
     EXPECTED_ROUTES = {
-        "/api/dashboard/alerts",
         "/api/dashboard/kpi",
         "/api/dashboard/cohorts",
         "/api/dashboard/revenue",
@@ -338,7 +335,17 @@ class TestDashboardPackage:
     def test_dashboard_is_package(self):
         pkg = BACKEND_DIR / "app" / "api" / "dashboard"
         assert (pkg / "__init__.py").exists()
-        for module in ["alerts", "kpi", "cohorts", "charts", "comments", "students", "steps", "certificates", "reviews", "common"]:
+        for module in [
+            "kpi",
+            "cohorts",
+            "charts",
+            "comments",
+            "students",
+            "steps",
+            "certificates",
+            "reviews",
+            "common",
+        ]:
             assert (pkg / f"{module}.py").exists(), f"missing {module}.py"
 
     def test_old_god_file_removed(self):

@@ -38,8 +38,7 @@ LIST_SORT_SQL = {
     "time": "time",
     "student": "user_name",
     # Сортируем по названию, которое видит пользователь, а не по числовому id.
-    "course": "(SELECT COALESCE(c.title, '') FROM courses c "
-    "WHERE c.stepik_course_id = mart_comments.stepik_course_id)",
+    "course": "(SELECT COALESCE(c.title, '') FROM courses c WHERE c.stepik_course_id = mart_comments.stepik_course_id)",
     "text": "text",
     "likes": "likes",
     "dislikes": "dislikes",
@@ -171,9 +170,7 @@ async def get_comments_list(
     # NULLS LAST expressed via a CASE so it works on both PostgreSQL and SQLite.
     # Unique tiebreaker: сортировка по likes/replies с одинаковыми значениями
     # без него даёт произвольный порядок и дубли/пропуски строк между страницами.
-    order_clause = (
-        f"CASE WHEN {sort_expr} IS NULL THEN 1 ELSE 0 END, {sort_expr} {order.upper()}, comment_id ASC"
-    )
+    order_clause = f"CASE WHEN {sort_expr} IS NULL THEN 1 ELSE 0 END, {sort_expr} {order.upper()}, comment_id ASC"
 
     count_result = await db.execute(
         text(
@@ -199,12 +196,23 @@ async def get_comments_list(
 
     comments = []
     for (
-        comment_id, time_raw, user_id, user_name, cid, ctext, likes, dislikes,
-        replies, lesson_id, step_number, module_number, lesson_number,
-        module_title, lesson_title,
+        comment_id,
+        time_raw,
+        user_id,
+        user_name,
+        cid,
+        ctext,
+        likes,
+        dislikes,
+        replies,
+        lesson_id,
+        step_number,
+        module_number,
+        lesson_number,
+        module_title,
+        lesson_title,
     ) in rows:
         course_obj = course_by_stepik.get(cid)
-        mn, ln, sn = module_number, lesson_number, step_number
         comments.append(
             {
                 "comment_id": comment_id,
@@ -224,7 +232,6 @@ async def get_comments_list(
                 "lesson_number": lesson_number,
                 "module_title": module_title,
                 "lesson_title": lesson_title,
-                "step_sort": (mn or 0) * 100000 + (ln or 0) * 1000 + (sn or 0) if mn and ln and sn else None,
             }
         )
 

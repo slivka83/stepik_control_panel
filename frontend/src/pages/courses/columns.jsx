@@ -28,6 +28,8 @@ export const COURSE_COLUMNS = [
     label: 'Статус',
     align: 'right',
     width: 'w-[9%]',
+    // Sort by the visible Russian label, not the backend's English value.
+    getValue: (c) => (c.status?.toLowerCase() === 'published' ? 'Опубликован' : 'Черновик'),
     render: (c) => {
       const isPublished = c.status?.toLowerCase() === 'published';
       return (
@@ -126,7 +128,7 @@ export const COURSE_COLUMNS = [
     align: 'right',
     width: 'w-[9%]',
     nullLast: true,
-    naturalDir: 'asc',
+    naturalDir: 'desc',
     render: (c) => (
       <td className="text-right font-mono text-xs text-gray-300 pl-1 pr-1 truncate">{fmtDate(c.published_at)}</td>
     ),

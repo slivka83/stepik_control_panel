@@ -82,6 +82,14 @@ describe('KpiCard', () => {
     expect(container.textContent).not.toContain('%');
   });
 
+  it('does not render a NaN trend before KPI data arrives (undefined)', () => {
+    // Regression: Dashboard passes kpi?.revenue_change_pct → undefined on the
+    // first render; the card used to show "↑ NaN%".
+    const { container } = render(<KpiCard title="Loading KPI" value={0} trend={undefined} />);
+    expect(container.textContent).not.toContain('%');
+    expect(container.textContent).not.toContain('NaN');
+  });
+
   it.each([
     [1.0, 'rgb(255, 0, 0)'],
     [1.99, 'rgb(255, 0, 0)'],

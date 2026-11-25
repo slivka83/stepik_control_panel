@@ -13,7 +13,7 @@ const courses = [
 function makeSyncValue(overrides = {}) {
   return {
     syncStatus: { in_progress: false, last_sync: null },
-    data: { kpi: null, cohorts: {}, revenue: { months: [] }, alerts: [], courses, financials: null },
+    data: { kpi: null, cohorts: {}, revenue: { months: [] }, courses, financials: null },
     loading: false,
     error: null,
     refresh: vi.fn(),

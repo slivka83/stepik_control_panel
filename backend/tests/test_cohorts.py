@@ -169,6 +169,51 @@ class TestCohortsBoundaries:
         finally:
             app.dependency_overrides.clear()
 
+    async def test_same_student_in_two_courses_counted_once(self, db_session):
+        """Regression: график считал строки зачислений, и студент двух курсов
+        попадал в два сегмента (сумма больше числа студентов на странице)."""
+        user = await _seed_user(db_session)
+        c1 = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=100, title="A", status="Published")
+        c2 = Course(id=uuid.uuid4(), user_id=user.id, stepik_course_id=200, title="B", status="Published")
+        db_session.add_all([c1, c2])
+        await db_session.flush()
+        now = datetime.now(UTC)
+        db_session.add_all(
+            [
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=c1.id,
+                    student_id=1,
+                    last_viewed_at=(now - timedelta(days=3)).replace(tzinfo=None),
+                    cohort_status="Active",
+                ),
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=c2.id,
+                    student_id=1,
+                    last_viewed_at=(now - timedelta(days=50)).replace(tzinfo=None),
+                    cohort_status="Fading",
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        async def override_db():
+            yield db_session
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
+        try:
+            data = client.get("/api/dashboard/cohorts").json()
+            assert data["active"] == 1
+            assert data["fading"] == 0
+            assert sum(data.values()) == 1
+        finally:
+            app.dependency_overrides.clear()
+
     async def test_null_status_with_activity_is_not_lost(self, db_session):
         """Regression: `cohort_status != 'Zombie'` для NULL — это NULL, и старая
         строка без статуса выпадала из всех сегментов (сумма графика < KPI)."""

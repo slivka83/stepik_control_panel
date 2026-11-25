@@ -32,8 +32,7 @@ async def get_course_structure(
 
     modules_result = await db.execute(
         text(
-            "SELECT module_number, module_title FROM mart_modules "
-            "WHERE stepik_course_id = :cid ORDER BY module_number"
+            "SELECT module_number, module_title FROM mart_modules WHERE stepik_course_id = :cid ORDER BY module_number"
         ),
         {"cid": course.stepik_course_id},
     )
@@ -48,13 +47,11 @@ async def get_course_structure(
         {"cid": course.stepik_course_id},
     )
     lessons_by_module: dict[int, list[tuple[int, int]]] = {}
-    lesson_numbers: dict[int, int] = {}
     lesson_titles: dict[int, str] = {}
     for lesson_id, lesson_number, module_number, lesson_title in lessons_result:
         if module_number is None or lesson_number is None:
             continue
         lessons_by_module.setdefault(module_number, []).append((lesson_number, lesson_id))
-        lesson_numbers[lesson_id] = lesson_number
         lesson_titles[lesson_id] = lesson_title
 
     steps_result = await db.execute(
@@ -111,7 +108,7 @@ async def get_course_structure(
     modules = []
     for module_number, module_title in module_rows:
         lessons = []
-        for _lesson_number, lid in sorted(lessons_by_module.get(module_number, [])):
+        for lesson_number, lid in sorted(lessons_by_module.get(module_number, [])):
             steps = []
             for s in sorted(
                 steps_by_lesson.get(lid, []),
@@ -129,7 +126,7 @@ async def get_course_structure(
             lessons.append(
                 {
                     "lesson_id": lid,
-                    "lesson_number": lesson_numbers.get(lid),
+                    "lesson_number": lesson_number,
                     "title": lesson_titles.get(lid),
                     "steps": steps,
                 }

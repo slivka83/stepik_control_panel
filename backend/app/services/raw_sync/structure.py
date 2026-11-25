@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.services.stepik_api import StepikAPIError, get_user_profile
 
-from .common import _dedupe_by, _hub
+from .common import _as_int, _dedupe_by, _hub, _previous_raw_objects
 
 logger = logging.getLogger(__name__)
 
@@ -17,19 +17,27 @@ async def _fetch_by_ids(token: str, path: str, key: str, ids: list[int]) -> list
     """Fetch objects by `?ids[]=` in batches of 100.
 
     A 404 batch (objects deleted on Stepik between the parent and child
-    requests) is skipped instead of aborting the whole structure sync.
+    requests) is retried one id at a time instead of dropping the whole batch:
+    a single deleted id must not hide the other 99 valid objects from the
+    full reload.
     """
     items: list[dict] = []
     for i in range(0, len(ids), 100):
         batch = ids[i : i + 100]
         try:
-            items.extend(
-                await _hub()._paginated_fetch(path, token, key, {"ids[]": batch}, max_pages=10)
-            )
+            items.extend(await _hub()._paginated_fetch(path, token, key, {"ids[]": batch}, max_pages=10))
         except StepikAPIError as e:
             if e.status_code != 404:
                 raise
-            logger.warning("  %s batch %d: 404 (deleted on Stepik) — skip", path, i // 100)
+            logger.warning("  %s batch %d: 404 — retrying ids individually", path, i // 100)
+            for single_id in batch:
+                try:
+                    items.extend(await _hub()._paginated_fetch(path, token, key, {"ids[]": [single_id]}, max_pages=10))
+                except StepikAPIError as inner:
+                    if inner.status_code == 404:
+                        logger.warning("  %s id %s: 404 (deleted) — skip", path, single_id)
+                        continue
+                    raise
     return items
 
 
@@ -38,16 +46,13 @@ async def sync_courses_structure(session: AsyncSession, token: str):
     logger.info("=== Raw: courses structure ===")
 
     settings = get_settings()
-    owner_id = settings.stepik_user_id
+    owner_id: int | None = settings.stepik_user_id
     if not owner_id:
         # STEPIK_USER_ID=0 документирован как «без проверки владельца», но
         # ?teacher=0 возвращает пустой список — и полный reload затирал все
         # курсы вместе с дочерними данными. Берём владельца токена.
         profile = await get_user_profile(token)
-        try:
-            owner_id = int(profile.get("user")) if isinstance(profile, dict) else None
-        except (TypeError, ValueError):
-            owner_id = None
+        owner_id = _as_int(profile.get("user")) if isinstance(profile, dict) else None
     if not owner_id:
         raise RuntimeError(
             "STEPIK_USER_ID не задан, и не удалось определить владельца токена: "
@@ -72,28 +77,49 @@ async def sync_courses_structure(session: AsyncSession, token: str):
 
     # ID-списки дедуплицируем: ids[] с повторами тратит запросы впустую и
     # может вернуть один объект дважды (дубли в витринах структуры).
-    section_ids = list(dict.fromkeys(sid for c in courses for sid in (c.get("sections") or [])))
+    section_ids = list(
+        dict.fromkeys(
+            sid
+            for course in courses
+            for raw_sid in (course.get("sections") or [])
+            if (sid := _as_int(raw_sid)) is not None
+        )
+    )
     sections = await _fetch_by_ids(token, "/sections", "sections", section_ids)
     sections = _dedupe_by(sections, "id")
     mapping = await _hub()._get_fields_mapping(session, "sections")
     await _hub()._replace_raw_table(session, "raw_section", sections, mapping)
     logger.info("  raw_section: %d rows", len(sections))
 
-    unit_ids = list(dict.fromkeys(uid for sec in sections for uid in (sec.get("units") or [])))
+    unit_ids = list(
+        dict.fromkeys(
+            uid
+            for section in sections
+            for raw_uid in (section.get("units") or [])
+            if (uid := _as_int(raw_uid)) is not None
+        )
+    )
     units = await _fetch_by_ids(token, "/units", "units", unit_ids)
     units = _dedupe_by(units, "id")
     mapping = await _hub()._get_fields_mapping(session, "units")
     await _hub()._replace_raw_table(session, "raw_unit", units, mapping)
     logger.info("  raw_unit: %d rows", len(units))
 
-    lesson_ids = sorted({u["lesson"] for u in units if u.get("lesson")})
+    lesson_ids = sorted({lid for unit in units if (lid := _as_int(unit.get("lesson"))) is not None})
     lessons = await _fetch_by_ids(token, "/lessons", "lessons", lesson_ids)
     lessons = _dedupe_by(lessons, "id")
     mapping = await _hub()._get_fields_mapping(session, "lessons")
     await _hub()._replace_raw_table(session, "raw_lesson", lessons, mapping)
     logger.info("  raw_lesson: %d rows", len(lessons))
 
-    step_ids = list(dict.fromkeys(sid for lesson in lessons for sid in (lesson.get("steps") or [])))
+    step_ids = list(
+        dict.fromkeys(
+            sid
+            for lesson in lessons
+            for raw_sid in (lesson.get("steps") or [])
+            if (sid := _as_int(raw_sid)) is not None
+        )
+    )
 
     steps = await _fetch_by_ids(token, "/steps", "steps", step_ids)
     steps = _dedupe_by(steps, "id")
@@ -114,6 +140,7 @@ async def sync_course_grades_and_certs(session: AsyncSession, token: str, course
 
     all_grades = []
     all_certs = []
+    skipped_courses: list[int] = []
     for cid in course_ids:
         try:
             grades = await _hub()._paginated_fetch(
@@ -135,7 +162,15 @@ async def sync_course_grades_and_certs(session: AsyncSession, token: str, course
             # Курс удалён между structure и grades — не убиваем весь sync.
             if e.status_code != 404:
                 raise
-            logger.warning("    course %d: 404 (deleted on Stepik) — skip", cid)
+            skipped_courses.append(cid)
+            logger.warning("    course %d: 404 (deleted on Stepik) — keep previous rows", cid)
+
+    # A 404 for one course must not erase its grades/enrollments: without this
+    # the full reload below would replace the whole table with only the
+    # successful courses, and the students page/cohorts would suddenly empty.
+    if skipped_courses:
+        all_grades.extend(await _previous_raw_objects(session, "raw_course_grade", "course_id", skipped_courses))
+        all_certs.extend(await _previous_raw_objects(session, "raw_certificate", "course_id", skipped_courses))
 
     grades = _dedupe_by(all_grades, "course", "user")
     certs = _dedupe_by(all_certs, "id")

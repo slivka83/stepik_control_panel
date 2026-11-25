@@ -155,7 +155,7 @@ def _get_client_ip(request: Request) -> str:
 
 
 @router.get("/login")
-async def login(request: Request, response: Response):
+async def login(request: Request):
     ip = _get_client_ip(request)
     allowed, retry_after = await check_auth_rate_limit(ip)
     if not allowed:
@@ -192,7 +192,6 @@ async def login(request: Request, response: Response):
 async def callback(
     code: str,
     request: Request,
-    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     ip = _get_client_ip(request)
@@ -247,9 +246,7 @@ async def callback(
         # STEPIK_USER_ID не задан: владельцем становится первый вошедший
         # аккаунт. Иначе любой Stepik-пользователь мог залогиниться и увидеть
         # глобальные снапшоты/витрины (они не разделены по аккаунтам).
-        owner_row = await db.execute(
-            select(User.stepik_id).order_by(User.created_at.asc()).limit(1)
-        )
+        owner_row = await db.execute(select(User.stepik_id).order_by(User.created_at.asc()).limit(1))
         owner_stepik_id = owner_row.scalar_one_or_none()
         if owner_stepik_id is not None and owner_stepik_id != stepik_id:
             logger.warning(
@@ -306,7 +303,7 @@ async def get_me(user: User = Depends(get_user)):
 
 
 @router.post("/logout")
-async def logout(request: Request, response: Response):
+async def logout(request: Request):
     token = _get_token_from_request(request)
     if token:
         await _blacklist_token(token, _session_ttl_hours() * 3600)
@@ -316,7 +313,7 @@ async def logout(request: Request, response: Response):
 
 
 @router.post("/refresh")
-async def refresh_session(request: Request, response: Response, db: AsyncSession = Depends(get_db)):
+async def refresh_session(request: Request, db: AsyncSession = Depends(get_db)):
     """Refresh the session token (extends TTL)."""
     token = _get_token_from_request(request)
     if not token:

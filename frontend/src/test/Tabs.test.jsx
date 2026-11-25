@@ -16,11 +16,13 @@ describe('Tabs', () => {
     }
   });
 
-  it('marks the active tab with cyber-blue styles', () => {
+  it('marks the active tab with cyber-blue styles and aria-selected', () => {
     render(<Tabs items={items} active="years" onChange={vi.fn()} />);
     const active = screen.getByText('По годам').closest('button');
     expect(active.className).toContain('border-cyber-blue');
     expect(active.className).toContain('text-cyber-blue');
+    expect(active).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByText('По месяцам').closest('button')).toHaveAttribute('aria-selected', 'false');
   });
 
   it('calls onChange with the clicked tab key', () => {

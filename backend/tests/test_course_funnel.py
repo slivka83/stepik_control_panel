@@ -181,7 +181,12 @@ class TestCourseFunnelStages:
         stages = resp.json()["stages"]
         assert [s["key"] for s in stages] == ["enrolled", "module", "module", "certificate"]
         assert [s["module_number"] for s in stages if s["key"] == "module"] == [1, 2]
-        assert [s["label"] for s in stages] == ["Записались", "Модуль 1. Module A", "Модуль 2. Module B", "Получили сертификат"]
+        assert [s["label"] for s in stages] == [
+            "Записались",
+            "Модуль 1. Module A",
+            "Модуль 2. Module B",
+            "Получили сертификат",
+        ]
 
         values = [s["value"] for s in stages]
         assert values == [3, 3, 2, 0]
@@ -230,9 +235,13 @@ class TestCourseFunnelStages:
         resp = await _call(db_session, user, str(course.id))
         stages = resp.json()["stages"]
         assert stages[0]["value"] == 3
-        assert [s["value"] for s in stages if s["key"] == "module"] == [3, 1]
+        # Сертификат = завершение курса: его владельцы входят в последний
+        # этап, поэтому воронка не растёт на финальном шаге.
+        assert [s["value"] for s in stages if s["key"] == "module"] == [3, 3]
         assert stages[-1]["key"] == "certificate"
         assert stages[-1]["value"] == 2
+        values = [s["value"] for s in stages]
+        assert values == sorted(values, reverse=True)
 
     async def test_author_submissions_excluded(self, db_session):
         user = _make_user()
@@ -437,10 +446,7 @@ class TestCourseFunnelLessonsView:
         await db_session.commit()
         await _seed_structure(db_session, 208966)
         await db_session.execute(
-            text(
-                "INSERT INTO raw_unit (unit_id, lesson_id, section_id, position) VALUES "
-                "('u3', '12', '1', '2')"
-            )
+            text("INSERT INTO raw_unit (unit_id, lesson_id, section_id, position) VALUES ('u3', '12', '1', '2')")
         )
         await db_session.execute(
             text("INSERT INTO raw_lesson (lesson_id, title, steps) VALUES ('12', 'Lempty', :s)"),

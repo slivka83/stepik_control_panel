@@ -1,7 +1,7 @@
 import { MemoryRouter } from 'react-router-dom';
 import { vi } from 'vitest';
 import { SyncContext } from '../contexts/SyncContext';
-import { AuthProvider } from '../contexts/AuthContext';
+import { AuthContext, AuthProvider } from '../contexts/AuthContext';
 
 const ROUTER_FUTURE = {
   v7_startTransition: true,
@@ -14,7 +14,6 @@ const defaultSyncValue = {
     kpi: null,
     cohorts: {},
     revenue: { months: [] },
-    alerts: [],
     courses: [],
     financials: null,
   },
@@ -29,13 +28,16 @@ const defaultSyncValue = {
   selectNoneCourses: vi.fn(),
 };
 
-export default function TestRouter({ children, initialEntries = ['/'], syncValue }) {
+export default function TestRouter({ children, initialEntries = ['/'], syncValue, authValue }) {
   const value = syncValue || defaultSyncValue;
+  const content = <SyncContext.Provider value={value}>{children}</SyncContext.Provider>;
   return (
     <MemoryRouter future={ROUTER_FUTURE} initialEntries={initialEntries}>
-      <AuthProvider>
-        <SyncContext.Provider value={value}>{children}</SyncContext.Provider>
-      </AuthProvider>
+      {authValue ? (
+        <AuthContext.Provider value={authValue}>{content}</AuthContext.Provider>
+      ) : (
+        <AuthProvider>{content}</AuthProvider>
+      )}
     </MemoryRouter>
   );
 }

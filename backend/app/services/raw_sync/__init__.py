@@ -23,6 +23,7 @@ from .common import (
     _raw_course_ids,
     _replace_raw_table,
     _upsert_raw_table,
+    is_fatal_api_error,
 )
 from .community import sync_community
 from .financials import sync_financials
@@ -39,6 +40,7 @@ __all__ = [
     "_request",
     "_upsert_raw_table",
     "get_finance_token",
+    "is_fatal_api_error",
     "sync_community",
     "sync_course_grades_and_certs",
     "sync_courses_structure",

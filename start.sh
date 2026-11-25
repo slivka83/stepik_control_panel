@@ -80,7 +80,26 @@ wait_for_service() {
 }
 
 # Vite and uvicorn spawn child processes; killing only the parent leaves them
-# holding the port. Sweep every listener on our ports instead.
+# holding the port. Sweep listeners on our ports, but only processes started
+# from this project — a foreign server on 8000/3000 must not be killed.
+is_our_process() {
+    local pid="$1"
+    local cwd=""
+    cwd=$(readlink "/proc/$pid/cwd" 2>/dev/null || true)
+    if [ -n "$cwd" ]; then
+        case "$cwd" in
+            "$PROJECT_DIR"*) ;;
+            *) return 1 ;;
+        esac
+        tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null \
+            | grep -Eq 'uvicorn|app\.main:app|vite|node|npm'
+        return
+    fi
+    # macOS has no /proc: fall back to the command line (best effort).
+    ps -p "$pid" -o command= 2>/dev/null \
+        | grep -Eq 'uvicorn|app\.main:app|vite|node|npm'
+}
+
 free_port() {
     local port="$1"
     local pids
@@ -91,6 +110,7 @@ free_port() {
         | sort -u) || true
     for pid in $pids; do
         [ "$pid" = "$$" ] && continue
+        is_our_process "$pid" || continue
         kill -TERM "$pid" 2>/dev/null
     done
 }

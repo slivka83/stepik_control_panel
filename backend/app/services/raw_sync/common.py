@@ -29,6 +29,7 @@ _NATURAL_KEYS = {
     "raw_course_review": "review_id",
     "raw_course_review_summary": "review_summary_id",
     "raw_promo_code": "promo_code_id",
+    "raw_user": "user_id",
 }
 
 # Контекстные колонки, которых нет в ответе API: их нельзя затирать NULL
@@ -47,6 +48,16 @@ def _as_int(value) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def is_fatal_api_error(error) -> bool:
+    """Errors that make continuing the sync pointless.
+
+    401 — invalid token; 429 — rate limit exhausted after all retries;
+    0 — network/JSON failure after retries. Per-course 404/500 are skipped by
+    callers and do not abort the remaining sync.
+    """
+    return getattr(error, "status_code", None) in (0, 401, 429)
 
 
 def _dedupe_by(objects: list[dict], *fields: str) -> list[dict]:
@@ -344,9 +355,7 @@ async def _raw_course_ids(session: AsyncSession) -> list[int]:
     return sorted({int(row[0]) for row in r if row[0] is not None})
 
 
-async def _previous_raw_objects(
-    session: AsyncSession, raw_table: str, key_column: str, keys
-) -> list[dict]:
+async def _previous_raw_objects(session: AsyncSession, raw_table: str, key_column: str, keys) -> list[dict]:
     """Сохранить строки, которые не удалось перезагрузить.
 
     `_replace_raw_table` работает по принципу «ответ API — вся правда», но при

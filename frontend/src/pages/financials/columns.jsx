@@ -25,6 +25,7 @@ export const CHART_METRICS = {
     ],
     tooltip: (row) => [
       { label: 'Доход', value: row.income, color: '#4ade80' },
+      { label: 'Комиссия', value: row.commission, color: '#4ade80', dim: true },
       { label: 'Оборот', value: row.turnover, color: '#4ade80', dim: true },
     ],
   },
@@ -199,7 +200,7 @@ const PROMOS_COLUMNS = [
     align: 'right',
     width: 'w-[22%]',
     nullLast: true,
-    naturalDir: 'asc',
+    naturalDir: 'desc',
     render: lastUsedCell,
   },
 ];
@@ -221,7 +222,7 @@ const UTMS_COLUMNS = [
     align: 'right',
     width: 'w-[22%]',
     nullLast: true,
-    naturalDir: 'asc',
+    naturalDir: 'desc',
     render: lastUsedCell,
   },
 ];
@@ -231,7 +232,7 @@ const RECENT_COLUMNS = [
     key: 'time',
     label: 'Дата',
     width: 'w-[11%]',
-    naturalDir: 'asc',
+    naturalDir: 'desc',
     render: (p) => {
       const d = new Date(p.time);
       if (Number.isNaN(d.getTime())) {
@@ -286,7 +287,7 @@ const RECENT_COLUMNS = [
     nullLast: true,
     render: (p) => (
       <td className="text-right font-mono text-xs pl-1 pr-1 text-gray-300 truncate">
-        {formatCurrency(p.payment_amount)}
+        {formatCurrency(p.payment_amount, p.currency || 'RUB')}
       </td>
     ),
   },
@@ -305,7 +306,10 @@ const RECENT_COLUMNS = [
         ? `Подозрительно: ${warning.pct}% вместо ${warning.expectedPct}%. Покупка по А-ссылке — комиссия должна быть ${warning.expectedPct}% (разница ${warning.delta} п.п.).`
         : '';
       return (
-        <td className="text-right font-mono text-xs pl-1 pr-1 truncate" title={c ? formatCurrency(c.amount) : ''}>
+        <td
+          className="text-right font-mono text-xs pl-1 pr-1 truncate"
+          title={c ? formatCurrency(c.amount, p.currency || 'RUB') : ''}
+        >
           {c ? (
             <span className="inline-flex items-center justify-end gap-0.5">
               <span className={warning ? 'text-crimson-alert' : 'text-gray-300'}>{`${c.pct}%`}</span>
@@ -338,7 +342,7 @@ const RECENT_COLUMNS = [
       <td
         className={`text-right font-mono text-xs pl-1 pr-1 truncate ${p.status === 'refunded' ? 'text-crimson-alert line-through' : 'text-neon-green'}`}
       >
-        {formatCurrency(p.amount)}
+        {formatCurrency(p.amount, p.currency || 'RUB')}
       </td>
     ),
   },

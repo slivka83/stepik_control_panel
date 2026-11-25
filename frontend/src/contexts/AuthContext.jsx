@@ -3,7 +3,7 @@ import { setHasSession } from '../session';
 import { apiUrl } from '../config';
 
 const noop = () => {};
-const AuthContext = createContext({
+export const AuthContext = createContext({
   user: null,
   loading: false,
   authError: null,

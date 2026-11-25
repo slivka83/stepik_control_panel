@@ -18,7 +18,6 @@ const makeSyncValue = (overrides = {}) => ({
     },
     cohorts: {},
     revenue: { months: [] },
-    alerts: [],
     courses: [],
     financials: { summary: { total_payments: 0 }, months: [], courses: [], recent_payments: [] },
     students: { students: [], total: 0 },

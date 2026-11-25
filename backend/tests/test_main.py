@@ -64,6 +64,7 @@ class TestCORSMiddleware:
         headers = response.headers.get("access-control-allow-headers", "")
         assert "Content-Type" in headers
         assert "Cookie" in headers
+        assert "Authorization" in headers
 
     def test_cors_rejects_wrong_methods(self):
         response = client.options(

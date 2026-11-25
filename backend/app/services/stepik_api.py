@@ -37,9 +37,7 @@ class StepikRateLimitError(StepikAPIError):
 # (asyncio.new_event_loop в потоке executor), и клиент, созданный основным циклом
 # (например, при обновлении токена на старте), в цикле синка падал с
 # "Event is bound to a different event loop".
-_clients: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = (
-    weakref.WeakKeyDictionary()
-)
+_clients: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, httpx.AsyncClient] = weakref.WeakKeyDictionary()
 # Both the main loop and the sync thread may create clients concurrently.
 _clients_lock = threading.Lock()
 
@@ -226,9 +224,7 @@ _finance_token_cache: dict[str, Any] = {"token": None, "expires_at": 0}
 # A module-level asyncio.Lock binds to the first event loop that waits on it;
 # the finance token is requested from the sync thread's loop, so a lock shared
 # across loops raised "is bound to a different event loop". One lock per loop.
-_finance_token_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = (
-    weakref.WeakKeyDictionary()
-)
+_finance_token_locks: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = weakref.WeakKeyDictionary()
 _finance_locks_guard = threading.Lock()
 
 

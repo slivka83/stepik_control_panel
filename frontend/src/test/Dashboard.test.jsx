@@ -59,7 +59,6 @@ const fullSyncValue = {
     kpi: mockKpi,
     cohorts: mockCohorts,
     revenue: mockRevenue,
-    alerts: [],
     courses: [],
     financials: { summary: { total_payments: 0 }, months: [], courses: [], recent_payments: [] },
   },

@@ -146,6 +146,12 @@ export default function RevenueChart({ data = [] }) {
           <ChartTooltipTitle>{activeEntry.month}</ChartTooltipTitle>
           <ChartTooltipRow label="Доход" value={`${(activeEntry.income ?? 0).toLocaleString('ru-RU')} ₽`} color={COLOR} />
           <ChartTooltipRow
+            label="Комиссия"
+            value={`${(activeEntry.commission ?? 0).toLocaleString('ru-RU')} ₽`}
+            color={COLOR}
+            dim
+          />
+          <ChartTooltipRow
             label="Оборот"
             value={`${(activeEntry.turnover ?? 0).toLocaleString('ru-RU')} ₽`}
             color={COLOR}

@@ -16,6 +16,23 @@ $LogDir = Join-Path $env:TEMP 'stepik-control-panel'
 $PgContainer = 'stepik-postgres'
 $RedisContainer = 'stepik-redis'
 
+# The ports live in .env; hardcoded 8000/3000 failed to stop custom-port runs.
+$BackendPort = 8000
+$FrontendPort = 3000
+$envFile = Join-Path $ProjectDir '.env'
+if (Test-Path $envFile) {
+    foreach ($raw in Get-Content $envFile) {
+        $line = $raw.Trim()
+        if (-not $line -or $line.StartsWith('#')) { continue }
+        $index = $line.IndexOf('=')
+        if ($index -lt 1) { continue }
+        $key = $line.Substring(0, $index).Trim()
+        $value = $line.Substring($index + 1).Trim().Trim('"')
+        if ($key -eq 'BACKEND_PORT' -and $value) { $BackendPort = [int]$value }
+        if ($key -eq 'FRONTEND_PORT' -and $value) { $FrontendPort = [int]$value }
+    }
+}
+
 function Write-Step([string]$Message) {
     Write-Host ""
     Write-Host "==> $Message" -ForegroundColor Cyan
@@ -82,8 +99,8 @@ foreach ($name in @('backend', 'frontend')) {
         Remove-Item $pidFile -Force -ErrorAction SilentlyContinue
     }
 }
-Stop-PortListener 8000 @('uvicorn', 'python')
-Stop-PortListener 3000 @('node', 'npm')
+Stop-PortListener $BackendPort @('uvicorn', 'python')
+Stop-PortListener $FrontendPort @('node', 'npm')
 
 # --- Контейнеры -----------------------------------------------------------
 

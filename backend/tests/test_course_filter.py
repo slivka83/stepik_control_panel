@@ -2,7 +2,7 @@
 endpoint to a subset of the author's courses.
 
 Covered: parse_course_ids, security (foreign courses dropped), SQL-backed
-endpoints (submissions, active students, cohorts, alerts, hardest steps,
+endpoints (submissions, active students, cohorts, hardest steps,
 students list), snapshot-backed recomputation (financials, revenue, kpi,
 published solutions, community), and the invariant «filter = all courses»
 == «no filter».
@@ -267,12 +267,40 @@ async def _seed_scenario(session):
             },
         ],
         "promos": [
-            {"promo_code": "PROMO1", "payments": 1, "turnover": 1000.0, "income": 1000.0, "refunds": 0.0, "last_used": t_p},
-            {"promo_code": "PROMO2", "payments": 1, "turnover": 5000.0, "income": 5000.0, "refunds": 0.0, "last_used": t_p},
+            {
+                "promo_code": "PROMO1",
+                "payments": 1,
+                "turnover": 1000.0,
+                "income": 1000.0,
+                "refunds": 0.0,
+                "last_used": t_p,
+            },
+            {
+                "promo_code": "PROMO2",
+                "payments": 1,
+                "turnover": 5000.0,
+                "income": 5000.0,
+                "refunds": 0.0,
+                "last_used": t_p,
+            },
         ],
         "utms": [
-            {"utm_source": "Я.Директ", "payments": 2, "turnover": 6000.0, "income": 6000.0, "refunds": 0.0, "last_used": t_p},
-            {"utm_source": "Telegram", "payments": 1, "turnover": -200.0, "income": -200.0, "refunds": 200.0, "last_used": t_p},
+            {
+                "utm_source": "Я.Директ",
+                "payments": 2,
+                "turnover": 6000.0,
+                "income": 6000.0,
+                "refunds": 0.0,
+                "last_used": t_p,
+            },
+            {
+                "utm_source": "Telegram",
+                "payments": 1,
+                "turnover": -200.0,
+                "income": -200.0,
+                "refunds": 200.0,
+                "last_used": t_p,
+            },
         ],
         "recent_payments": recent_payments,
         "community": {
@@ -445,21 +473,6 @@ class TestFilterCohorts:
             app.dependency_overrides.clear()
 
 
-class TestFilterAlerts:
-    async def test_alerts_filtered(self, db_session):
-        user, u1, u2, u3 = await _seed_scenario(db_session)
-        _override(user, db_session)
-        try:
-            response = client.get(f"/api/dashboard/alerts?course_ids={u2.id}")
-            assert response.status_code == 200
-            assert len(response.json()["alerts"]) == 1
-
-            response = client.get(f"/api/dashboard/alerts?course_ids={u1.id}")
-            assert response.json()["alerts"] == []
-        finally:
-            app.dependency_overrides.clear()
-
-
 class TestFilterHardestSteps:
     async def test_hardest_steps_filtered(self, db_session):
         user, u1, u2, u3 = await _seed_scenario(db_session)
@@ -609,14 +622,16 @@ class TestFilterCharts:
             assert len(months) == 2, "cert1 из сценария (текущий месяц) + 2 добавленных"
             by_label = {m["month"]: m for m in months}
             assert by_label[label] == {
-                "month": label, "year": old_year, "month_num": old_month, "dark": 2, "light": 1,
+                "month": label,
+                "year": old_year,
+                "month_num": old_month,
+                "dark": 2,
+                "light": 1,
             }
 
             response = client.get(f"/api/dashboard/certificates?course_ids={u2.id}")
             months = response.json()["months"]
-            assert months == [
-                {"month": label, "year": old_year, "month_num": old_month, "dark": 1, "light": 1}
-            ]
+            assert months == [{"month": label, "year": old_year, "month_num": old_month, "dark": 1, "light": 1}]
 
             response = client.get(f"/api/dashboard/certificates?course_ids={u3.id}")
             assert response.json()["months"] == [], "чужой курс не отдаёт сертификаты"
@@ -666,11 +681,11 @@ class TestFilterFinancialsDefensive:
         selected = {100}
         data = {
             "recent_payments": [
-                {"raw": self._raw(100)},                       # counted
-                {"raw": None},                                 # no raw → skipped
-                {"raw": "not-a-dict"},                         # non-dict → skipped
-                {"raw": self._raw(None)},                      # no course → skipped
-                {"raw": self._raw(999)},                       # not selected → skipped
+                {"raw": self._raw(100)},  # counted
+                {"raw": None},  # no raw → skipped
+                {"raw": "not-a-dict"},  # non-dict → skipped
+                {"raw": self._raw(None)},  # no course → skipped
+                {"raw": self._raw(999)},  # not selected → skipped
                 {  # refunded positive amount on selected course
                     "raw": self._raw(100, status="refunded", amount=1000, payment_amount=1200)
                 },
@@ -801,15 +816,39 @@ class TestFilterFinancialsInvariant:
         )
 
         benefits = [
-            {"course": 101, "amount": 800, "payment_amount": 800, "status": "completed", "time": "2026-01-10T00:00:00Z"},
-            {"course": 101, "amount": 200, "payment_amount": 200, "status": "completed", "time": "2026-01-15T00:00:00Z"},
-            {"course": 101, "amount": -100, "payment_amount": 100, "status": "refunded", "time": "2026-01-20T00:00:00Z"},
-            {"course": 102, "amount": 500, "payment_amount": 500, "status": "completed", "time": "2026-02-05T00:00:00Z"},
+            {
+                "course": 101,
+                "amount": 800,
+                "payment_amount": 800,
+                "status": "completed",
+                "time": "2026-01-10T00:00:00Z",
+            },
+            {
+                "course": 101,
+                "amount": 200,
+                "payment_amount": 200,
+                "status": "completed",
+                "time": "2026-01-15T00:00:00Z",
+            },
+            {
+                "course": 101,
+                "amount": -100,
+                "payment_amount": 100,
+                "status": "refunded",
+                "time": "2026-01-20T00:00:00Z",
+            },
+            {
+                "course": 102,
+                "amount": 500,
+                "payment_amount": 500,
+                "status": "completed",
+                "time": "2026-02-05T00:00:00Z",
+            },
         ]
         for b in benefits:
             await db_session.execute(
                 text(
-                    "INSERT INTO raw_course_benefit (course, amount, payment_amount, status, \"time\", _raw_json) "
+                    'INSERT INTO raw_course_benefit (course, amount, payment_amount, status, "time", _raw_json) '
                     "VALUES (:course, :amount, :pa, :status, :time, :raw)"
                 ),
                 {
@@ -823,8 +862,24 @@ class TestFilterFinancialsInvariant:
             )
 
         by_months = [
-            {"year": 2026, "month": 1, "total_turnover": 900, "total_user_income": 900, "total_refunds": 100, "count_payments": 3, "count_refunds": 1},
-            {"year": 2026, "month": 2, "total_turnover": 500, "total_user_income": 500, "total_refunds": 0, "count_payments": 1, "count_refunds": 0},
+            {
+                "year": 2026,
+                "month": 1,
+                "total_turnover": 900,
+                "total_user_income": 900,
+                "total_refunds": 100,
+                "count_payments": 3,
+                "count_refunds": 1,
+            },
+            {
+                "year": 2026,
+                "month": 2,
+                "total_turnover": 500,
+                "total_user_income": 500,
+                "total_refunds": 0,
+                "count_payments": 1,
+                "count_refunds": 0,
+            },
         ]
         for m in by_months:
             await db_session.execute(
@@ -834,9 +889,14 @@ class TestFilterFinancialsInvariant:
                     "VALUES (:year, :month, :tt, :ti, :tr, :cp, :cr, :raw)"
                 ),
                 {
-                    "year": m["year"], "month": m["month"], "tt": m["total_turnover"],
-                    "ti": m["total_user_income"], "tr": m["total_refunds"],
-                    "cp": m["count_payments"], "cr": m["count_refunds"], "raw": json.dumps(m),
+                    "year": m["year"],
+                    "month": m["month"],
+                    "tt": m["total_turnover"],
+                    "ti": m["total_user_income"],
+                    "tr": m["total_refunds"],
+                    "cp": m["count_payments"],
+                    "cr": m["count_refunds"],
+                    "raw": json.dumps(m),
                 },
             )
         await db_session.commit()

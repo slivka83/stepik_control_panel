@@ -18,8 +18,7 @@ async def _module_entries(db: AsyncSession, stepik_course_id: int):
     """(titles, step→entry index) for the module view."""
     modules_result = await db.execute(
         text(
-            "SELECT module_number, module_title FROM mart_modules "
-            "WHERE stepik_course_id = :cid ORDER BY module_number"
+            "SELECT module_number, module_title FROM mart_modules WHERE stepik_course_id = :cid ORDER BY module_number"
         ),
         {"cid": stepik_course_id},
     )
@@ -33,10 +32,7 @@ async def _module_entries(db: AsyncSession, stepik_course_id: int):
 
     step_to_entry: dict[int, int] = {}
     step_rows = await db.execute(
-        text(
-            "SELECT step_id, module_number FROM mart_steps "
-            "WHERE stepik_course_id = :cid"
-        ),
+        text("SELECT step_id, module_number FROM mart_steps WHERE stepik_course_id = :cid"),
         {"cid": stepik_course_id},
     )
     for step_id, module_number in step_rows:
@@ -60,15 +56,14 @@ async def _lesson_entries(db: AsyncSession, stepik_course_id: int):
     entry_titles: list[tuple[int, str]] = []
     lesson_index: dict[int, int] = {}
     for lesson_id, lesson_number, lesson_title in lessons_result:
-        lesson_index[lesson_id] = len(entry_titles)
+        # A lesson may be added to two units; mart_steps keeps its first path,
+        # so the funnel counts the step in the first occurrence too.
+        lesson_index.setdefault(lesson_id, len(entry_titles))
         entry_titles.append((lesson_number, lesson_title or ""))
 
     step_to_entry: dict[int, int] = {}
     step_rows = await db.execute(
-        text(
-            "SELECT step_id, lesson_id FROM mart_steps "
-            "WHERE stepik_course_id = :cid"
-        ),
+        text("SELECT step_id, lesson_id FROM mart_steps WHERE stepik_course_id = :cid"),
         {"cid": stepik_course_id},
     )
     for step_id, lesson_id in step_rows:
@@ -132,23 +127,32 @@ async def get_course_funnel(
             entry_users[idx].add(user_id)
 
     enroll_result = await db.execute(
-        select(func.count())
-        .select_from(StudentEnrollment)
-        .where(StudentEnrollment.course_id == course.id)
+        select(func.count()).select_from(StudentEnrollment).where(StudentEnrollment.course_id == course.id)
     )
     enrolled = enroll_result.scalar_one()
 
     cert_result = await db.execute(
-        select(func.count())
-        .select_from(StudentEnrollment)
+        select(StudentEnrollment.student_id)
         .where(
             StudentEnrollment.course_id == course.id,
             StudentEnrollment.certificate_issued.is_(True),
         )
+        .distinct()
     )
-    certificate_count = cert_result.scalar_one()
+    certified_users = {row[0] for row in cert_result if row[0] is not None}
+    certificate_count = len(certified_users)
+
+    # A certificate means the student completed the course. Add certificate
+    # holders to the last group so the cumulative funnel never grows at the
+    # final stage (otherwise a certificate without a later-step submission in
+    # the synced data made the chart go up).
+    if entry_users:
+        entry_users[-1] |= certified_users
 
     suffix_values = _suffix_values(entry_users)
+    # Orphan submissions/certificates (missing enrollment rows) must not make
+    # «Записались» smaller than the next stage.
+    enrolled = max(enrolled, suffix_values[0] if suffix_values else 0)
 
     stages = [{"key": "enrolled", "label": "Записались", "value": enrolled}]
     if view == "lessons":

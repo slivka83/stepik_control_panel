@@ -633,9 +633,7 @@ async def test_lesson_numbers_have_no_gaps_after_removed_unit(db_session):
     await build_marts(db_session)
 
     rows = (
-        await db_session.execute(
-            text("SELECT module_number, lesson_number FROM mart_lessons ORDER BY lesson_number")
-        )
+        await db_session.execute(text("SELECT module_number, lesson_number FROM mart_lessons ORDER BY lesson_number"))
     ).all()
     assert [tuple(r) for r in rows] == [(1, 1), (1, 2), (2, 3)]
 

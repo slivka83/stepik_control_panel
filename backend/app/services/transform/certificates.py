@@ -21,9 +21,7 @@ async def transform_certificates(session: AsyncSession):
         await session.execute(text("DELETE FROM mart_certificates"))
         return
 
-    r = await session.execute(
-        text("SELECT certificate_id, user_id, course_id, _raw_json FROM raw_certificate")
-    )
+    r = await session.execute(text("SELECT certificate_id, user_id, course_id, _raw_json FROM raw_certificate"))
     rows = []
     for cert_id_raw, user_raw, course_raw, raw_json in r:
         data = _ensure_json(raw_json)

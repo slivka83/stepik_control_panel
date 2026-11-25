@@ -311,18 +311,13 @@ class TestCourseStructureAssembly:
         db_session.add_all([user, course])
         await db_session.commit()
         await db_session.execute(
-            text(
-                "INSERT INTO raw_section (section_id, course, position, title) "
-                "VALUES ('1', :cid, '1', 'Module')"
-            ),
+            text("INSERT INTO raw_section (section_id, course, position, title) VALUES ('1', :cid, '1', 'Module')"),
             {"cid": "208966"},
         )
         await db_session.execute(
             text("INSERT INTO raw_unit (unit_id, lesson_id, section_id, position) VALUES ('u1', '10', '1', '1')")
         )
-        await db_session.execute(
-            text("INSERT INTO raw_lesson (lesson_id, title, steps) VALUES ('10', 'Empty', '[]')")
-        )
+        await db_session.execute(text("INSERT INTO raw_lesson (lesson_id, title, steps) VALUES ('10', 'Empty', '[]')"))
         await db_session.commit()
 
         resp = await _call(db_session, user, str(course.id))

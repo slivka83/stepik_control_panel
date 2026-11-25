@@ -18,7 +18,7 @@ export default function StepTooltip({ tooltip }) {
       }}
     >
       <div className="text-white text-[13px] mb-1">
-        Модуль {tooltip.module.position}. {tooltip.module.title} — {tooltip.lesson.title}
+        Модуль {tooltip.module.position}. {tooltip.module.title || '—'} — {tooltip.lesson.title || '—'}
       </div>
       <div className="text-cyber-blue text-xs mb-1">
         Шаг {tooltip.step.step_number ?? tooltip.step.step_id} ·{' '}

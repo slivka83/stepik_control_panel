@@ -85,6 +85,32 @@ describe('DataTable', () => {
     expect(arrowOf(screen.getByText('Балл').closest('th'))).toBe('↓');
   });
 
+  it('uses explicit naturalDir for the first click (dates newest first)', () => {
+    const dateRows = [
+      { id: 1, date: '2026-01-10' },
+      { id: 2, date: '2026-03-01' },
+      { id: 3, date: '2025-12-31' },
+    ];
+    const dateColumns = [
+      { key: 'date', label: 'Дата', width: 'w-[100%]', naturalDir: 'desc' },
+    ];
+    render(
+      <DataTable
+        columns={dateColumns}
+        rows={dateRows}
+        initialSort={{ key: 'date', dir: 'asc' }}
+        rowKey={(r) => r.id}
+      />,
+    );
+    // First click must use the natural direction (newest first), not the text
+    // default (А→Я) that would put the oldest date on top.
+    fireEvent.click(screen.getByText('Дата').closest('th'));
+    const rowsEl = screen.getAllByRole('row').slice(1);
+    expect(within(rowsEl[0]).getByText('2026-03-01')).toBeInTheDocument();
+    expect(within(rowsEl[2]).getByText('2025-12-31')).toBeInTheDocument();
+    expect(screen.getByText('Дата').closest('th').querySelector('span.text-cyber-blue').textContent).toBe('↑');
+  });
+
   it('uses getValue for the sort value (month composite key)', () => {
     const monthRows = [
       { id: 1, label: 'Январь 2026', year: 2026, month_num: 1 },

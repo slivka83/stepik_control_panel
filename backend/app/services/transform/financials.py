@@ -13,6 +13,7 @@ from app.services.transform.common import (
     _ensure_json,
     _get_buyer_names,
     _serialize_data,
+    _to_bool,
     _to_float,
     _to_int,
 )
@@ -44,18 +45,11 @@ def _apply_benefit(bucket: dict, benefit: dict) -> None:
         bucket["income"] += amount
 
 
-def _as_bool(value) -> bool | None:
-    """Разобрать bool из API/JSON/сырой TEXT-колонки без ложных True."""
-    if isinstance(value, bool):
-        return value
+def _time_str(value) -> str:
+    """ISO-время как строка: сравнение max() не должно падать на None/числе."""
     if value is None:
-        return None
-    text_value = str(value).strip().lower()
-    if text_value in ("true", "1", "yes"):
-        return True
-    if text_value in ("false", "0", "no"):
-        return False
-    return None
+        return ""
+    return value if isinstance(value, str) else str(value)
 
 
 def _promo_side_map(rows) -> dict[str, bool | None]:
@@ -71,7 +65,7 @@ def _promo_side_map(rows) -> dict[str, bool | None]:
         key = str(name).strip().casefold()
         if not key:
             continue
-        side = _as_bool(is_stepik_side)
+        side = _to_bool(is_stepik_side)
         if key in result and side is not None and result[key] is not None and result[key] != side:
             result[key] = None
         elif key not in result:
@@ -178,32 +172,26 @@ async def transform_financials(session: AsyncSession):
         cid = _to_int(b.get("course"))
         cs = course_stats.get(cid)
         if cs is None:
-            cs = course_stats[cid] = _new_bucket(
-                course_id=cid, title=f"Курс #{cid}", price=course_prices.get(cid)
-            )
+            cs = course_stats[cid] = _new_bucket(course_id=cid, title=f"Курс #{cid}", price=course_prices.get(cid))
         _apply_benefit(cs, b)
 
         code = b.get("promo_code")
         if code:
-            ps = promo_stats.setdefault(
-                code, _new_bucket(promo_code=code, last_used=b.get("time", "") or "")
-            )
+            ps = promo_stats.setdefault(code, _new_bucket(promo_code=code, last_used=_time_str(b.get("time"))))
             _apply_benefit(ps, b)
-            ps["last_used"] = max(ps["last_used"], b.get("time", "") or "")
+            ps["last_used"] = max(ps["last_used"], _time_str(b.get("time")))
 
         last_utm = b.get("last_course_click_utm") or {}
         source = last_utm.get("utm_source") if isinstance(last_utm, dict) else None
         if source:
             label = UTM_SOURCE_LABELS.get(source, source)
-            us = utm_stats.setdefault(
-                label, _new_bucket(utm_source=label, last_used=b.get("time", "") or "")
-            )
+            us = utm_stats.setdefault(label, _new_bucket(utm_source=label, last_used=_time_str(b.get("time"))))
             _apply_benefit(us, b)
-            us["last_used"] = max(us["last_used"], b.get("time", "") or "")
+            us["last_used"] = max(us["last_used"], _time_str(b.get("time")))
 
     recent_payments = []
     buyer_names = await _get_buyer_names(session)
-    for b in sorted(benefits, key=lambda x: x.get("time", "") or "", reverse=True):
+    for b in sorted(benefits, key=lambda x: _time_str(x.get("time")), reverse=True):
         last_utm = b.get("last_course_click_utm") or {}
         if not isinstance(last_utm, dict):
             last_utm = {}
@@ -221,13 +209,11 @@ async def transform_financials(session: AsyncSession):
         recent_payments.append(
             {
                 "id": b.get("id"),
-                "course": course_map.get(_to_int(b.get("course")), {}).get(
-                    "title", f"Курс #{b.get('course')}"
-                ),
+                "course": course_map.get(_to_int(b.get("course")), {}).get("title", f"Курс #{b.get('course')}"),
                 "amount": _to_float(b.get("amount")) or 0.0,
                 "payment_amount": _to_float(b.get("payment_amount")) or 0.0,
                 "status": b.get("status", ""),
-                "time": b.get("time", ""),
+                "time": _time_str(b.get("time")),
                 "buyer": buyer,
                 "student": student,
                 "promo_code": promo_code,
@@ -235,7 +221,7 @@ async def transform_financials(session: AsyncSession):
                 "promo_is_stepik": promo_is_stepik_flag,
                 "currency": b.get("currency_code", "RUB"),
                 "channel": channel,
-                "is_gift": _as_bool(b.get("is_gift")) is True,
+                "is_gift": _to_bool(b.get("is_gift")) is True,
                 "utm_source": utm_source,
                 "utm_source_label": UTM_SOURCE_LABELS.get(utm_source, utm_source),
                 "raw": b,

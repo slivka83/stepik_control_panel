@@ -26,6 +26,7 @@ def reset_stepik_http_client():
     yield
     stepik_api._clients.clear()
 
+
 RAW_TABLES = {
     # NOTE: column names AND types mirror the real PostgreSQL schema
     # (raw layer stores everything as TEXT). Keep them in sync with PG —

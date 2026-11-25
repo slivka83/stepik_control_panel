@@ -155,9 +155,7 @@ async def test_alembic_upgrade_head_on_empty_database():
 
             unique_indexes = {
                 row["indexname"]
-                for row in await conn.fetch(
-                    "SELECT indexname FROM pg_indexes WHERE tablename = 'raw_submission'"
-                )
+                for row in await conn.fetch("SELECT indexname FROM pg_indexes WHERE tablename = 'raw_submission'")
             }
             assert "uq_raw_submission_submission_id" in unique_indexes
 

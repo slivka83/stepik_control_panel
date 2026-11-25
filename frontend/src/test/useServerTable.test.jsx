@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { useServerTable } from '../hooks/useServerTable';
 import { SyncContext } from '../contexts/SyncContext';
+import { AuthContext } from '../contexts/AuthContext';
 import api from '../api';
 
 vi.mock('../api', () => ({
@@ -16,9 +17,15 @@ const COLUMNS = [
 
 const INITIAL_SORT = { key: 'name', dir: 'asc' };
 
-function wrapperWith(syncValue) {
+const AUTH_VALUE = { user: { id: 'u1' }, loading: false, authError: null, login: vi.fn(), logout: vi.fn() };
+
+function wrapperWith(syncValue, authValue = AUTH_VALUE) {
   return function Wrapper({ children }) {
-    return <SyncContext.Provider value={syncValue}>{children}</SyncContext.Provider>;
+    return (
+      <AuthContext.Provider value={authValue}>
+        <SyncContext.Provider value={syncValue}>{children}</SyncContext.Provider>
+      </AuthContext.Provider>
+    );
   };
 }
 
@@ -73,6 +80,24 @@ describe('useServerTable', () => {
     });
   });
 
+  it('does not call protected endpoints when the user is logged out', async () => {
+    const { result } = renderHook(
+      () =>
+        useServerTable({
+          endpoint: '/test',
+          columns: COLUMNS,
+          initialSort: INITIAL_SORT,
+          resultKey: 'rows',
+        }),
+      { wrapper: wrapperWith(baseSync(), { ...AUTH_VALUE, user: null }) },
+    );
+
+    await act(async () => {});
+    expect(api.get).not.toHaveBeenCalled();
+    expect(result.current.rows).toEqual([]);
+    expect(result.current.loading).toBe(false);
+  });
+
   it('does not fetch while disabled and fetches when enabled', async () => {
     const { rerender } = renderHook(
       ({ enabled }) =>
@@ -98,7 +123,11 @@ describe('useServerTable', () => {
     function Wrapper({ children }) {
       const [value, setValue] = useState(baseSync({ syncStatus: { in_progress: false, last_sync: '2026-07-01T00:00:00' } }));
       setSyncValue = setValue;
-      return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>;
+      return (
+        <AuthContext.Provider value={AUTH_VALUE}>
+          <SyncContext.Provider value={value}>{children}</SyncContext.Provider>
+        </AuthContext.Provider>
+      );
     }
     renderHook(
       () =>
@@ -125,7 +154,11 @@ describe('useServerTable', () => {
         baseSync({ syncStatus: { in_progress: false, last_sync: '2026-07-01T00:00:00' } }),
       );
       setSyncValue = setValue;
-      return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>;
+      return (
+        <AuthContext.Provider value={AUTH_VALUE}>
+          <SyncContext.Provider value={value}>{children}</SyncContext.Provider>
+        </AuthContext.Provider>
+      );
     }
     renderHook(
       () =>
@@ -152,7 +185,11 @@ describe('useServerTable', () => {
     function Wrapper({ children }) {
       const [value, setValue] = useState(baseSync());
       setSyncValue = setValue;
-      return <SyncContext.Provider value={value}>{children}</SyncContext.Provider>;
+      return (
+        <AuthContext.Provider value={AUTH_VALUE}>
+          <SyncContext.Provider value={value}>{children}</SyncContext.Provider>
+        </AuthContext.Provider>
+      );
     }
     renderHook(
       () =>

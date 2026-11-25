@@ -51,9 +51,7 @@ async def list_courses(
     snapshot = snapshot_result.scalar_one_or_none()
     snapshot_data = snapshot.data if snapshot is not None and isinstance(snapshot.data, dict) else {}
     community = snapshot_data.get("community")
-    per_course_community = (
-        community.get("per_course", {}) if isinstance(community, dict) else {}
-    )
+    per_course_community = community.get("per_course", {}) if isinstance(community, dict) else {}
     if not isinstance(per_course_community, dict):
         per_course_community = {}
     finance_courses = {}
@@ -91,10 +89,14 @@ async def list_courses(
             }
         )
     # Stable order: published first (newest on top), drafts after them, ties by
-    # title. Without the tiebreak the table order changed between requests.
+    # title. Status, not published_at, decides the group: a draft that was once
+    # public must stay with drafts.
     courses_list.sort(key=lambda c: (c["title"] or "").casefold())
     courses_list.sort(key=lambda c: c["published_at"] or "", reverse=True)
-    courses_list.sort(key=lambda c: c["published_at"] is not None, reverse=True)
+    courses_list.sort(
+        key=lambda c: (c["status"] or "").strip().lower() == "published",
+        reverse=True,
+    )
     return {"courses": courses_list}
 
 

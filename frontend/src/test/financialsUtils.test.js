@@ -117,6 +117,16 @@ describe('commissionWarning', () => {
     ).toBeNull();
   });
 
+  it('flags a 7.4% author-link commission even though it displays as 7%', () => {
+    const warning = commissionWarning({
+      payment_amount: 1000,
+      amount: 926,
+      status: 'debited',
+      channel: 'А-ссылка',
+    });
+    expect(warning).toMatchObject({ pct: 7.4, expectedPct: 7, severity: 'error' });
+  });
+
   it('does not flag a commission below the expected rate', () => {
     expect(
       commissionWarning({

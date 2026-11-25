@@ -3,7 +3,9 @@ import { render, screen, within, fireEvent, waitFor } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { SyncContext } from '../contexts/SyncContext';
-import { AuthProvider } from '../contexts/AuthContext';
+import { AuthContext } from '../contexts/AuthContext';
+
+const AUTH_VALUE = { user: { id: 'u1' }, loading: false, authError: null };
 import Solutions from '../pages/Solutions';
 import api from '../api';
 
@@ -32,7 +34,6 @@ const makeSyncValue = (submissions = mockSubmissions) => ({
     kpi: {},
     cohorts: { active: 0, passive: 0, fading: 0, sleeping: 0 },
     revenue: { months: [] },
-    alerts: [],
     courses: [],
     submissions,
   },
@@ -44,11 +45,11 @@ const makeSyncValue = (submissions = mockSubmissions) => ({
 function renderSolutions(submissions) {
   return render(
     <MemoryRouter>
-      <AuthProvider>
+      <AuthContext.Provider value={AUTH_VALUE}>
         <SyncContext.Provider value={makeSyncValue(submissions)}>
           <Solutions />
         </SyncContext.Provider>
-      </AuthProvider>
+      </AuthContext.Provider>
     </MemoryRouter>,
   );
 }
@@ -694,11 +695,11 @@ describe('Solutions', () => {
     syncValue.isFilterActive = true;
     render(
       <MemoryRouter>
-        <AuthProvider>
+        <AuthContext.Provider value={AUTH_VALUE}>
           <SyncContext.Provider value={syncValue}>
             <Solutions />
           </SyncContext.Provider>
-        </AuthProvider>
+        </AuthContext.Provider>
       </MemoryRouter>,
     );
     await user.click(screen.getByText('Самые сложные'));
@@ -733,11 +734,11 @@ describe('Solutions', () => {
     first.isFilterActive = true;
     const view = render(
       <MemoryRouter>
-        <AuthProvider>
+        <AuthContext.Provider value={AUTH_VALUE}>
           <SyncContext.Provider value={first}>
             <Solutions />
           </SyncContext.Provider>
-        </AuthProvider>
+        </AuthContext.Provider>
       </MemoryRouter>,
     );
     await user.click(screen.getByText('Самые сложные'));
@@ -749,11 +750,11 @@ describe('Solutions', () => {
     second.isFilterActive = true;
     view.rerender(
       <MemoryRouter>
-        <AuthProvider>
+        <AuthContext.Provider value={AUTH_VALUE}>
           <SyncContext.Provider value={second}>
             <Solutions />
           </SyncContext.Provider>
-        </AuthProvider>
+        </AuthContext.Provider>
       </MemoryRouter>,
     );
 

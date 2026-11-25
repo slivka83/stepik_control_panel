@@ -488,8 +488,22 @@ class TestDashboardKPITrends:
         course = _make_course_in_db(db_session, user.id)
 
         months_data = [
-            {"month": "Июнь 2026", "year": 2026, "month_num": 6, "income": 8000, "payments_count": 8, "refunds_count": 1},
-            {"month": "Июль 2026", "year": 2026, "month_num": 7, "income": 10000, "payments_count": 10, "refunds_count": 2},
+            {
+                "month": "Июнь 2026",
+                "year": 2026,
+                "month_num": 6,
+                "income": 8000,
+                "payments_count": 8,
+                "refunds_count": 1,
+            },
+            {
+                "month": "Июль 2026",
+                "year": 2026,
+                "month_num": 7,
+                "income": 10000,
+                "payments_count": 10,
+                "refunds_count": 2,
+            },
         ]
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
@@ -534,8 +548,22 @@ class TestDashboardKPITrends:
         course = _make_course_in_db(db_session, user.id)
 
         months_data = [
-            {"month": "Июнь 2026", "year": 2026, "month_num": 6, "income": 8000, "payments_count": 5, "refunds_count": 1},
-            {"month": "Июль 2026", "year": 2026, "month_num": 7, "income": 10000, "payments_count": 10, "refunds_count": 2},
+            {
+                "month": "Июнь 2026",
+                "year": 2026,
+                "month_num": 6,
+                "income": 8000,
+                "payments_count": 5,
+                "refunds_count": 1,
+            },
+            {
+                "month": "Июль 2026",
+                "year": 2026,
+                "month_num": 7,
+                "income": 10000,
+                "payments_count": 10,
+                "refunds_count": 2,
+            },
         ]
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),
@@ -846,8 +874,24 @@ class TestDashboardKPITrends:
         course = _make_course_in_db(db_session, user.id)
 
         months_data = [
-            {"month": "Июнь 2026", "year": 2026, "month_num": 6, "income": 8000, "payments_count": 8, "refunds": 500, "refunds_count": 1},
-            {"month": "Июль 2026", "year": 2026, "month_num": 7, "income": 10000, "payments_count": 10, "refunds": 1200, "refunds_count": 3},
+            {
+                "month": "Июнь 2026",
+                "year": 2026,
+                "month_num": 6,
+                "income": 8000,
+                "payments_count": 8,
+                "refunds": 500,
+                "refunds_count": 1,
+            },
+            {
+                "month": "Июль 2026",
+                "year": 2026,
+                "month_num": 7,
+                "income": 10000,
+                "payments_count": 10,
+                "refunds": 1200,
+                "refunds_count": 3,
+            },
         ]
         snapshot = FinancialSnapshot(
             id=uuid.uuid4(),

@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.stepik_api import StepikAPIError
 
-from .common import _dedupe_by, _hub, _previous_raw_objects
+from .common import _dedupe_by, _hub, _previous_raw_objects, is_fatal_api_error
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +28,16 @@ USER_ID_SOURCES = [
 ]
 
 
-async def sync_users(session: AsyncSession, token: str):
+async def sync_users(session: AsyncSession, token: str, only_missing: bool = False):
     """Sync user profiles (names) → raw_user (full_reload, ?ids[]= batches).
 
     IDs come from enrollments/submissions (app layer) and grades/certs/reviews
     (raw layer). Non-numeric garbage is filtered out — e.g. raw_comment.user
     holds the OAuth client name instead of a real user id.
+
+    ``only_missing=True`` fetches names for newly referenced ids without
+    replacing the table. The panel uses it mid-sync (new buyers/commenters);
+    the regular courses stage still does the full reload.
     """
     logger.info("=== Raw: users ===")
 
@@ -48,11 +52,19 @@ async def sync_users(session: AsyncSession, token: str):
                 ids.add(s)
 
     mapping = await _hub()._get_fields_mapping(session, "users")
+    if only_missing and ids:
+        existing = await session.execute(text("SELECT user_id FROM raw_user WHERE user_id IS NOT NULL"))
+        ids -= {str(row[0]) for row in existing}
+        if not ids:
+            logger.info("  no new user IDs — nothing to fetch")
+            return
+
     if not ids:
         # Full reload semantics: no referenced users means the table must be
         # empty, otherwise deleted students' names stay in the panel forever.
-        logger.warning("  no user IDs to sync — clearing raw_user")
-        await _hub()._replace_raw_table(session, "raw_user", [], mapping)
+        if not only_missing:
+            logger.warning("  no user IDs to sync — clearing raw_user")
+            await _hub()._replace_raw_table(session, "raw_user", [], mapping)
         return
 
     users = []
@@ -63,6 +75,8 @@ async def sync_users(session: AsyncSession, token: str):
         try:
             u = await _hub()._paginated_fetch("/users", token, "users", {"ids[]": batch})
         except StepikAPIError as e:
+            if is_fatal_api_error(e):
+                raise
             # Один упавший батч не должен обрывать многочасовой синк и не
             # должен стирать имена уже сохранённых студентов.
             failed_ids.extend(batch)
@@ -78,5 +92,8 @@ async def sync_users(session: AsyncSession, token: str):
         users.extend(await _previous_raw_objects(session, "raw_user", "user_id", failed_ids))
 
     users = _dedupe_by(users, "id")
-    await _hub()._replace_raw_table(session, "raw_user", users, mapping)
+    if only_missing:
+        await _hub()._upsert_raw_table(session, "raw_user", users, mapping)
+    else:
+        await _hub()._replace_raw_table(session, "raw_user", users, mapping)
     logger.info("  raw_user: %d rows", len(users))

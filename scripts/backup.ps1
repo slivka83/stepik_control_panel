@@ -62,7 +62,9 @@ foreach ($raw in Get-Content (Join-Path $ProjectDir '.env')) {
     if (-not $line -or $line.StartsWith('#')) { continue }
     $index = $line.IndexOf('=')
     if ($index -lt 1) { continue }
-    $cfg[$line.Substring(0, $index).Trim()] = $line.Substring($index + 1).Trim()
+    $value = $line.Substring($index + 1).Trim()
+    if ($value.StartsWith('"') -and $value.EndsWith('"')) { $value = $value.Trim('"') }
+    $cfg[$line.Substring(0, $index).Trim()] = $value
 }
 $PgUser = if ($cfg['POSTGRES_USER']) { $cfg['POSTGRES_USER'] } else { 'stepik_panel' }
 $PgDb = if ($cfg['POSTGRES_DB']) { $cfg['POSTGRES_DB'] } else { 'stepik_panel' }

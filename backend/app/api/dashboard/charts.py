@@ -53,15 +53,13 @@ async def get_submissions(
     db: AsyncSession = Depends(get_db),
     course_ids: str = Query(None),
 ):
-    courses, course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
+    courses, selected_course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
 
-    if not course_ids:
+    if not selected_course_ids:
         return {"months": [], "by_course": [], "years": [], "published_total": 0}
 
     selected_stepik_ids = {c.stepik_course_id for c in courses}
-    published_monthly, published_yearly, published_per_course = await published_solutions_stats(
-        db, selected_stepik_ids
-    )
+    published_monthly, published_yearly, published_per_course = await published_solutions_stats(db, selected_stepik_ids)
 
     month_result = await db.execute(
         select(
@@ -71,7 +69,7 @@ async def get_submissions(
             func.count(Submission.id).filter(Submission.status == "correct").label("correct"),
             func.count(func.distinct(Submission.user_id)).label("students"),
         )
-        .where(Submission.course_id.in_(course_ids), Submission.is_author.is_(False))
+        .where(Submission.course_id.in_(selected_course_ids), Submission.is_author.is_(False))
         .group_by("year", "month")
         .order_by("year", "month")
     )
@@ -111,7 +109,7 @@ async def get_submissions(
             extract("year", Submission.submission_time).label("year"),
             func.count(func.distinct(Submission.user_id)).label("students"),
         )
-        .where(Submission.course_id.in_(course_ids), Submission.is_author.is_(False))
+        .where(Submission.course_id.in_(selected_course_ids), Submission.is_author.is_(False))
         .group_by("year")
     )
     for row in year_students_result.all():
@@ -137,7 +135,7 @@ async def get_submissions(
             func.count(Submission.id).filter(Submission.status == "correct").label("correct"),
             func.count(func.distinct(Submission.user_id)).label("students"),
         )
-        .where(Submission.course_id.in_(course_ids), Submission.is_author.is_(False))
+        .where(Submission.course_id.in_(selected_course_ids), Submission.is_author.is_(False))
         .group_by(Submission.course_id)
     )
     course_rows = course_result.all()
@@ -177,9 +175,9 @@ async def get_active_students(
     db: AsyncSession = Depends(get_db),
     course_ids: str = Query(None),
 ):
-    _, course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
+    _, selected_course_ids = await get_courses_for_user(db, user, parse_course_ids(course_ids))
 
-    if not course_ids:
+    if not selected_course_ids:
         return {"months": []}
 
     per_course = await db.execute(
@@ -190,7 +188,7 @@ async def get_active_students(
             func.count(func.distinct(Submission.user_id)).label("cnt"),
         )
         .where(
-            Submission.course_id.in_(course_ids),
+            Submission.course_id.in_(selected_course_ids),
             Submission.is_author.is_(False),
             Submission.user_id.isnot(None),
         )
@@ -212,7 +210,7 @@ async def get_active_students(
             func.count(func.distinct(Submission.user_id)).label("cnt"),
         )
         .where(
-            Submission.course_id.in_(course_ids),
+            Submission.course_id.in_(selected_course_ids),
             Submission.is_author.is_(False),
             Submission.user_id.isnot(None),
         )
@@ -256,10 +254,7 @@ async def get_certificates(
     if not stepik_ids:
         return {"months": []}
     placeholders, params = in_clause(stepik_ids, "cid")
-    stmt = (
-        "SELECT year, month, type FROM mart_certificates "
-        f"WHERE stepik_course_id IN ({placeholders})"
-    )
+    stmt = f"SELECT year, month, type FROM mart_certificates WHERE stepik_course_id IN ({placeholders})"
 
     rows = (await db.execute(text(stmt), params)).all()
     monthly: dict[str, int] = {}

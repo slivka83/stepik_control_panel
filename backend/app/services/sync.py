@@ -21,13 +21,12 @@ logger = logging.getLogger(__name__)
 # a different event loop; using a ContextVar lets child coroutines pick up the
 # right factory without mutating this module-level default.
 async_session = _db.async_session
-_sync_session_factory: ContextVar[async_sessionmaker | None] = ContextVar(
-    "sync_session_factory", default=None
-)
+_sync_session_factory: ContextVar[async_sessionmaker | None] = ContextVar("sync_session_factory", default=None)
 
 
 def _session_factory() -> async_sessionmaker:
     return _sync_session_factory.get() or async_session
+
 
 _sync_lock = threading.Lock()
 _sync_in_progress = False
@@ -112,9 +111,11 @@ async def ensure_state_loaded():
         return
     try:
         await _load_sync_state()
+        _state_loaded = True
     except Exception as e:
+        # DB may still be starting: keep the flag false so the next status
+        # request retries instead of silently losing the persisted error.
         logger.warning("Failed to load persisted sync state: %s", e)
-    _state_loaded = True
 
 
 TOKEN_REFRESH_BEFORE_SECONDS = 300
@@ -165,9 +166,7 @@ async def _get_user_token(user_id=None) -> str | None:
                 except Exception as e:
                     logger.warning("Could not refresh token before sync: %s", e)
                     if expires_at <= datetime.now(UTC):
-                        raise RuntimeError(
-                            "Токен Stepik истёк, обновить его не удалось — войдите заново"
-                        ) from e
+                        raise RuntimeError("Токен Stepik истёк, обновить его не удалось — войдите заново") from e
 
         return decrypt_token(user.access_token)
 
@@ -219,13 +218,18 @@ def status_in_progress() -> bool:
         return _sync_in_progress or _pending_active()
 
 
-async def sync_courses_and_enrollments(user_id=None):
-    """Raw sync → transform for courses and enrollments."""
+async def sync_courses_and_enrollments(user_id=None) -> bool:
+    """Raw sync → transform for courses and enrollments.
+
+    Returns False when there is no usable Stepik token (fresh install / all
+    tokens revoked). ``sync_all`` treats that as an error instead of silently
+    marking an empty run as a successful sync.
+    """
     global _sync_progress, _sync_step
 
     token = await _get_user_token(user_id)
     if not token:
-        return
+        return False
     user_id_db = user_id
 
     _sync_step = "курсы: структура"
@@ -255,15 +259,16 @@ async def sync_courses_and_enrollments(user_id=None):
         await raw_sync.sync_users(session, token)
     _sync_progress = 40
     logger.info("Courses & enrollments transformed")
+    return True
 
 
-async def sync_submissions(user_id=None):
-    """Raw sync → transform for submissions."""
+async def sync_submissions(user_id=None) -> bool:
+    """Raw sync → transform for submissions. False when no token is available."""
     global _sync_progress, _sync_step
 
     token = await _get_user_token(user_id)
     if not token:
-        return
+        return False
 
     _sync_step = "решения: загрузка"
     _sync_progress = 42
@@ -279,10 +284,24 @@ async def sync_submissions(user_id=None):
         await transform.transform_submissions(session)
     _sync_progress = 85
     logger.info("Submissions transformed")
+    return True
 
 
-async def sync_financials():
-    """Raw sync → transform for financials (global snapshot, one per install)."""
+async def _sync_missing_user_names(user_id=None) -> None:
+    """Fetch names for users first seen in this sync (buyers, commenters)."""
+    token = await _get_user_token(user_id)
+    if not token:
+        return
+    async with _session_factory()() as session, session.begin():
+        await raw_sync.sync_users(session, token, only_missing=True)
+
+
+async def sync_financials(user_id=None, sync_names: bool = False):
+    """Raw sync → transform for financials (global snapshot, one per install).
+
+    ``sync_names`` is set by sync_all: a buyer first seen in the fresh raw
+    financials gets a name in the same sync instead of "—" until tomorrow.
+    """
     global _sync_progress, _sync_step
 
     _sync_step = "финансы: загрузка"
@@ -291,6 +310,10 @@ async def sync_financials():
     _sync_progress = 90
     logger.info("Raw financials synced")
 
+    if sync_names:
+        _sync_step = "финансы: имена покупателей"
+        await _sync_missing_user_names(user_id)
+
     _sync_step = "финансы: трансформация"
     async with _session_factory()() as session, session.begin():
         await transform.transform_financials(session)
@@ -298,13 +321,13 @@ async def sync_financials():
     logger.info("Financials transformed")
 
 
-async def sync_community_stats(user_id=None):
-    """Raw sync → transform for community."""
+async def sync_community_stats(user_id=None, sync_names: bool = False) -> bool:
+    """Raw sync → transform for community. False when no token is available."""
     global _sync_progress, _sync_step
 
     token = await _get_user_token(user_id)
     if not token:
-        return
+        return False
 
     _sync_step = "сообщество: загрузка"
     # raw_sync.sync_community коммитит сам (пошагово) — без внешнего session.begin()
@@ -312,6 +335,10 @@ async def sync_community_stats(user_id=None):
         await raw_sync.sync_community(session, token)
     _sync_progress = 98
     logger.info("Raw community synced")
+
+    if sync_names:
+        _sync_step = "сообщество: имена авторов"
+        await _sync_missing_user_names(user_id)
 
     _sync_step = "сообщество: трансформация"
     async with _session_factory()() as session, session.begin():
@@ -338,13 +365,14 @@ async def sync_community_stats(user_id=None):
         await transform.transform_students(session)
     _sync_progress = 100
     logger.info("Community transformed")
-
+    return True
 
 
 async def sync_all(force: bool = False, user_id=None):
     """Run all sync jobs. Skips if cooldown hasn't passed (unless force=True).
 
-    If user_id is provided, sync only that user's data; otherwise sync all users.
+    If user_id is provided, sync that user's data; otherwise use the first
+    (panel owner) account — the API always passes the authenticated user.
     """
     global _sync_in_progress, _sync_pending, _sync_progress, _sync_step
     global _last_sync_completed_at, _last_sync_error
@@ -372,19 +400,22 @@ async def sync_all(force: bool = False, user_id=None):
     await _persist_sync_state(True, 0, "курсы", "", _last_sync_completed_at)
     try:
         _sync_step = "курсы и студенты"
-        await sync_courses_and_enrollments(user_id)
+        if not await sync_courses_and_enrollments(user_id):
+            raise RuntimeError("Нет доступного токена Stepik — войдите в панель заново и повторите синхронизацию")
         with _sync_lock:
             _sync_progress = 40
         _sync_step = "отправленные решения"
-        await sync_submissions(user_id)
+        if not await sync_submissions(user_id):
+            raise RuntimeError("Токен Stepik пропал во время синхронизации — войдите заново")
         with _sync_lock:
             _sync_progress = 85
         _sync_step = "финансы"
-        await sync_financials()
+        await sync_financials(user_id=user_id, sync_names=True)
         with _sync_lock:
             _sync_progress = 95
         _sync_step = "рейтинги"
-        await sync_community_stats(user_id)
+        if not await sync_community_stats(user_id, sync_names=True):
+            raise RuntimeError("Токен Stepik пропал во время синхронизации — войдите заново")
         with _sync_lock:
             _sync_progress = 100
         _sync_step = "готово"
@@ -419,14 +450,20 @@ def run_sync_thread(force: bool = False, user_id=None) -> None:
 
 def sync_all_sync(force: bool = False, user_id=None) -> dict:
     """Synchronous wrapper for sync_all, runs in its own event loop in a thread.
+
     Creates a separate DB engine to avoid "attached to a different loop" errors.
-    Creates its own httpx client (per-event-loop in stepik_api) for the same reason.
-    Skips Redis rate limiter (sync thread uses its own loop, Redis client is bound to main loop).
+    The httpx client and Redis limiter are already per-event-loop, so the sync
+    thread uses its own client/script instead of disabling the limiter.
     """
     from app.services import rate_limiter
     from app.services.stepik_api import close_client
 
-    engine = create_async_engine(get_settings().database_url, pool_size=5, max_overflow=2)
+    database_url = get_settings().database_url
+    engine_kwargs: dict[str, int] = {"pool_size": 5, "max_overflow": 2}
+    if database_url.startswith("sqlite"):
+        # SQLite (dev/test) does not accept QueuePool sizing arguments.
+        engine_kwargs = {}
+    engine = create_async_engine(database_url, **engine_kwargs)
     thread_session = async_sessionmaker(engine, expire_on_commit=False)
 
     token = _sync_session_factory.set(thread_session)

@@ -35,11 +35,7 @@ from app.models import (
 router = APIRouter()
 
 COHORT_SORT_RANK = case(
-    (StudentMart.cohort_status == "Active", 0),
-    (StudentMart.cohort_status == "Passive", 1),
-    (StudentMart.cohort_status == "Fading", 2),
-    (StudentMart.cohort_status == "Sleeping", 3),
-    (StudentMart.cohort_status == "Zombie", 4),
+    *[(StudentMart.cohort_status == status, rank) for status, rank in COHORT_RANK.items()],
     else_=99,
 )
 
@@ -57,9 +53,7 @@ SORTABLE = {
 }
 
 
-async def _filtered_stats(
-    db: AsyncSession, courses: list[Course], student_ids: list[int]
-) -> dict[int, dict]:
+async def _filtered_stats(db: AsyncSession, courses: list[Course], student_ids: list[int]) -> dict[int, dict]:
     """Recompute row counters for the selected courses.
 
     student_marts stores account-wide aggregates. When the user filters the
@@ -108,9 +102,7 @@ async def _filtered_stats(
             if row is None:
                 continue
             row["courses_count"] += cnt
-            if last_viewed is not None and (
-                row["last_activity"] is None or last_viewed > row["last_activity"]
-            ):
+            if last_viewed is not None and (row["last_activity"] is None or last_viewed > row["last_activity"]):
                 row["last_activity"] = last_viewed
             rank = COHORT_RANK.get(status, 99)
             if rank < row["_rank"]:
@@ -150,12 +142,8 @@ async def _filtered_stats(
         comments = await db.execute(
             select(
                 MartComment.user_id,
-                func.count(
-                    case((MartComment.is_solution.is_(False), 1), else_=None)
-                ).label("comments"),
-                func.count(
-                    case((MartComment.is_solution.is_(True), 1), else_=None)
-                ).label("solutions"),
+                func.count(case((MartComment.is_solution.is_(False), 1), else_=None)).label("comments"),
+                func.count(case((MartComment.is_solution.is_(True), 1), else_=None)).label("solutions"),
             )
             .where(
                 MartComment.stepik_course_id.in_(stepik_ids),
@@ -223,16 +211,14 @@ async def get_students(
         result = await db.execute(base)
         all_rows = list(result.scalars().all())
         total = len(all_rows)
-        filtered = await _filtered_stats(db, courses, [m.student_id for m in all_rows])
+        filtered = await _filtered_stats(db, courses or [], [m.student_id for m in all_rows])
 
         def value_of(m: StudentMart):
             row = filtered.get(m.student_id) or {}
             if sort == "name":
                 return m.name
             if sort == "cohort_status":
-                return COHORT_RANK.get(
-                    row.get("cohort_status") or m.cohort_status, 99
-                )
+                return COHORT_RANK.get(row.get("cohort_status") or m.cohort_status, 99)
             if sort == "last_activity":
                 # Не подставляем account-wide активность: она относится к
                 # другому набору курсов.
@@ -277,13 +263,9 @@ async def get_students(
                 "courses_count": row["courses_count"] if row else m.courses_count,
                 "certificates": row["certificates"] if row else m.certificates,
                 "submissions_count": row["submissions_count"] if row else m.submissions_count,
-                "submissions_successful": (
-                    row["submissions_successful"] if row else m.submissions_successful
-                ),
+                "submissions_successful": (row["submissions_successful"] if row else m.submissions_successful),
                 "comments_count": row["comments_count"] if row else m.comments_count,
-                "published_solutions": (
-                    row["published_solutions"] if row else m.published_solutions
-                ),
+                "published_solutions": (row["published_solutions"] if row else m.published_solutions),
                 "last_activity": last_activity.isoformat() if last_activity else None,
             }
         )

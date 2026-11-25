@@ -238,6 +238,55 @@ class TestKpiEdgeCases:
         finally:
             app.dependency_overrides.clear()
 
+    async def test_total_students_counts_unique_people_across_courses(self, db_session):
+        """Regression: один студент на двух курсах считался двумя студентами,
+        хотя страница «Студенты» показывает его одной строкой."""
+        user = await _seed_user(db_session)
+        c1 = await _owned_course(db_session, user, 100)
+        c2 = await _owned_course(db_session, user, 200)
+        now = datetime.now(UTC).replace(tzinfo=None)
+        old = now - timedelta(days=400)
+        db_session.add_all(
+            [
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=c1.id,
+                    student_id=7,
+                    date_joined=old,
+                    last_viewed_at=old,
+                    certificate_issued=False,
+                ),
+                StudentEnrollment(
+                    id=uuid.uuid4(),
+                    course_id=c2.id,
+                    student_id=7,
+                    date_joined=now,
+                    last_viewed_at=now,
+                    certificate_issued=False,
+                ),
+            ]
+        )
+        await db_session.commit()
+
+        async def override_db():
+            yield db_session
+
+        async def override_user():
+            return user
+
+        app.dependency_overrides[get_db] = override_db
+        app.dependency_overrides[get_user] = override_user
+        try:
+            data = client.get("/api/dashboard/kpi").json()
+        finally:
+            app.dependency_overrides.clear()
+
+        assert data["total_students"] == 1
+        # Первая запись была год назад — человек не «новый» в этом месяце,
+        # хотя и взял ещё один курс.
+        assert data["current_month_students"] == 0
+        assert data["students_prev_months"] == 1
+
     async def test_steps_average_grade_zero_when_no_votes(self, db_session):
         # A step with grade but zero votes must not skew the average → 0.0.
         user = await _seed_user(db_session)
@@ -477,10 +526,26 @@ class TestKpiEdgeCases:
                         "total_payments": 10,
                     },
                     "months": [
-                        {"month": "Июнь 2026", "year": 2026, "month_num": 6, "income": 500, "turnover": 600,
-                         "refunds": 0, "payments_count": 5, "refunds_count": 0},
-                        {"month": "Июль 2026", "year": 2026, "month_num": 7, "income": 500, "turnover": 600,
-                         "refunds": 100, "payments_count": 5, "refunds_count": 2},
+                        {
+                            "month": "Июнь 2026",
+                            "year": 2026,
+                            "month_num": 6,
+                            "income": 500,
+                            "turnover": 600,
+                            "refunds": 0,
+                            "payments_count": 5,
+                            "refunds_count": 0,
+                        },
+                        {
+                            "month": "Июль 2026",
+                            "year": 2026,
+                            "month_num": 7,
+                            "income": 500,
+                            "turnover": 600,
+                            "refunds": 100,
+                            "payments_count": 5,
+                            "refunds_count": 2,
+                        },
                     ],
                     "courses": [],
                     "recent_payments": [],
@@ -556,6 +621,7 @@ async def test_empty_kpi_has_the_same_keys_as_a_filled_one(db_session):
     assert empty["total_refunds_count"] == 0
     assert empty["current_month_refunds_amount"] == 0
     assert empty["refunds_amount_change_detail"] is None
+
 
 class TestKpiMartScopedToOwner:
     async def test_foreign_mart_rows_are_not_counted_without_filter(self, db_session):

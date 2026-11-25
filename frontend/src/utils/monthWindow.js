@@ -33,7 +33,8 @@ export function monthComposite(m) {
 }
 
 export function formatMonthLabel(month, year) {
-  return `${MONTH_NAMES[month]} ${year}`;
+  const name = MONTH_NAMES[month] || String(month ?? '');
+  return `${name} ${year ?? ''}`.trim();
 }
 
 export function buildMonthWindow(months, { now = new Date(), size = 18 } = {}) {

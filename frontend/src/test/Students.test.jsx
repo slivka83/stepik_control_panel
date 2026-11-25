@@ -8,13 +8,14 @@ vi.mock('../api', () => ({
   default: { get: vi.fn() },
 }));
 
+const AUTH_VALUE = { user: { id: 'u1' }, loading: false, authError: null };
+
 const makeSyncValue = (cohorts = { active: 0, passive: 0, fading: 0, sleeping: 0 }, extra = {}) => ({
   syncStatus: { in_progress: false, last_sync: null },
   data: {
     kpi: {},
     cohorts,
     revenue: { months: [] },
-    alerts: [],
     courses: [],
     financials: null,
   },
@@ -79,7 +80,7 @@ describe('Students', () => {
 
   it('renders all four cohort labels', () => {
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 100, passive: 50, fading: 30, sleeping: 20 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 100, passive: 50, fading: 30, sleeping: 20 })}>
         <Students />
       </TestRouter>,
     );
@@ -91,7 +92,7 @@ describe('Students', () => {
 
   it('renders cohort percentages', () => {
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 50, passive: 50, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 50, passive: 50, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -100,7 +101,7 @@ describe('Students', () => {
 
   it('renders student table with no data message', async () => {
     render(
-      <TestRouter syncValue={makeSyncValue()}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue()}>
         <Students />
       </TestRouter>,
     );
@@ -109,7 +110,7 @@ describe('Students', () => {
 
   it('does not render list header and total counter', () => {
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -139,7 +140,7 @@ describe('Students', () => {
       }),
     ]);
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 1, passive: 1, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 1, passive: 1, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -155,7 +156,7 @@ describe('Students', () => {
       makeStudent({ student_id: 777, profile_url: 'https://stepik.org/users/777', name: 'Мария Смирнова' }),
     ]);
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -177,7 +178,7 @@ describe('Students', () => {
       }),
     ]);
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -191,7 +192,7 @@ describe('Students', () => {
   it('renders zero submissions without percentage', async () => {
     mockStudentsApi([makeStudent({ student_id: 123, submissions_count: 0, submissions_successful: 0 })]);
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -202,7 +203,7 @@ describe('Students', () => {
   it('right-aligns activity header and cells', async () => {
     mockStudentsApi([makeStudent()]);
     const { container } = render(
-      <TestRouter syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -215,7 +216,7 @@ describe('Students', () => {
 
   it('renders without crashing when no data', () => {
     const { container } = render(
-      <TestRouter syncValue={makeSyncValue()}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue()}>
         <Students />
       </TestRouter>,
     );
@@ -229,7 +230,7 @@ describe('Students', () => {
       makeStudent({ student_id: 3, name: 'В', courses_count: 3 }),
     ]);
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 3, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 3, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -261,7 +262,7 @@ describe('Students', () => {
       makeStudent({ student_id: 2, name: 'Без решений', published_solutions: 0 }),
     ]);
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 2, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 2, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -278,7 +279,7 @@ describe('Students', () => {
       makeStudent({ student_id: 3, name: 'В', published_solutions: 3 }),
     ]);
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 3, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 3, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -302,7 +303,7 @@ describe('Students', () => {
       makeStudent({ student_id: 3, name: 'Олег Сидоров' }),
     ]);
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 3, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 3, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -324,7 +325,7 @@ describe('Students', () => {
       makeStudent({ student_id: 3, name: 'Средний', last_activity: '2025-01-01T00:00:00Z' }),
     ]);
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 3, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 3, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -348,7 +349,7 @@ describe('Students', () => {
     }));
     mockStudentsApi(many);
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 20, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 20, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -368,7 +369,7 @@ describe('Students', () => {
     }));
     mockStudentsApi(many);
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 20, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 20, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -390,7 +391,7 @@ describe('Students', () => {
   it('renders activity date in dd.mm.yyyy format like Опубликован on Courses', async () => {
     mockStudentsApi([makeStudent({ last_activity: '2024-01-15T10:00:00Z' })]);
     render(
-      <TestRouter syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 })}>
+      <TestRouter authValue={AUTH_VALUE} syncValue={makeSyncValue({ active: 1, passive: 0, fading: 0, sleeping: 0 })}>
         <Students />
       </TestRouter>,
     );
@@ -400,7 +401,7 @@ describe('Students', () => {
   it('passes course_ids to the students fetch when a filter is active', async () => {
     mockStudentsApi([makeStudent()]);
     render(
-      <TestRouter
+      <TestRouter authValue={AUTH_VALUE}
         syncValue={makeSyncValue(
           { active: 1, passive: 0, fading: 0, sleeping: 0 },
           { selectedCourseIds: ['u1', 'u2'], isFilterActive: true },

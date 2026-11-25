@@ -25,7 +25,6 @@ const makeSyncValue = (stats = mockStats) => ({
     kpi: {},
     cohorts: { active: 0, passive: 0, fading: 0, sleeping: 0 },
     revenue: { months: [] },
-    alerts: [],
     courses: [],
     certificatesStats: stats,
   },

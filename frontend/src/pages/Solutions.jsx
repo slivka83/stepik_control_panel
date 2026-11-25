@@ -24,7 +24,7 @@ import {
 const TAB_KEYS = TABS.map((t) => t.key);
 
 export default function Solutions() {
-  const { loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const { data, error, refresh, selectedCourseIds, syncStatus } = useSync();
   const [activeTab, handleTabChange] = useTabState('months', TAB_KEYS);
   const { sorts, onSort } = useTabSorts(TAB_COLUMNS, SORT_INIT);
@@ -37,6 +37,12 @@ export default function Solutions() {
 
   useEffect(() => {
     if (activeTab !== 'hardest' || authLoading) return undefined;
+    if (!user) {
+      setHardestSteps([]);
+      setHardestError(null);
+      setHardestLoading(false);
+      return undefined;
+    }
     let cancelled = false;
     // Не показываем строки прошлого фильтра/синка под новым заголовком.
     setHardestSteps([]);
@@ -58,7 +64,7 @@ export default function Solutions() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, selectedCourseIds, syncStatus.last_sync, authLoading]);
+  }, [activeTab, selectedCourseIds, syncStatus.last_sync, authLoading, user]);
 
   const submissions = data.submissions || {};
   const months = submissions.months || [];

@@ -157,6 +157,13 @@ export function SyncProvider({ children }) {
     (ids) => {
       filterRef.current = ids;
       setSelectedCourseIds(ids);
+      // Do not show numbers of the previous selection while the new filter
+      // is loading. The course list stays: it is the filter's own source.
+      setData((prev) => {
+        const next = emptyData();
+        next.courses = prev.courses;
+        return next;
+      });
       fetchAll(abortRef.current?.signal);
     },
     [fetchAll],
@@ -165,7 +172,14 @@ export function SyncProvider({ children }) {
   const toggleCourse = useCallback(
     (id) => {
       const available = (data.courses || []).map((c) => c.id);
-      const prev = filterRef.current;
+      const availableSet = new Set(available);
+      // Ignore ids of courses that disappeared since the filter was applied:
+      // otherwise the "everything selected" shortcut fires while some visible
+      // checkbox is still unchecked.
+      const prev =
+        filterRef.current === null
+          ? null
+          : filterRef.current.filter((cid) => availableSet.has(cid));
       let next;
       if (prev === null) {
         next = available.filter((cid) => cid !== id);

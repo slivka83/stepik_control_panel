@@ -1,6 +1,5 @@
 """Dashboard API package: /api/dashboard/* endpoints split by domain.
 
-- alerts: pending certificates, zero-score students
 - kpi: dashboard KPI card data
 - cohorts: cohort segmentation
 - charts: monthly series (revenue, submissions, active students, certificates, published solutions)
@@ -14,7 +13,6 @@
 from fastapi import APIRouter
 
 from app.api.dashboard import (
-    alerts,
     certificates,
     charts,
     cohorts,
@@ -26,7 +24,6 @@ from app.api.dashboard import (
 )
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
-router.include_router(alerts.router)
 router.include_router(kpi.router)
 router.include_router(cohorts.router)
 router.include_router(charts.router)

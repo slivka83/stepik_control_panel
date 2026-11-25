@@ -3,7 +3,9 @@ import { render, screen, within, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { SyncContext } from '../contexts/SyncContext';
-import { AuthProvider } from '../contexts/AuthContext';
+import { AuthContext } from '../contexts/AuthContext';
+
+const AUTH_VALUE = { user: { id: 'u1' }, loading: false, authError: null };
 import Comments from '../pages/Comments';
 import api from '../api';
 
@@ -95,7 +97,6 @@ const makeSyncValue = (comments = mockComments, overrides = {}) => ({
     kpi: {},
     cohorts: {},
     revenue: { months: [] },
-    alerts: [],
     courses: [],
     submissions: null,
     comments,
@@ -110,11 +111,11 @@ const makeSyncValue = (comments = mockComments, overrides = {}) => ({
 function renderComments(syncValue = makeSyncValue()) {
   return render(
     <MemoryRouter>
-      <AuthProvider>
+      <AuthContext.Provider value={AUTH_VALUE}>
         <SyncContext.Provider value={syncValue}>
           <Comments />
         </SyncContext.Provider>
-      </AuthProvider>
+      </AuthContext.Provider>
     </MemoryRouter>,
   );
 }
@@ -140,7 +141,7 @@ describe('Comments', () => {
 
   it('renders tab buttons', () => {
     renderComments();
-    const tabLabels = screen.getAllByRole('button').map((b) => b.textContent);
+    const tabLabels = screen.getAllByRole('tab').map((b) => b.textContent);
     for (const label of ['По месяцам', 'По годам', 'По курсам', 'Не отвеченные', 'Дизлайки']) {
       expect(tabLabels).toContain(label);
     }
@@ -309,11 +310,11 @@ describe('Comments', () => {
     expect(await screen.findByText('Вопрос по лекции')).toBeInTheDocument();
     rerender(
       <MemoryRouter>
-        <AuthProvider>
+        <AuthContext.Provider value={AUTH_VALUE}>
           <SyncContext.Provider value={makeSyncValue(mockComments, { selectedCourseIds: ['u2'] })}>
             <Comments />
           </SyncContext.Provider>
-        </AuthProvider>
+        </AuthContext.Provider>
       </MemoryRouter>,
     );
     await screen.findByText('Вопрос по лекции');

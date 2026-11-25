@@ -37,6 +37,8 @@ function Sidebar() {
   const [filterOpen, setFilterOpen] = useState(false);
   const filterBtnRef = useRef(null);
   const startRef = useRef(null);
+  const seenLastSyncRef = useRef(null);
+  const progressSampleRef = useRef({ pct: null, at: null, rate: null });
   const [now, setNow] = useState(Date.now());
 
   const isSyncing = syncing || syncStatus.in_progress;
@@ -46,6 +48,7 @@ function Sidebar() {
   useEffect(() => {
     if (!isSyncing) {
       startRef.current = null;
+      progressSampleRef.current = { pct: null, at: null, rate: null };
       return;
     }
     if (startRef.current === null) startRef.current = Date.now();
@@ -53,11 +56,53 @@ function Sidebar() {
     return () => clearInterval(t);
   }, [isSyncing]);
 
+  // ETA from OBSERVED progress change, not from page-open time: opening the
+  // panel in the middle of a long sync must not claim "~0 s left".
+  useEffect(() => {
+    if (!isSyncing) return;
+    const pct = displayProgress;
+    const at = Date.now();
+    const prev = progressSampleRef.current;
+    if (prev.pct == null || pct < prev.pct) {
+      progressSampleRef.current = { pct, at, rate: null };
+      return;
+    }
+    const dp = pct - prev.pct;
+    const dt = (at - prev.at) / 1000;
+    if (dp > 0 && dt > 0) {
+      const instant = dp / dt;
+      progressSampleRef.current = {
+        pct,
+        at,
+        rate: prev.rate ? prev.rate * 0.6 + instant * 0.4 : instant,
+      };
+    } else {
+      progressSampleRef.current = { ...prev, pct, at };
+    }
+  }, [displayProgress, isSyncing]);
+
   useEffect(() => {
     if (cooldownLeft <= 0) return undefined;
     const t = setInterval(() => setCooldownLeft((s) => Math.max(0, s - 1)), 1000);
     return () => clearInterval(t);
   }, [cooldownLeft]);
+
+  // The backend reports the remaining cooldown on every status poll; reflect
+  // it immediately after a page reload instead of letting the button look ready.
+  useEffect(() => {
+    const remaining = syncStatus.cooldown_remaining_seconds || 0;
+    if (!isSyncing && remaining > 0) setCooldownLeft(remaining);
+  }, [syncStatus.cooldown_remaining_seconds, isSyncing]);
+
+  // A status poll may have failed locally after the sync actually succeeded.
+  // A new last_sync without a backend error is the source of truth.
+  useEffect(() => {
+    const last = syncStatus.last_sync;
+    if (last && last !== seenLastSyncRef.current) {
+      seenLastSyncRef.current = last;
+      if (!syncStatus.last_error) setSyncError(null);
+    }
+  }, [syncStatus.last_sync, syncStatus.last_error]);
 
   const buildSyncTooltip = () => {
     if (lastError) return `Синхронизация не удалась:\n${lastError}`;
@@ -68,10 +113,11 @@ function Sidebar() {
     }
     const elapsed = startRef.current ? (now - startRef.current) / 1000 : 0;
     const pct = displayProgress;
-    const remaining = pct > 0 ? (elapsed * (100 - pct)) / pct : null;
+    const rate = progressSampleRef.current.rate;
+    const remaining = rate > 0 && pct < 100 ? (100 - pct) / rate : pct >= 100 ? 0 : null;
     return [
       `Завершено: ${Math.round(pct)}%`,
-      `Прошло: ${formatDuration(elapsed)}`,
+      `Наблюдаем: ${formatDuration(elapsed)}`,
       `Осталось: ${remaining !== null ? `~${formatDuration(remaining)}` : '…'}`,
     ].join('\n');
   };
@@ -80,29 +126,58 @@ function Sidebar() {
     setSyncing(true);
     setProgress(0);
     setSyncError(null);
+
+    let trigger;
     try {
-      const { data: trigger } = await api.post('/sync');
-      if (trigger.status === 'cooldown') {
-        setCooldownLeft(trigger.cooldown_remaining_seconds || 60);
-        setSyncing(false);
-        return;
-      }
-      if (trigger.status === 'already_in_progress') {
-        setSyncing(false);
-        return;
-      }
+      ({ data: trigger } = await api.post('/sync'));
+    } catch (err) {
+      // Only a failed launch is a launch error; status polling below is
+      // retried separately.
+      setSyncError(err.response?.data?.detail || 'Не удалось запустить синхронизацию');
+      setSyncing(false);
+      setProgress(0);
+      return;
+    }
+
+    if (trigger.status === 'cooldown') {
+      setCooldownLeft(trigger.cooldown_remaining_seconds || 60);
+      setSyncing(false);
+      return;
+    }
+    if (trigger.status === 'already_in_progress') {
+      setSyncing(false);
+      return;
+    }
+
+    let statusFailures = 0;
+    let finished = false;
+    try {
       while (true) {
         await new Promise((r) => setTimeout(r, 1000));
-        const { data } = await api.get('/sync/status');
-        updateSyncStatus?.(data);
-        setProgress(data.progress || 0);
-        if (!data.in_progress) break;
+        let status;
+        try {
+          ({ data: status } = await api.get('/sync/status'));
+          statusFailures = 0;
+        } catch {
+          // One flaky poll must not paint a successfully started sync as
+          // failed forever; give the backend a few chances.
+          statusFailures += 1;
+          if (statusFailures >= 5) break;
+          continue;
+        }
+        updateSyncStatus?.(status);
+        setProgress(status.progress || 0);
+        if (!status.in_progress) {
+          finished = true;
+          break;
+        }
       }
-      // Не ждём 30-секундного опроса контекста: сразу подтягиваем свежие KPI.
-      refresh();
-    } catch (err) {
-      console.error('Sync error:', err);
-      setSyncError(err.response?.data?.detail || 'Не удалось запустить синхронизацию');
+      if (finished) {
+        // Не ждём 30-секундного опроса контекста: сразу подтягиваем свежие KPI.
+        refresh();
+      } else {
+        setSyncError('Не удалось получить статус синхронизации');
+      }
     } finally {
       setSyncing(false);
       setProgress(0);
@@ -147,9 +222,7 @@ function Sidebar() {
       </nav>
 
       <div className="mt-auto px-2 w-full flex flex-col items-center gap-2">
-        {loading ? (
-          <span className="text-xs text-gray-500 font-mono animate-pulse">...</span>
-        ) : user ? (
+        {loading ? null : user ? (
           <>
             <div className="relative">
               <button
