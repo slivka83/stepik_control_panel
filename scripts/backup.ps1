@@ -37,13 +37,20 @@ if (-not $Podman) {
 }
 if (-not $Podman) { Fail "Podman не установлен" }
 
-& $Podman container exists $PgContainer *> $null
+# Ошибки Podman в stderr не должны валить весь скрипт: решение принимается по коду возврата.
+function Invoke-Podman {
+    $ErrorActionPreference = 'Continue'
+    & $Podman @args
+    $global:LASTEXITCODE = $LASTEXITCODE
+}
+
+Invoke-Podman container exists $PgContainer *> $null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  Контейнер базы не создан — бэкап не нужен." -ForegroundColor Yellow
     exit 0
 }
 
-$running = (& $Podman inspect -f '{{.State.Running}}' $PgContainer 2>$null) -eq 'true'
+$running = (Invoke-Podman inspect -f '{{.State.Running}}' $PgContainer 2>$null) -eq 'true'
 if (-not $running) {
     Write-Host "  База остановлена — бэкап пропущен." -ForegroundColor Yellow
     exit 0
@@ -64,18 +71,18 @@ $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 $name = "stepik_${stamp}_${Reason}.dump"
 $destination = Join-Path $BackupDir $name
 
-& $Podman exec $PgContainer pg_dump -U $PgUser -d $PgDb -Fc -f /tmp/stepik_backup.dump
+Invoke-Podman exec $PgContainer pg_dump -U $PgUser -d $PgDb -Fc -f /tmp/stepik_backup.dump
 if ($LASTEXITCODE -ne 0) { Fail "pg_dump завершился ошибкой" }
 
-& $Podman exec $PgContainer pg_restore -l /tmp/stepik_backup.dump *> $null
+Invoke-Podman exec $PgContainer pg_restore -l /tmp/stepik_backup.dump *> $null
 if ($LASTEXITCODE -ne 0) {
-    & $Podman exec $PgContainer rm -f /tmp/stepik_backup.dump | Out-Null
+    Invoke-Podman exec $PgContainer rm -f /tmp/stepik_backup.dump | Out-Null
     Fail "Дамп повреждён, бэкап не сохранён"
 }
 
-& $Podman cp "${PgContainer}:/tmp/stepik_backup.dump" $destination
+Invoke-Podman cp "${PgContainer}:/tmp/stepik_backup.dump" $destination
 if ($LASTEXITCODE -ne 0) { Fail "Не удалось скопировать дамп на диск" }
-& $Podman exec $PgContainer rm -f /tmp/stepik_backup.dump | Out-Null
+Invoke-Podman exec $PgContainer rm -f /tmp/stepik_backup.dump | Out-Null
 
 $file = Get-Item $destination
 if ($file.Length -lt 1024) {

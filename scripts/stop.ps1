@@ -33,6 +33,13 @@ if (-not $Podman) {
     }
 }
 
+# Ошибки Podman в stderr не должны валить весь скрипт: решение принимается по коду возврата.
+function Invoke-Podman {
+    $ErrorActionPreference = 'Continue'
+    & $Podman @args
+    $global:LASTEXITCODE = $LASTEXITCODE
+}
+
 function Stop-PortListener([int]$Port, [string[]]$AllowedNames) {
     $connection = Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
         Select-Object -First 1
@@ -82,7 +89,7 @@ Stop-PortListener 3000 @('node', 'npm')
 
 if ($Podman) {
     Write-Step "Остановка контейнеров (данные сохраняются)"
-    & $Podman stop -t 15 $PgContainer $RedisContainer 2>$null | Out-Null
+    Invoke-Podman stop -t 15 $PgContainer $RedisContainer 2>$null | Out-Null
 }
 
 Write-Host ""

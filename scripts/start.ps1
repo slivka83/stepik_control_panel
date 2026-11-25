@@ -95,8 +95,15 @@ if (-not $Podman) {
     Fail "Podman не установлен. Установите его командой: winget install RedHat.Podman"
 }
 
+# Ошибки Podman в stderr не должны валить весь скрипт: решение принимается по коду возврата.
+function Invoke-Podman {
+    $ErrorActionPreference = 'Continue'
+    & $Podman @args
+    $global:LASTEXITCODE = $LASTEXITCODE
+}
+
 Write-Step "Проверка Podman"
-& $Podman info *> $null
+Invoke-Podman info *> $null
 if ($LASTEXITCODE -ne 0) {
     # Застрявший сокет от прошлого запуска мешает машине подняться.
     $staleSocket = Join-Path $env:TEMP 'podman\podman-machine-default-api.sock'
@@ -104,11 +111,11 @@ if ($LASTEXITCODE -ne 0) {
         Remove-Item $staleSocket -Force -ErrorAction SilentlyContinue
     }
     Write-Host "  Запуск виртуальной машины Podman..."
-    & $Podman machine start | Out-Host
+    Invoke-Podman machine start | Out-Host
     $ready = $false
     for ($i = 0; $i -lt 60; $i++) {
         Start-Sleep -Seconds 2
-        & $Podman info *> $null
+        Invoke-Podman info *> $null
         if ($LASTEXITCODE -eq 0) { $ready = $true; break }
     }
     if (-not $ready) {
@@ -130,10 +137,10 @@ function Assert-PortFreeOrOurs([int]$Port, [string]$ContainerName) {
     $process = Get-ListenerProcess $Port
     if (-not $process) { return }
 
-    & $Podman container exists $ContainerName *> $null
+    Invoke-Podman container exists $ContainerName *> $null
     $containerExists = ($LASTEXITCODE -eq 0)
     if ($containerExists) {
-        $running = (& $Podman inspect -f '{{.State.Running}}' $ContainerName 2>$null) -eq 'true'
+        $running = (Invoke-Podman inspect -f '{{.State.Running}}' $ContainerName 2>$null) -eq 'true'
         if ($running) { return }
     }
 
@@ -151,25 +158,25 @@ Assert-PortFreeOrOurs $RedisPort $RedisContainer
 
 # --- Постоянные тома ------------------------------------------------------
 
-& $Podman volume inspect $PgVolume *> $null
+Invoke-Podman volume inspect $PgVolume *> $null
 if ($LASTEXITCODE -ne 0) {
-    & $Podman volume create $PgVolume | Out-Null
+    Invoke-Podman volume create $PgVolume | Out-Null
     if ($LASTEXITCODE -ne 0) { Fail "Не удалось создать том базы $PgVolume" }
 }
 
-& $Podman volume inspect $RedisVolume *> $null
+Invoke-Podman volume inspect $RedisVolume *> $null
 if ($LASTEXITCODE -ne 0) {
-    & $Podman volume create $RedisVolume | Out-Null
+    Invoke-Podman volume create $RedisVolume | Out-Null
 }
 
 # --- Контейнеры -----------------------------------------------------------
 
 function Start-OrCreateContainer([string]$Name, [string[]]$RunArgs) {
-    & $Podman container exists $Name *> $null
+    Invoke-Podman container exists $Name *> $null
     if ($LASTEXITCODE -eq 0) {
-        $running = (& $Podman inspect -f '{{.State.Running}}' $Name 2>$null) -eq 'true'
+        $running = (Invoke-Podman inspect -f '{{.State.Running}}' $Name 2>$null) -eq 'true'
         if (-not $running) {
-            & $Podman start $Name | Out-Null
+            Invoke-Podman start $Name | Out-Null
             if ($LASTEXITCODE -ne 0) {
                 Fail "Не удалось запустить контейнер $Name. Посмотрите: podman logs $Name"
             }
@@ -177,7 +184,7 @@ function Start-OrCreateContainer([string]$Name, [string[]]$RunArgs) {
         return
     }
 
-    & $Podman run @RunArgs | Out-Null
+    Invoke-Podman run @RunArgs | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Fail "Не удалось создать контейнер $Name. Посмотрите: podman logs $Name"
     }
@@ -205,7 +212,7 @@ Start-OrCreateContainer $RedisContainer $redisArgs
 
 $pgReady = $false
 for ($i = 0; $i -lt 60; $i++) {
-    & $Podman exec $PgContainer pg_isready -U $PgUser -d $PgDb *> $null
+    Invoke-Podman exec $PgContainer pg_isready -U $PgUser -d $PgDb *> $null
     if ($LASTEXITCODE -eq 0) { $pgReady = $true; break }
     Start-Sleep -Seconds 2
 }
@@ -220,7 +227,7 @@ Write-Host "  Redis готов" -ForegroundColor Green
 $latestBackup = Get-ChildItem $BackupDir -Filter 'stepik_*.dump' -ErrorAction SilentlyContinue |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
 
-$coursesRaw = & $Podman exec $PgContainer psql -U $PgUser -d $PgDb -t -A `
+$coursesRaw = Invoke-Podman exec $PgContainer psql -U $PgUser -d $PgDb -t -A `
     -c "SELECT CASE WHEN to_regclass('public.courses') IS NULL THEN 0 ELSE (SELECT count(*) FROM courses) END;" 2>$null
 $dbEmpty = $true
 if ($LASTEXITCODE -eq 0) {
@@ -229,15 +236,15 @@ if ($LASTEXITCODE -eq 0) {
 
 if ($latestBackup -and $dbEmpty) {
     Write-Step "Восстановление базы из бэкапа: $($latestBackup.Name)"
-    & $Podman cp $latestBackup.FullName "${PgContainer}:/tmp/stepik_restore.dump"
-    & $Podman exec $PgContainer pg_restore -U $PgUser -d $PgDb `
+    Invoke-Podman cp $latestBackup.FullName "${PgContainer}:/tmp/stepik_restore.dump"
+    Invoke-Podman exec $PgContainer pg_restore -U $PgUser -d $PgDb `
         --no-owner --no-privileges --clean --if-exists --exit-on-error `
         /tmp/stepik_restore.dump | Out-Null
     if ($LASTEXITCODE -ne 0) {
         Fail ("Не удалось восстановить базу из бэкапа $($latestBackup.FullName). " +
               "Файл сохранён, база не запущена, чтобы не показывать пустые данные.")
     }
-    & $Podman exec $PgContainer rm -f /tmp/stepik_restore.dump | Out-Null
+    Invoke-Podman exec $PgContainer rm -f /tmp/stepik_restore.dump | Out-Null
     Write-Host "  База восстановлена из бэкапа" -ForegroundColor Green
 }
 elseif ($dbEmpty) {
@@ -351,7 +358,7 @@ Write-Host "  Frontend готов" -ForegroundColor Green
 
 # --- Итог ----------------------------------------------------------------
 
-$courseCount = (& $Podman exec $PgContainer psql -U $PgUser -d $PgDb -t -A -c 'select count(*) from courses;' 2>$null).Trim()
+$courseCount = (Invoke-Podman exec $PgContainer psql -U $PgUser -d $PgDb -t -A -c 'select count(*) from courses;' 2>$null).Trim()
 
 Write-Host ""
 Write-Host "  Stepik Control Panel запущена" -ForegroundColor Green
